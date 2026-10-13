@@ -7,23 +7,8 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <div id="loginView" class="login-shell">
-    <div class="login-card">
-      <div class="brand-mark">B</div>
-      <p class="eyebrow">WORKFORCE CONTROL CENTER</p>
-      <h1>Bankai <span>Roster</span></h1>
-      <p class="muted">إدارة الروستر والحضور للفرعين من مكان واحد</p>
-      <form id="loginForm">
-        <label for="password">كلمة مرور الأدمن</label>
-        <input id="password" type="password" placeholder="أدخل كلمة المرور" autocomplete="current-password" required>
-        <button class="primary full" type="submit">تسجيل الدخول <span>←</span></button>
-        <p id="loginError" class="error"></p>
-      </form>
-      <p class="tiny">غيّر كلمة المرور الافتراضية من إعدادات الاستضافة قبل الاستخدام.</p>
-    </div>
-  </div>
 
-  <div id="appView" class="app-shell hidden">
+  <div id="appView" class="app-shell">
     <aside class="sidebar">
       <div class="brand-row"><div class="brand-mark small">B</div><div><b>Bankai</b><small>ROSTER & ATTENDANCE</small></div></div>
       <div class="nav-label">WORKSPACE</div>
@@ -31,7 +16,7 @@
       <button class="nav-item" data-page="attendance"><span>✓</span> الحضور اليومي</button>
       <button class="nav-item" data-page="employees"><span>♙</span> إدارة الموظفين</button>
       <button class="nav-item" data-page="reports"><span>▤</span> التقارير</button>
-      <div class="sidebar-bottom"><div class="online-dot"></div><span>النظام جاهز</span><button id="logoutBtn" class="logout">خروج</button></div>
+      <div class="sidebar-bottom"><div class="online-dot"></div><span>النظام جاهز</span></div>
     </aside>
 
     <main class="main">
