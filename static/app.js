@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-const state = { token: localStorage.getItem("bankai_token") || "", employees: [], roster: [], currentBranch: "" };
+const state = { employees: [], roster: [], currentBranch: "" };
 const weekdayArabic = {Saturday:"السبت",Sunday:"الأحد",Monday:"الاثنين",Tuesday:"الثلاثاء",Wednesday:"الأربعاء",Thursday:"الخميس",Friday:"الجمعة"};
 const todayISO = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const money = n => `${Number(n||0).toLocaleString("en-US",{maximumFractionDigits:2})} ج.م`;
@@ -11,10 +11,9 @@ let filteredRoster = [];
 let chartInstance = null;
 
 async function api(path, options={}) {
-  const headers = {...(options.headers||{}), ...(state.token?{Authorization:`Bearer ${state.token}`}:{})};
+  const headers = {...(options.headers||{})};
   if(options.body){headers["Content-Type"]="application/json";}
   const response = await fetch(path,{...options,headers});
-  if(response.status===401){logout(false);throw new Error("انتهت الجلسة أو بيانات الدخول غير صالحة.");}
   const type=response.headers.get("content-type")||"";
   if(!response.ok){let message="حدث خطأ";try{const e=await response.json();message=e.detail||message}catch{}throw new Error(message);}
   if(type.includes("application/json"))return response.json();
@@ -22,16 +21,28 @@ async function api(path, options={}) {
 }
 
 function toast(message){const el=$("toast");el.textContent=message;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),2800);}
-function showApp(){ $("loginView").classList.add("hidden");$("appView").classList.remove("hidden");$("todayPill").textContent=new Date().toLocaleDateString("ar-EG",{weekday:"short",day:"numeric",month:"short",year:"numeric"}); }
-function logout(show=true){state.token="";localStorage.removeItem("bankai_token");$("appView").classList.add("hidden");$("loginView").classList.remove("hidden");if(show)toast("تم تسجيل الخروج");}
+function showApp(){ $("todayPill").textContent=new Date().toLocaleDateString("ar-EG",{weekday:"short",day:"numeric",month:"short",year:"numeric"}); }
 
-$("loginForm").addEventListener("submit",async e=>{e.preventDefault();$("loginError").textContent="";try{const r=await api("/api/login",{method:"POST",body:JSON.stringify({password:$("password").value})});state.token=r.token;localStorage.setItem("bankai_token",state.token);showApp();await init();}catch(err){$("loginError").textContent=err.message;}});
-$("logoutBtn").addEventListener("click",()=>logout());
 document.querySelectorAll(".nav-item").forEach(b=>b.addEventListener("click",()=>goPage(b.dataset.page)));
 document.querySelectorAll("[data-goto]").forEach(b=>b.addEventListener("click",()=>{if(b.dataset.branch)state.currentBranch=b.dataset.branch;goPage(b.dataset.goto);if(b.dataset.branch)$("attendanceBranch").value=b.dataset.branch;loadRoster();}));
 
 function goPage(page){document.querySelectorAll(".page").forEach(p=>p.classList.add("hidden"));$("page-"+page).classList.remove("hidden");document.querySelectorAll(".nav-item").forEach(b=>b.classList.toggle("active",b.dataset.page===page));const titles={dashboard:"نظرة عامة",attendance:"الحضور اليومي",employees:"إدارة الموظفين",reports:"التقارير"};$("pageTitle").textContent=titles[page]||"";if(page==="employees")loadEmployees();if(page==="attendance")loadRoster();if(page==="dashboard")loadDashboard();if(page==="reports")runReport();}
-async function init(){try{await api("/api/me");showApp();$("attendanceDate").value=todayISO();$("dashboardDate").value=todayISO();$("reportEnd").value=todayISO();const d=new Date();d.setDate(d.getDate()-6);$("reportStart").value=d.toISOString().slice(0,10);await loadEmployees();await loadDashboard();await loadRoster();}catch(e){toast(e.message);}}
+
+async function init(){
+  try {
+    showApp();
+    $("attendanceDate").value=todayISO();
+    $("dashboardDate").value=todayISO();
+    $("reportEnd").value=todayISO();
+    const d=new Date();
+    d.setDate(d.getDate()-6);
+    $("reportStart").value=d.toISOString().slice(0,10);
+    await loadEmployees();
+    await loadDashboard();
+    await loadRoster();
+  } catch(e) { toast(e.message); }
+}
+
 async function loadEmployees(){try{state.employees=await api(`/api/employees?active_only=${$("showInactive")?.checked?"false":"false"}`);renderEmployees();populateShifts();}catch(e){toast(e.message);}}
 
 function renderEmployees(){const q=($("employeeSearch").value||"").toLowerCase();const branch=$("employeeBranch").value;const type=$("employeeType").value;const inactive=$("showInactive").checked;const list=state.employees.filter(e=>(inactive||e.active)&&(!branch||e.branch===branch)&&(!type||e.employment_type===type)&&(`${e.name} ${e.employee_code}`.toLowerCase().includes(q)));$("employeeRows").innerHTML=list.map(e=>`<tr><td><div class="employee-name">${escapeHtml(e.name)}</div><div class="employee-code">${escapeHtml(e.employee_code||"بدون كود")}</div></td><td>${escapeHtml(e.branch)}</td><td>${escapeHtml(e.shift)}</td><td><span class="tag ${e.employment_type.toLowerCase()}">${e.employment_type==="FT"?"Full Time":"Part Time"}</span></td><td>${weekdayArabic[e.day_off]||e.day_off}</td><td><span class="tag ${e.active?"active":"inactive"}">${e.active?"نشط":"غير نشط"}</span></td><td><div class="actions"><button class="mini-btn" data-edit="${e.id}">تعديل</button>${e.active?`<button class="mini-btn danger" data-deactivate="${e.id}">إيقاف</button>`:""}</div></td></tr>`).join("");$("employeeEmpty").classList.toggle("hidden",list.length>0);$("employeeRows").querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>openEmployee(+b.dataset.edit));$("employeeRows").querySelectorAll("[data-deactivate]").forEach(b=>b.onclick=()=>deactivateEmployee(+b.dataset.deactivate));}
@@ -46,7 +57,7 @@ async function deactivateEmployee(id){if(!confirm("سيتم إيقاف المو�
 
 $("attendanceDate").addEventListener("change",loadRoster);$("attendanceBranch").addEventListener("change",loadRoster);$("attendanceShift").addEventListener("change",renderRoster);$("attendanceType").addEventListener("change",renderRoster);$("refreshRoster").onclick=loadRoster;
 
-async function loadRoster(){if(!state.token)return;const date=$("attendanceDate").value||todayISO();const branch=$("attendanceBranch").value;try{const r=await api(`/api/roster?attendance_date=${date}${branch?"&branch="+encodeURIComponent(branch):""}`);state.roster=r.employees;currentPage=1;renderRoster();}catch(e){toast(e.message);}}
+async function loadRoster(){const date=$("attendanceDate").value||todayISO();const branch=$("attendanceBranch").value;try{const r=await api(`/api/roster?attendance_date=${date}${branch?"&branch="+encodeURIComponent(branch):""}`);state.roster=r.employees;currentPage=1;renderRoster();}catch(e){toast(e.message);}}
 
 function renderRoster() {
   const shift = $("attendanceShift").value, type = $("attendanceType").value;
@@ -130,7 +141,6 @@ async function saveAttendance(id, button) {
 $("dashboardDate").addEventListener("change",loadDashboard);
 
 async function loadDashboard(){
-  if(!state.token)return;
   const date=$("dashboardDate").value||todayISO();
   try{
     const [emps,roster,perf]=await Promise.all([
@@ -154,7 +164,6 @@ $("runReport").onclick=runReport;
 $("exportReport").onclick=async()=>{try{const start=$("reportStart").value,end=$("reportEnd").value,branch=$("reportBranch").value;if(!start||!end)throw new Error("اختر فترة التقرير");const res=await api(`/api/reports/export.csv?start=${start}&end=${end}${branch?"&branch="+encodeURIComponent(branch):""}`);const blob=await res.blob();const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`bankai_attendance_${start}_${end}.csv`;a.click();URL.revokeObjectURL(url);}catch(e){toast(e.message);}};
 
 async function runReport(){
-  if(!state.token)return;
   const start=$("reportStart").value,end=$("reportEnd").value,branch=$("reportBranch").value;
   if(!start||!end)return;
   try{
@@ -176,4 +185,5 @@ async function runReport(){
   }catch(e){toast(e.message);}
 }
 
-if(state.token){showApp();init();}
+// تشغيل النظام مباشرة
+init();
