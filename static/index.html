@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#102c54">
+  <title>Bankai Roster & Attendance</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="loginView" class="login-shell">
+    <div class="login-card">
+      <div class="brand-mark">B</div>
+      <p class="eyebrow">WORKFORCE CONTROL CENTER</p>
+      <h1>Bankai <span>Roster</span></h1>
+      <p class="muted">إدارة الروستر والحضور للفرعين من مكان واحد</p>
+      <form id="loginForm">
+        <label for="password">كلمة مرور الأدمن</label>
+        <input id="password" type="password" placeholder="أدخل كلمة المرور" autocomplete="current-password" required>
+        <button class="primary full" type="submit">تسجيل الدخول <span>←</span></button>
+        <p id="loginError" class="error"></p>
+      </form>
+      <p class="tiny">غيّر كلمة المرور الافتراضية من إعدادات الاستضافة قبل الاستخدام.</p>
+    </div>
+  </div>
+
+  <div id="appView" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand-row"><div class="brand-mark small">B</div><div><b>Bankai</b><small>ROSTER & ATTENDANCE</small></div></div>
+      <div class="nav-label">WORKSPACE</div>
+      <button class="nav-item active" data-page="dashboard"><span>◫</span> نظرة عامة</button>
+      <button class="nav-item" data-page="attendance"><span>✓</span> الحضور اليومي</button>
+      <button class="nav-item" data-page="employees"><span>♙</span> إدارة الموظفين</button>
+      <button class="nav-item" data-page="reports"><span>▤</span> التقارير</button>
+      <div class="sidebar-bottom"><div class="online-dot"></div><span>النظام جاهز</span><button id="logoutBtn" class="logout">خروج</button></div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div><p class="eyebrow">OPERATIONS MANAGEMENT</p><h2 id="pageTitle">نظرة عامة</h2></div>
+        <div class="top-actions"><span class="date-pill" id="todayPill"></span><div class="avatar">A</div></div>
+      </header>
+
+      <section id="page-dashboard" class="page">
+        <div class="hero">
+          <div><p class="hero-kicker">BANKAI CONTROL CENTER</p><h1>خلّي متابعة الفرعين<br>أوضح وأسهل.</h1><p>إدارة الموظفين والروستر والحضور والغرامات في لوحة واحدة.</p><button class="light-btn" data-goto="attendance">تسجيل حضور اليوم <span>←</span></button></div>
+          <div class="hero-art"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="hero-b">B</div><div class="float-card fc-one">✓ <span>Attendance</span></div><div class="float-card fc-two">02 <span>Branches</span></div></div>
+        </div>
+        <div class="section-heading"><div><h3>ملخص اليوم</h3><p>الموظفون النشطون وحالة تسجيل الحضور</p></div><input type="date" id="dashboardDate" class="date-input"></div>
+        <div class="stats-grid">
+          <div class="stat-card"><div class="stat-icon blue">♙</div><span>إجمالي الموظفين النشطين</span><strong id="statEmployees">—</strong><small>في الفرعين</small></div>
+          <div class="stat-card"><div class="stat-icon green">✓</div><span>حاضر</span><strong id="statPresent">—</strong><small>تم تسجيلهم كحضور</small></div>
+          <div class="stat-card"><div class="stat-icon red">!</div><span>غياب</span><strong id="statAbsent">—</strong><small>مسجل لليوم</small></div>
+          <div class="stat-card"><div class="stat-icon amber">◷</div><span>تأخير</span><strong id="statLate">—</strong><small>مسجل لليوم</small></div>
+        </div>
+        <div class="branch-grid">
+          <div class="panel"><div class="panel-head"><div><h3>QCD 1</h3><p>ملخص الفرع الأول</p></div><span class="branch-tag">BRANCH 01</span></div><div class="branch-numbers"><div><strong id="qcd1Count">—</strong><span>موظف شغال</span></div><div><strong id="qcd1Fine">0 ج.م</strong><span>غرامات اليوم</span></div></div><button class="text-btn" data-branch="QCD 1" data-goto="attendance">فتح حضور الفرع ←</button></div>
+          <div class="panel"><div class="panel-head"><div><h3>QCD 2</h3><p>ملخص الفرع الثاني</p></div><span class="branch-tag">BRANCH 02</span></div><div class="branch-numbers"><div><strong id="qcd2Count">—</strong><span>موظف شغال</span></div><div><strong id="qcd2Fine">0 ج.م</strong><span>غرامات اليوم</span></div></div><button class="text-btn" data-branch="QCD 2" data-goto="attendance">فتح حضور الفرع ←</button></div>
+        </div>
+        <div class="notice"><span>ⓘ</span><div><b>معلومة مهمة</b><p>الموظف الذي يوافق يوم إجازته الأسبوعية تاريخ اليوم لا يظهر في قائمة الحضور.</p></div></div>
+      </section>
+
+      <section id="page-employees" class="page hidden">
+        <div class="toolbar"><div><h3>قاعدة بيانات الموظفين</h3><p>أضف الموظفين أو عدّل بياناتهم أو أوقفهم مع الاحتفاظ بسجل الحضور.</p></div><button id="addEmployeeBtn" class="primary">＋ إضافة موظف</button></div>
+        <div class="filters">
+          <input id="employeeSearch" placeholder="ابحث بالاسم أو الكود...">
+          <select id="employeeBranch"><option value="">كل الفروع</option><option>QCD 1</option><option>QCD 2</option></select>
+          <select id="employeeType"><option value="">كل الأنواع</option><option value="FT">Full Time</option><option value="PT">Part Time</option></select>
+          <label class="check-filter"><input type="checkbox" id="showInactive"> إظهار غير النشطين</label>
+        </div>
+        <div class="table-wrap"><table><thead><tr><th>الموظف</th><th>الفرع</th><th>الشيفت</th><th>النوع</th><th>الإجازة</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="employeeRows"></tbody></table></div>
+        <p id="employeeEmpty" class="empty hidden">لا توجد بيانات مطابقة. أضف أول موظف للبدء.</p>
+      </section>
+
+      <section id="page-attendance" class="page hidden">
+        <div class="toolbar"><div><h3>تسجيل الحضور اليومي</h3><p>اختر حالة كل موظف، وسجّل الغرامة والسبب عند الغياب أو التأخير.</p></div><button id="refreshRoster" class="secondary">↻ تحديث</button></div>
+        <div class="attendance-controls">
+          <label>التاريخ<input type="date" id="attendanceDate" class="date-input"></label>
+          <label>الفرع<select id="attendanceBranch"><option value="">كل الفروع</option><option>QCD 1</option><option>QCD 2</option></select></label>
+          <label>الشيفت<select id="attendanceShift"><option value="">كل الشيفتات</option></select></label>
+          <label>نوع التعاقد<select id="attendanceType"><option value="">الكل</option><option value="FT">Full Time</option><option value="PT">Part Time</option></select></label>
+        </div>
+        <div class="attendance-summary" id="attendanceSummary"></div>
+        <div id="attendanceList" class="attendance-list"></div>
+        <div id="attendanceEmpty" class="empty hidden">لا يوجد موظفون مجدولون للعمل في هذا اليوم حسب يوم الإجازة المسجل.</div>
+      </section>
+
+      <section id="page-reports" class="page hidden">
+        <div class="toolbar"><div><h3>التقارير والتحليل</h3><p>راجع الحضور والغياب والتأخير وإجمالي الغرامات خلال فترة محددة.</p></div></div>
+        <div class="report-filters">
+          <label>من تاريخ<input type="date" id="reportStart"></label>
+          <label>إلى تاريخ<input type="date" id="reportEnd"></label>
+          <label>الفرع<select id="reportBranch"><option value="">كل الفروع</option><option>QCD 1</option><option>QCD 2</option></select></label>
+          <button id="runReport" class="primary">عرض التقرير</button>
+          <button id="exportReport" class="secondary">تصدير CSV / Excel</button>
+        </div>
+        <div class="stats-grid report-stats">
+          <div class="stat-card"><span>إجمالي التسجيلات</span><strong id="rTotal">0</strong></div>
+          <div class="stat-card"><span>حضور</span><strong id="rPresent">0</strong></div>
+          <div class="stat-card"><span>غياب</span><strong id="rAbsent">0</strong></div>
+          <div class="stat-card"><span>تأخير</span><strong id="rLate">0</strong></div>
+        </div>
+        <div class="panel report-fine"><span>إجمالي الغرامات المسجلة</span><strong id="rFine">0 ج.م</strong></div>
+        <div class="panel"><div class="panel-head"><div><h3>التفصيل حسب الفرع</h3><p>الأرقام مبنية على سجلات الحضور المحفوظة.</p></div></div><div id="branchReport" class="branch-report"></div></div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="employeeDialog" class="modal">
+    <form id="employeeForm" method="dialog">
+      <div class="modal-head"><div><p class="eyebrow">EMPLOYEE PROFILE</p><h3 id="employeeModalTitle">إضافة موظف</h3></div><button type="button" id="closeEmployeeModal" class="icon-btn">✕</button></div>
+      <input type="hidden" id="employeeId">
+      <div class="form-grid">
+        <label>اسم الموظف *<input id="empName" required maxlength="120" placeholder="الاسم بالكامل"></label>
+        <label>كود الموظف<input id="empCode" maxlength="60" placeholder="اختياري"></label>
+        <label>الفرع *<select id="empBranch" required><option>QCD 1</option><option>QCD 2</option></select></label>
+        <label>نوع التعاقد *<select id="empType" required><option value="FT">Full Time</option><option value="PT">Part Time</option></select></label>
+        <label class="wide">الشيفت *<input id="empShift" required maxlength="80" placeholder="مثال: 12 AM - 8 AM"></label>
+        <label>يوم الإجازة الأسبوعية<select id="empDayOff"><option value="Saturday">السبت</option><option value="Sunday">الأحد</option><option value="Monday">الاثنين</option><option value="Tuesday">الثلاثاء</option><option value="Wednesday">الأربعاء</option><option value="Thursday">الخميس</option><option value="Friday" selected>الجمعة</option></select></label>
+        <label class="status-label"><span>الموظف نشط</span><input type="checkbox" id="empActive" checked></label>
+      </div>
+      <p id="employeeFormError" class="error"></p>
+      <div class="modal-actions"><button type="button" id="cancelEmployee" class="secondary">إلغاء</button><button type="submit" class="primary">حفظ البيانات</button></div>
+    </form>
+  </dialog>
+  <div id="toast" class="toast"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
