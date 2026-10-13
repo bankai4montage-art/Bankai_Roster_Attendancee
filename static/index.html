@@ -56,6 +56,18 @@
           <div class="panel"><div class="panel-head"><div><h3>QCD 1</h3><p>ملخص الفرع الأول</p></div><span class="branch-tag">BRANCH 01</span></div><div class="branch-numbers"><div><strong id="qcd1Count">—</strong><span>موظف شغال</span></div><div><strong id="qcd1Fine">0 ج.م</strong><span>غرامات اليوم</span></div></div><button class="text-btn" data-branch="QCD 1" data-goto="attendance">فتح حضور الفرع ←</button></div>
           <div class="panel"><div class="panel-head"><div><h3>QCD 2</h3><p>ملخص الفرع الثاني</p></div><span class="branch-tag">BRANCH 02</span></div><div class="branch-numbers"><div><strong id="qcd2Count">—</strong><span>موظف شغال</span></div><div><strong id="qcd2Fine">0 ج.م</strong><span>غرامات اليوم</span></div></div><button class="text-btn" data-branch="QCD 2" data-goto="attendance">فتح حضور الفرع ←</button></div>
         </div>
+        
+        <div class="performance-grid">
+          <div class="panel">
+            <div class="panel-head"><div><h3>🏆 لوحة الشرف</h3><p>أكثر الموظفين التزاماً هذا الشهر</p></div></div>
+            <ul id="topPerformers" class="perf-list"></ul>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div><h3>⚠️ المتابعة الإدارية</h3><p>موظفون تجاوزوا معدلات الغياب والتأخير</p></div></div>
+            <ul id="needsAttention" class="perf-list"></ul>
+          </div>
+        </div>
+        
         <div class="notice"><span>ⓘ</span><div><b>معلومة مهمة</b><p>الموظف الذي يوافق يوم إجازته الأسبوعية تاريخ اليوم لا يظهر في قائمة الحضور.</p></div></div>
       </section>
 
@@ -80,7 +92,28 @@
           <label>نوع التعاقد<select id="attendanceType"><option value="">الكل</option><option value="FT">Full Time</option><option value="PT">Part Time</option></select></label>
         </div>
         <div class="attendance-summary" id="attendanceSummary"></div>
-        <div id="attendanceList" class="attendance-list"></div>
+        
+        <div class="table-wrap">
+          <table class="compact-table">
+            <thead>
+              <tr>
+                <th>الموظف والفرع</th>
+                <th>الحالة</th>
+                <th>الغرامة (ج.م)</th>
+                <th>السبب</th>
+                <th>ملاحظات</th>
+                <th>إجراء</th>
+              </tr>
+            </thead>
+            <tbody id="attendanceList"></tbody>
+          </table>
+        </div>
+        <div id="paginationControls" class="pagination hidden">
+          <button id="prevPage">السابق</button>
+          <span id="pageInfo">صفحة 1</span>
+          <button id="nextPage">التالي</button>
+        </div>
+        
         <div id="attendanceEmpty" class="empty hidden">لا يوجد موظفون مجدولون للعمل في هذا اليوم حسب يوم الإجازة المسجل.</div>
       </section>
 
@@ -99,6 +132,11 @@
           <div class="stat-card"><span>غياب</span><strong id="rAbsent">0</strong></div>
           <div class="stat-card"><span>تأخير</span><strong id="rLate">0</strong></div>
         </div>
+        
+        <div class="chart-container">
+          <canvas id="attendanceChart"></canvas>
+        </div>
+        
         <div class="panel report-fine"><span>إجمالي الغرامات المسجلة</span><strong id="rFine">0 ج.م</strong></div>
         <div class="panel"><div class="panel-head"><div><h3>التفصيل حسب الفرع</h3><p>الأرقام مبنية على سجلات الحضور المحفوظة.</p></div></div><div id="branchReport" class="branch-report"></div></div>
       </section>
@@ -124,5 +162,6 @@
   </dialog>
   <div id="toast" class="toast"></div>
   <script src="/static/app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </body>
 </html>
