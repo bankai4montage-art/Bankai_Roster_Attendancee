@@ -173,7 +173,6 @@ def delete_employee(employee_id: int, _: bool = Depends(require_auth), db: Sessi
     e = db.query(Employee).filter(Employee.id == employee_id).first()
     if not e:
         raise HTTPException(404, "الموظف غير موجود")
-    # Keep historical attendance; deactivate rather than hard-delete.
     e.active = False
     db.commit()
     return {"message": "تم إيقاف الموظف مع الاحتفاظ بسجل حضوره السابق"}
@@ -255,6 +254,27 @@ def report_summary(start: date, end: date, branch: Optional[str] = None,
     for b in summary["by_branch"].values():
         b["fine_total"] = round(b["fine_total"], 2)
     return {"start": start.isoformat(), "end": end.isoformat(), **summary}
+
+@app.get("/api/reports/performance")
+def performance_metrics(_: bool = Depends(require_auth), db: Session = Depends(get_db)):
+    current_month = date.today().replace(day=1)
+    rows = db.query(Attendance, Employee).join(Employee, Attendance.employee_id == Employee.id).filter(
+        Attendance.attendance_date >= current_month, Employee.active.is_(True)).all()
+    
+    stats = {}
+    for a, e in rows:
+        if e.id not in stats:
+            stats[e.id] = {"name": e.name, "branch": e.branch, "present": 0, "absent": 0, "late": 0, "fine": 0}
+        if a.status == "Present": stats[e.id]["present"] += 1
+        elif a.status == "Absent": stats[e.id]["absent"] += 1
+        elif a.status == "Late": stats[e.id]["late"] += 1
+        stats[e.id]["fine"] += a.fine or 0
+        
+    ranked = sorted(stats.values(), key=lambda x: (x["absent"], x["late"], -x["present"]))
+    top_performers = ranked[:5]
+    needs_attention = sorted(stats.values(), key=lambda x: (-x["absent"], -x["late"], -x["fine"]))[:5]
+    
+    return {"top": top_performers, "attention": needs_attention}
 
 @app.get("/api/reports/export.csv")
 def export_csv(start: date, end: date, branch: Optional[str] = None,
