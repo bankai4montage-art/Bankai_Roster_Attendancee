@@ -15,8 +15,8 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
 
 APP_NAME = "Bankai Roster & Attendance"
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./bankai.db")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "ChangeThisPassword123!")
-ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", secrets.token_urlsafe(32))
+ADMIN_PASSWORD = "bankai" 
+ADMIN_TOKEN = "fixed_bankai_token_123456789"
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=True)
