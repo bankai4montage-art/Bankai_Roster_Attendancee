@@ -1,22 +1,18 @@
 import os
 import csv
 import io
-import secrets
 from datetime import date, datetime, time
 from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, Header, Query
+from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, Date, DateTime, Time, Float, ForeignKey, UniqueConstraint
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, Date, DateTime, Float, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
 
 APP_NAME = "Bankai Roster & Attendance"
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./bankai.db")
-ADMIN_PASSWORD = "bankai" 
-ADMIN_TOKEN = "fixed_bankai_token_123456789"
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=True)
@@ -51,7 +47,6 @@ class Attendance(Base):
 Base.metadata.create_all(bind=engine)
 app = FastAPI(title=APP_NAME, version="1.0.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
-security = HTTPBearer(auto_error=False)
 
 def get_db():
     db = SessionLocal()
@@ -59,14 +54,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-def require_auth(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    if not credentials or not secrets.compare_digest(credentials.credentials, ADMIN_TOKEN):
-        raise HTTPException(status_code=401, detail="جلسة الدخول غير صالحة. سجّل الدخول مرة أخرى.")
-    return True
-
-class LoginIn(BaseModel):
-    password: str
 
 class EmployeeIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
@@ -109,19 +96,12 @@ def home():
 def health():
     return {"status": "ok", "app": APP_NAME}
 
-@app.post("/api/login")
-def login(data: LoginIn):
-    if not secrets.compare_digest(data.password, ADMIN_PASSWORD):
-        raise HTTPException(status_code=401, detail="كلمة المرور غير صحيحة")
-    return {"token": ADMIN_TOKEN, "message": "تم تسجيل الدخول"}
-
 @app.get("/api/me")
-def me(_: bool = Depends(require_auth)):
+def me():
     return {"app": APP_NAME, "authenticated": True}
 
 @app.get("/api/employees")
-def list_employees(branch: Optional[str] = None, active_only: bool = False,
-                   _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def list_employees(branch: Optional[str] = None, active_only: bool = False, db: Session = Depends(get_db)):
     q = db.query(Employee)
     if branch in ("QCD 1", "QCD 2"):
         q = q.filter(Employee.branch == branch)
@@ -130,7 +110,7 @@ def list_employees(branch: Optional[str] = None, active_only: bool = False,
     return [employee_dict(e) for e in q.order_by(Employee.branch, Employee.name).all()]
 
 @app.post("/api/employees")
-def create_employee(data: EmployeeIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def create_employee(data: EmployeeIn, db: Session = Depends(get_db)):
     if data.branch not in ("QCD 1", "QCD 2"):
         raise HTTPException(400, "الفرع يجب أن يكون QCD 1 أو QCD 2")
     if data.employment_type not in ("FT", "PT"):
@@ -148,7 +128,7 @@ def create_employee(data: EmployeeIn, _: bool = Depends(require_auth), db: Sessi
     return employee_dict(e)
 
 @app.put("/api/employees/{employee_id}")
-def update_employee(employee_id: int, data: EmployeeIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def update_employee(employee_id: int, data: EmployeeIn, db: Session = Depends(get_db)):
     e = db.query(Employee).filter(Employee.id == employee_id).first()
     if not e:
         raise HTTPException(404, "الموظف غير موجود")
@@ -169,7 +149,7 @@ def update_employee(employee_id: int, data: EmployeeIn, _: bool = Depends(requir
     return employee_dict(e)
 
 @app.delete("/api/employees/{employee_id}")
-def delete_employee(employee_id: int, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def delete_employee(employee_id: int, db: Session = Depends(get_db)):
     e = db.query(Employee).filter(Employee.id == employee_id).first()
     if not e:
         raise HTTPException(404, "الموظف غير موجود")
@@ -178,8 +158,7 @@ def delete_employee(employee_id: int, _: bool = Depends(require_auth), db: Sessi
     return {"message": "تم إيقاف الموظف مع الاحتفاظ بسجل حضوره السابق"}
 
 @app.get("/api/roster")
-def roster(attendance_date: date = Query(...), branch: Optional[str] = None,
-           _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def roster(attendance_date: date = Query(...), branch: Optional[str] = None, db: Session = Depends(get_db)):
     weekday = attendance_date.strftime("%A")
     q = db.query(Employee).filter(Employee.active.is_(True), Employee.day_off != weekday)
     if branch in ("QCD 1", "QCD 2"):
@@ -198,7 +177,7 @@ def roster(attendance_date: date = Query(...), branch: Optional[str] = None,
     return {"date": attendance_date.isoformat(), "weekday": weekday, "employees": out}
 
 @app.post("/api/attendance")
-def save_attendance(data: AttendanceIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def save_attendance(data: AttendanceIn, db: Session = Depends(get_db)):
     if data.status not in ("Present", "Absent", "Late"):
         raise HTTPException(400, "حالة الحضور غير صحيحة")
     e = db.query(Employee).filter(Employee.id == data.employee_id).first()
@@ -225,8 +204,7 @@ def save_attendance(data: AttendanceIn, _: bool = Depends(require_auth), db: Ses
     return attendance_dict(row)
 
 @app.get("/api/reports/summary")
-def report_summary(start: date, end: date, branch: Optional[str] = None,
-                   _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def report_summary(start: date, end: date, branch: Optional[str] = None, db: Session = Depends(get_db)):
     if end < start:
         raise HTTPException(400, "تاريخ النهاية يجب ألا يسبق تاريخ البداية")
     q = db.query(Attendance, Employee).join(Employee, Attendance.employee_id == Employee.id).filter(
@@ -256,7 +234,7 @@ def report_summary(start: date, end: date, branch: Optional[str] = None,
     return {"start": start.isoformat(), "end": end.isoformat(), **summary}
 
 @app.get("/api/reports/performance")
-def performance_metrics(_: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def performance_metrics(db: Session = Depends(get_db)):
     current_month = date.today().replace(day=1)
     rows = db.query(Attendance, Employee).join(Employee, Attendance.employee_id == Employee.id).filter(
         Attendance.attendance_date >= current_month, Employee.active.is_(True)).all()
@@ -277,8 +255,7 @@ def performance_metrics(_: bool = Depends(require_auth), db: Session = Depends(g
     return {"top": top_performers, "attention": needs_attention}
 
 @app.get("/api/reports/export.csv")
-def export_csv(start: date, end: date, branch: Optional[str] = None,
-               _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def export_csv(start: date, end: date, branch: Optional[str] = None, db: Session = Depends(get_db)):
     q = db.query(Attendance, Employee).join(Employee, Attendance.employee_id == Employee.id).filter(
         Attendance.attendance_date >= start, Attendance.attendance_date <= end)
     if branch in ("QCD 1", "QCD 2"):
