@@ -1,152 +1,335 @@
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#102c54">
-  <title>Bankai Roster & Attendance</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f2747">
+  <title>Bankai — الروستر والحضور</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap">
+  <link rel="stylesheet" href="/static/style.css?v=2">
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></symbol>
+    <symbol id="i-msg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></symbol>
+    <symbol id="i-note" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></symbol>
+    <symbol id="i-print" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></symbol>
+  </defs>
+</svg>
 
-  <div id="appView" class="app-shell">
-    <aside class="sidebar">
-      <div class="brand-row"><div class="brand-mark small">B</div><div><b>Bankai</b><small>ROSTER & ATTENDANCE</small></div></div>
-      <div class="nav-label">WORKSPACE</div>
-      <button class="nav-item active" data-page="dashboard"><span>◫</span> نظرة عامة</button>
-      <button class="nav-item" data-page="attendance"><span>✓</span> الحضور اليومي</button>
-      <button class="nav-item" data-page="employees"><span>♙</span> إدارة الموظفين</button>
-      <button class="nav-item" data-page="reports"><span>▤</span> التقارير</button>
-      <div class="sidebar-bottom"><div class="online-dot"></div><span>النظام جاهز</span></div>
-    </aside>
-
-    <main class="main">
-      <header class="topbar">
-        <div><p class="eyebrow">OPERATIONS MANAGEMENT</p><h2 id="pageTitle">نظرة عامة</h2></div>
-        <div class="top-actions"><span class="date-pill" id="todayPill"></span><div class="avatar">A</div></div>
-      </header>
-
-      <section id="page-dashboard" class="page">
-        <div class="hero">
-          <div><p class="hero-kicker">BANKAI CONTROL CENTER</p><h1>خلّي متابعة الفرعين<br>أوضح وأسهل.</h1><p>إدارة الموظفين والروستر والحضور والغرامات في لوحة واحدة.</p><button class="light-btn" data-goto="attendance">تسجيل حضور اليوم <span>←</span></button></div>
-          <div class="hero-art"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="hero-b">B</div><div class="float-card fc-one">✓ <span>Attendance</span></div><div class="float-card fc-two">02 <span>Branches</span></div></div>
-        </div>
-        <div class="section-heading"><div><h3>ملخص اليوم</h3><p>الموظفون النشطون وحالة تسجيل الحضور</p></div><input type="date" id="dashboardDate" class="date-input"></div>
-        <div class="stats-grid">
-          <div class="stat-card"><div class="stat-icon blue">♙</div><span>إجمالي الموظفين النشطين</span><strong id="statEmployees">—</strong><small>في الفرعين</small></div>
-          <div class="stat-card"><div class="stat-icon green">✓</div><span>حاضر</span><strong id="statPresent">—</strong><small>تم تسجيلهم كحضور</small></div>
-          <div class="stat-card"><div class="stat-icon red">!</div><span>غياب</span><strong id="statAbsent">—</strong><small>مسجل لليوم</small></div>
-          <div class="stat-card"><div class="stat-icon amber">◷</div><span>تأخير</span><strong id="statLate">—</strong><small>مسجل لليوم</small></div>
-        </div>
-        <div class="branch-grid">
-          <div class="panel"><div class="panel-head"><div><h3>QCD 1</h3><p>ملخص الفرع الأول</p></div><span class="branch-tag">BRANCH 01</span></div><div class="branch-numbers"><div><strong id="qcd1Count">—</strong><span>موظف شغال</span></div><div><strong id="qcd1Fine">0 ج.م</strong><span>غرامات اليوم</span></div></div><button class="text-btn" data-branch="QCD 1" data-goto="attendance">فتح حضور الفرع ←</button></div>
-          <div class="panel"><div class="panel-head"><div><h3>QCD 2</h3><p>ملخص الفرع الثاني</p></div><span class="branch-tag">BRANCH 02</span></div><div class="branch-numbers"><div><strong id="qcd2Count">—</strong><span>موظف شغال</span></div><div><strong id="qcd2Fine">0 ج.م</strong><span>غرامات اليوم</span></div></div><button class="text-btn" data-branch="QCD 2" data-goto="attendance">فتح حضور الفرع ←</button></div>
-        </div>
-        
-        <div class="performance-grid">
-          <div class="panel">
-            <div class="panel-head"><div><h3>🏆 لوحة الشرف</h3><p>أكثر الموظفين التزاماً هذا الشهر</p></div></div>
-            <ul id="topPerformers" class="perf-list"></ul>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><div><h3>⚠️ المتابعة الإدارية</h3><p>موظفون تجاوزوا معدلات الغياب والتأخير</p></div></div>
-            <ul id="needsAttention" class="perf-list"></ul>
-          </div>
-        </div>
-        
-        <div class="notice"><span>ⓘ</span><div><b>معلومة مهمة</b><p>الموظف الذي يوافق يوم إجازته الأسبوعية تاريخ اليوم لا يظهر في قائمة الحضور.</p></div></div>
-      </section>
-
-      <section id="page-employees" class="page hidden">
-        <div class="toolbar"><div><h3>قاعدة بيانات الموظفين</h3><p>أضف الموظفين أو عدّل بياناتهم أو أوقفهم مع الاحتفاظ بسجل الحضور.</p></div><button id="addEmployeeBtn" class="primary">＋ إضافة موظف</button></div>
-        <div class="filters">
-          <input id="employeeSearch" placeholder="ابحث بالاسم أو الكود...">
-          <select id="employeeBranch"><option value="">كل الفروع</option><option>QCD 1</option><option>QCD 2</option></select>
-          <select id="employeeType"><option value="">كل الأنواع</option><option value="FT">Full Time</option><option value="PT">Part Time</option></select>
-          <label class="check-filter"><input type="checkbox" id="showInactive"> إظهار غير النشطين</label>
-        </div>
-        <div class="table-wrap"><table><thead><tr><th>الموظف</th><th>الفرع</th><th>الشيفت</th><th>النوع</th><th>الإجازة</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="employeeRows"></tbody></table></div>
-        <p id="employeeEmpty" class="empty hidden">لا توجد بيانات مطابقة. أضف أول موظف للبدء.</p>
-      </section>
-
-      <section id="page-attendance" class="page hidden">
-        <div class="toolbar"><div><h3>تسجيل الحضور اليومي</h3><p>اختر حالة كل موظف، وسجّل الغرامة والسبب عند الغياب أو التأخير.</p></div><button id="refreshRoster" class="secondary">↻ تحديث</button></div>
-        <div class="attendance-controls">
-          <label>التاريخ<input type="date" id="attendanceDate" class="date-input"></label>
-          <label>الفرع<select id="attendanceBranch"><option value="">كل الفروع</option><option>QCD 1</option><option>QCD 2</option></select></label>
-          <label>الشيفت<select id="attendanceShift"><option value="">كل الشيفتات</option></select></label>
-          <label>نوع التعاقد<select id="attendanceType"><option value="">الكل</option><option value="FT">Full Time</option><option value="PT">Part Time</option></select></label>
-        </div>
-        <div class="attendance-summary" id="attendanceSummary"></div>
-        
-        <div class="table-wrap">
-          <table class="compact-table">
-            <thead>
-              <tr>
-                <th>الموظف والفرع</th>
-                <th>الحالة</th>
-                <th>الغرامة (ج.م)</th>
-                <th>السبب</th>
-                <th>ملاحظات</th>
-                <th>إجراء</th>
-              </tr>
-            </thead>
-            <tbody id="attendanceList"></tbody>
-          </table>
-        </div>
-        <div id="paginationControls" class="pagination hidden">
-          <button id="prevPage">السابق</button>
-          <span id="pageInfo">صفحة 1</span>
-          <button id="nextPage">التالي</button>
-        </div>
-        
-        <div id="attendanceEmpty" class="empty hidden">لا يوجد موظفون مجدولون للعمل في هذا اليوم حسب يوم الإجازة المسجل.</div>
-      </section>
-
-      <section id="page-reports" class="page hidden">
-        <div class="toolbar"><div><h3>التقارير والتحليل</h3><p>راجع الحضور والغياب والتأخير وإجمالي الغرامات خلال فترة محددة.</p></div></div>
-        <div class="report-filters">
-          <label>من تاريخ<input type="date" id="reportStart"></label>
-          <label>إلى تاريخ<input type="date" id="reportEnd"></label>
-          <label>الفرع<select id="reportBranch"><option value="">كل الفروع</option><option>QCD 1</option><option>QCD 2</option></select></label>
-          <button id="runReport" class="primary">عرض التقرير</button>
-          <button id="exportReport" class="secondary">تصدير CSV / Excel</button>
-        </div>
-        <div class="stats-grid report-stats">
-          <div class="stat-card"><span>إجمالي التسجيلات</span><strong id="rTotal">0</strong></div>
-          <div class="stat-card"><span>حضور</span><strong id="rPresent">0</strong></div>
-          <div class="stat-card"><span>غياب</span><strong id="rAbsent">0</strong></div>
-          <div class="stat-card"><span>تأخير</span><strong id="rLate">0</strong></div>
-        </div>
-        
-        <div class="chart-container">
-          <canvas id="attendanceChart"></canvas>
-        </div>
-        
-        <div class="panel report-fine"><span>إجمالي الغرامات المسجلة</span><strong id="rFine">0 ج.م</strong></div>
-        <div class="panel"><div class="panel-head"><div><h3>التفصيل حسب الفرع</h3><p>الأرقام مبنية على سجلات الحضور المحفوظة.</p></div></div><div id="branchReport" class="branch-report"></div></div>
-      </section>
-    </main>
-  </div>
-
-  <dialog id="employeeDialog" class="modal">
-    <form id="employeeForm" method="dialog">
-      <div class="modal-head"><div><p class="eyebrow">EMPLOYEE PROFILE</p><h3 id="employeeModalTitle">إضافة موظف</h3></div><button type="button" id="closeEmployeeModal" class="icon-btn">✕</button></div>
-      <input type="hidden" id="employeeId">
-      <div class="form-grid">
-        <label>اسم الموظف *<input id="empName" required maxlength="120" placeholder="الاسم بالكامل"></label>
-        <label>كود الموظف<input id="empCode" maxlength="60" placeholder="اختياري"></label>
-        <label>الفرع *<select id="empBranch" required><option>QCD 1</option><option>QCD 2</option></select></label>
-        <label>نوع التعاقد *<select id="empType" required><option value="FT">Full Time</option><option value="PT">Part Time</option></select></label>
-        <label class="wide">الشيفت *<input id="empShift" required maxlength="80" placeholder="مثال: 12 AM - 8 AM"></label>
-        <label>يوم الإجازة الأسبوعية<select id="empDayOff"><option value="Saturday">السبت</option><option value="Sunday">الأحد</option><option value="Monday">الاثنين</option><option value="Tuesday">الثلاثاء</option><option value="Wednesday">الأربعاء</option><option value="Thursday">الخميس</option><option value="Friday" selected>الجمعة</option></select></label>
-        <label class="status-label"><span>الموظف نشط</span><input type="checkbox" id="empActive" checked></label>
-      </div>
-      <p id="employeeFormError" class="error"></p>
-      <div class="modal-actions"><button type="button" id="cancelEmployee" class="secondary">إلغاء</button><button type="submit" class="primary">حفظ البيانات</button></div>
+<!-- ===================== LOGIN ===================== -->
+<div id="loginView" class="login-shell">
+  <div class="login-card">
+    <div class="brand-mark">B</div>
+    <h1>Bankai</h1>
+    <p class="muted">إدارة الروستر والحضور للفرعين من مكان واحد.</p>
+    <form id="loginForm">
+      <label class="field">كلمة مرور الأدمن
+        <input id="password" class="inp" type="password" placeholder="اكتب كلمة المرور" autocomplete="current-password" required>
+      </label>
+      <button class="btn primary" type="submit">تسجيل الدخول</button>
+      <p id="loginError" class="error" role="alert"></p>
     </form>
-  </dialog>
-  <div id="toast" class="toast"></div>
-  <script src="/static/app.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </div>
+</div>
+
+<!-- ===================== APP ===================== -->
+<div id="appView" class="app-shell hidden">
+  <aside class="sidebar">
+    <div class="brand-row"><div class="brand-mark">B</div><div><b>Bankai</b><small>الروستر والحضور</small></div></div>
+    <button class="nav-item" data-page="dashboard"><svg class="i"><use href="#i-grid"/></svg>نظرة عامة</button>
+    <button class="nav-item" data-page="attendance"><svg class="i"><use href="#i-check"/></svg>الحضور اليومي</button>
+    <button class="nav-item" data-page="employees"><svg class="i"><use href="#i-users"/></svg>الموظفون</button>
+    <button class="nav-item" data-page="reports"><svg class="i"><use href="#i-chart"/></svg>التقارير</button>
+    <button class="nav-item" data-page="settings"><svg class="i"><use href="#i-sliders"/></svg>الإعدادات</button>
+    <div class="sidebar-bottom"><button class="nav-item js-logout"><svg class="i"><use href="#i-logout"/></svg>تسجيل الخروج</button></div>
+  </aside>
+
+  <nav class="bnav" aria-label="التنقل">
+    <button data-page="dashboard"><svg class="i"><use href="#i-grid"/></svg>الرئيسية</button>
+    <button data-page="attendance"><svg class="i"><use href="#i-check"/></svg>الحضور</button>
+    <button data-page="employees"><svg class="i"><use href="#i-users"/></svg>الموظفون</button>
+    <button data-page="reports"><svg class="i"><use href="#i-chart"/></svg>التقارير</button>
+    <button data-page="settings"><svg class="i"><use href="#i-sliders"/></svg>الإعدادات</button>
+  </nav>
+
+  <main class="main">
+    <header class="topbar">
+      <h2 id="pageTitle">نظرة عامة</h2>
+      <span class="date-pill" id="todayPill"></span>
+    </header>
+
+    <!-- ============ DASHBOARD ============ -->
+    <section id="page-dashboard" class="page hidden">
+      <div class="page-head">
+        <div><h3>ملخص اليوم</h3><p id="dashSub"></p></div>
+        <div class="date-nav">
+          <button class="btn icon" id="dashPrev" aria-label="اليوم السابق"><svg class="i"><use href="#i-right"/></svg></button>
+          <input type="date" id="dashDate" class="inp" aria-label="التاريخ">
+          <button class="btn icon" id="dashNext" aria-label="اليوم التالي"><svg class="i"><use href="#i-left"/></svg></button>
+          <button class="btn" id="dashToday">اليوم</button>
+        </div>
+      </div>
+      <div class="kpis" id="dashKpis"></div>
+      <div class="dash-note" id="dashNote"></div>
+      <div class="branch-grid" id="dashBranches"></div>
+      <div class="two-col">
+        <div class="panel"><div class="panel-h"><div><h3>آخر 7 أيام</h3><p>اضغط على أي يوم لفتحه في الحضور</p></div></div><div class="panel-b"><div class="trend" id="dashTrend"></div><div class="legend" style="margin-top:12px"><span><i class="dot ok"></i>حاضر</span><span><i class="dot warn"></i>متأخر</span><span><i class="dot bad"></i>غائب</span><span><i class="dot info"></i>بعذر</span></div></div></div>
+        <div class="panel"><div class="panel-h"><div><h3>يحتاجون متابعة</h3><p>الأكثر غيابًا وتأخيرًا خلال آخر 30 يوم</p></div></div><div class="panel-b" id="dashWatch"></div></div>
+      </div>
+    </section>
+
+    <!-- ============ ATTENDANCE ============ -->
+    <section id="page-attendance" class="page hidden">
+      <div class="att-tools">
+        <div class="row">
+          <div class="date-nav">
+            <button class="btn icon" id="attPrev" aria-label="اليوم السابق"><svg class="i"><use href="#i-right"/></svg></button>
+            <input type="date" id="attDate" class="inp" aria-label="التاريخ">
+            <button class="btn icon" id="attNext" aria-label="اليوم التالي"><svg class="i"><use href="#i-left"/></svg></button>
+            <button class="btn" id="attToday">اليوم</button>
+          </div>
+          <strong id="attDayName" class="muted"></strong>
+          <span class="grow"></span>
+          <button class="btn" id="markPresentBtn" title="يحدد كل من لم يُسجل بعد في العرض الحالي كحاضر">تحديد غير المسجلين كحاضر</button>
+          <button class="btn icon" id="attRefresh" aria-label="تحديث" title="تحديث"><svg class="i"><use href="#i-refresh"/></svg></button>
+        </div>
+        <div class="progress-line"><span id="attProgressText"></span><div class="stack lg" id="attProgress"></div></div>
+      </div>
+      <div class="att-sticky">
+        <div class="row">
+          <div class="seg-filter" id="attBranchSeg">
+            <button data-branch="" class="on">الكل <small>0</small></button>
+            <button data-branch="QCD 1">QCD 1 <small>0</small></button>
+            <button data-branch="QCD 2">QCD 2 <small>0</small></button>
+          </div>
+          <select id="attShift" class="sel" aria-label="الشيفت"><option value="">كل الشيفتات</option></select>
+          <select id="attType" class="sel" aria-label="نوع التعاقد"><option value="">كل الأنواع</option><option value="FT">Full Time</option><option value="PT">Part Time</option></select>
+          <label class="search"><svg class="i"><use href="#i-search"/></svg><input id="attSearch" class="inp" placeholder="ابحث بالاسم أو الكود أو الموبايل   ( / )" autocomplete="off"></label>
+          <label class="check"><input type="checkbox" id="attGroup" checked> تجميع بالشيفت</label>
+          <button class="btn sm" id="attCollapse">طي/فتح المجموعات</button>
+        </div>
+        <div class="chips" id="attChips"></div>
+      </div>
+      <div id="attList" class="alist"></div>
+      <div id="attEmpty" class="empty hidden"></div>
+      <details class="off-box hidden" id="attOff"><summary id="attOffSum"></summary><div class="off-list" id="attOffList"></div></details>
+      <div class="save-bar hidden" id="saveBar" role="status">
+        <span class="msg" id="saveMsg"></span>
+        <button class="btn ghost" id="saveDiscard">تجاهل</button>
+        <button class="btn primary" id="saveBtn">حفظ الكل <kbd>Ctrl+S</kbd></button>
+      </div>
+    </section>
+
+    <!-- ============ EMPLOYEES ============ -->
+    <section id="page-employees" class="page hidden">
+      <div class="page-head">
+        <div><h3>قاعدة بيانات الموظفين</h3><p id="empSub"></p></div>
+        <div class="row">
+          <button class="btn" id="empImport"><svg class="i"><use href="#i-upload"/></svg>استيراد من Excel / CSV</button>
+          <button class="btn" id="empExport"><svg class="i"><use href="#i-download"/></svg>تصدير</button>
+          <button class="btn primary" id="empAdd"><svg class="i"><use href="#i-plus"/></svg>إضافة موظف</button>
+        </div>
+      </div>
+      <div class="filters">
+        <label class="search"><svg class="i"><use href="#i-search"/></svg><input id="empSearch" class="inp" placeholder="ابحث بالاسم أو الكود أو الموبايل" autocomplete="off"></label>
+        <select id="empBranch" class="sel" aria-label="الفرع"><option value="">كل الفروع</option><option>QCD 1</option><option>QCD 2</option></select>
+        <select id="empShift" class="sel" aria-label="الشيفت"><option value="">كل الشيفتات</option></select>
+        <select id="empType" class="sel" aria-label="النوع"><option value="">كل الأنواع</option><option value="FT">Full Time</option><option value="PT">Part Time</option></select>
+        <select id="empDay" class="sel" aria-label="يوم الإجازة"><option value="">كل أيام الإجازة</option><option value="Saturday">السبت</option><option value="Sunday">الأحد</option><option value="Monday">الاثنين</option><option value="Tuesday">الثلاثاء</option><option value="Wednesday">الأربعاء</option><option value="Thursday">الخميس</option><option value="Friday">الجمعة</option></select>
+        <select id="empStatus" class="sel" aria-label="الحالة"><option value="1">النشطون فقط</option><option value="0">غير النشطين</option><option value="">الكل</option></select>
+      </div>
+      <div class="bulk-bar hidden" id="empBulkBar">
+        <span class="msg" id="empSelCount"></span>
+        <button class="btn" id="empBulkEdit">تعديل جماعي</button>
+        <button class="btn" id="empBulkActivate">تفعيل</button>
+        <button class="btn" id="empBulkDeactivate">إيقاف</button>
+        <button class="btn" id="empBulkClear">إلغاء التحديد</button>
+      </div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th class="c" style="width:44px"><input type="checkbox" id="empCheckAll" aria-label="تحديد الكل"></th>
+            <th class="sort" data-sort="name">الموظف</th>
+            <th class="sort" data-sort="branch">الفرع</th>
+            <th class="sort" data-sort="shift">الشيفت</th>
+            <th class="sort" data-sort="employment_type">النوع</th>
+            <th class="sort" data-sort="day_off">الإجازة</th>
+            <th>الموبايل</th>
+            <th class="sort" data-sort="active">الحالة</th>
+            <th>إجراءات</th>
+          </tr></thead>
+          <tbody id="empRows"></tbody>
+        </table>
+      </div>
+      <div id="empEmpty" class="empty hidden"><b>لا توجد نتائج</b>غيّر الفلاتر أو أضف موظفًا جديدًا.</div>
+      <div class="pager" id="empPager"></div>
+    </section>
+
+    <!-- ============ REPORTS ============ -->
+    <section id="page-reports" class="page hidden">
+      <div class="print-only"><h2>تقرير الحضور</h2><p id="printHeader"></p></div>
+      <div class="filters col no-print">
+        <div class="presets" id="repPresets">
+          <button data-p="today">اليوم</button><button data-p="yesterday">أمس</button><button data-p="7">آخر 7 أيام</button><button data-p="30">آخر 30 يوم</button><button data-p="month">هذا الشهر</button><button data-p="lastmonth">الشهر الماضي</button>
+        </div>
+        <div class="filter-line">
+          <label class="field">من تاريخ<input type="date" id="repStart" class="inp"></label>
+          <label class="field">إلى تاريخ<input type="date" id="repEnd" class="inp"></label>
+          <label class="field">الفرع<select id="repBranch" class="sel"><option value="">كل الفروع</option><option>QCD 1</option><option>QCD 2</option></select></label>
+          <label class="field">بحث في الموظفين<input id="repSearch" class="inp" placeholder="الاسم أو الكود" autocomplete="off"></label>
+          <button class="btn primary" id="repRun">عرض التقرير</button>
+        </div>
+        <div class="row">
+          <button class="btn sm" id="repExportSummary"><svg class="i"><use href="#i-download"/></svg>ملخص الموظفين CSV</button>
+          <button class="btn sm" id="repExportDetail"><svg class="i"><use href="#i-download"/></svg>كل التسجيلات CSV</button>
+          <button class="btn sm" id="repPrint"><svg class="i"><use href="#i-print"/></svg>طباعة</button>
+        </div>
+      </div>
+      <div class="kpis" id="repKpis"></div>
+      <div class="br-grid" id="repBranches"></div>
+      <details class="days-box" id="repDaysBox">
+        <summary>التفصيل اليومي</summary>
+        <div class="table-wrap"><table class="tbl"><thead><tr><th>اليوم</th><th>حاضر</th><th>متأخر</th><th>غائب</th><th>بعذر</th><th>الغرامات</th><th>التوزيع</th></tr></thead><tbody id="repDays"></tbody></table></div>
+      </details>
+      <div class="page-head" style="margin-top:18px"><div><h3>تقرير الموظفين</h3><p id="repEmpSub"></p></div></div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th class="sort" data-rsort="name">الموظف</th>
+            <th class="sort" data-rsort="branch">الفرع</th>
+            <th class="sort" data-rsort="present">حضور</th>
+            <th class="sort" data-rsort="late">تأخير</th>
+            <th class="sort" data-rsort="absent">غياب</th>
+            <th class="sort" data-rsort="excused">بعذر</th>
+            <th class="sort" data-rsort="rate">نسبة الحضور</th>
+            <th class="sort" data-rsort="fine_total">الغرامات</th>
+          </tr></thead>
+          <tbody id="repRows"></tbody>
+        </table>
+      </div>
+      <div id="repEmpty" class="empty hidden"><b>لا توجد تسجيلات في الفترة المحددة</b>جرّب فترة أخرى أو سجّل الحضور أولًا.</div>
+      <div class="pager" id="repPager"></div>
+    </section>
+
+    <!-- ============ SETTINGS ============ -->
+    <section id="page-settings" class="page hidden">
+      <div class="settings-grid">
+        <div class="panel">
+          <div class="panel-h"><div><h3>الغرامات الافتراضية</h3><p>تتعبّى تلقائيًا في خانة الغرامة عند اختيار الحالة، وتقدر تعدّلها لكل موظف.</p></div></div>
+          <div class="panel-b">
+            <div class="form-grid">
+              <label class="field">غرامة التأخير (ج.م)<input id="setFineLate" class="inp" type="number" min="0" step="1" inputmode="numeric"></label>
+              <label class="field">غرامة الغياب (ج.م)<input id="setFineAbsent" class="inp" type="number" min="0" step="1" inputmode="numeric"></label>
+            </div>
+            <p class="hint">الغياب «بعذر» ما عليه غرامة. لو الغرامة أكبر من صفر لازم تكتب السبب قبل الحفظ.</p>
+            <div><button class="btn primary" id="setSave">حفظ الإعدادات</button></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><div><h3>البيانات والنسخ الاحتياطي</h3><p>خد نسخة من بياناتك بشكل دوري.</p></div></div>
+          <div class="panel-b">
+            <div class="row"><button class="btn" id="setBackup"><svg class="i"><use href="#i-download"/></svg>تنزيل نسخة احتياطية كاملة (.db)</button></div>
+            <div class="row"><button class="btn" id="setExportEmp"><svg class="i"><use href="#i-download"/></svg>تصدير قائمة الموظفين CSV</button></div>
+            <p class="hint">كلمة مرور الأدمن بتتغير من متغير <b class="num">ADMIN_PASSWORD</b> في إعدادات الاستضافة. بعد تغييرها سجّل الدخول من جديد.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ===================== DIALOGS ===================== -->
+<dialog id="empDialog" class="dlg">
+  <form id="empForm" method="dialog">
+    <div class="dlg-h"><div><h3 id="fTitle">إضافة موظف</h3></div><button type="button" class="btn icon sm" id="fClose" aria-label="إغلاق"><svg class="i"><use href="#i-x"/></svg></button></div>
+    <div class="dlg-b">
+      <input type="hidden" id="fId">
+      <div class="form-grid">
+        <label class="field">اسم الموظف *<input id="fName" class="inp" required maxlength="120" placeholder="الاسم بالكامل"></label>
+        <label class="field">كود الموظف<input id="fCode" class="inp" maxlength="60" placeholder="اختياري"></label>
+        <label class="field">الفرع *<select id="fBranch" class="sel" required><option>QCD 1</option><option>QCD 2</option></select></label>
+        <label class="field">نوع التعاقد *<select id="fType" class="sel" required><option value="FT">Full Time</option><option value="PT">Part Time</option></select></label>
+        <label class="field wide">الشيفت *<input id="fShift" class="inp" list="shiftList" required maxlength="80" placeholder="مثال: 12 AM - 8 AM" autocomplete="off"></label>
+        <label class="field">يوم الإجازة الأسبوعية<select id="fDay" class="sel"><option value="Saturday">السبت</option><option value="Sunday">الأحد</option><option value="Monday">الاثنين</option><option value="Tuesday">الثلاثاء</option><option value="Wednesday">الأربعاء</option><option value="Thursday">الخميس</option><option value="Friday" selected>الجمعة</option></select></label>
+        <label class="field">رقم الموبايل<input id="fPhone" class="inp" maxlength="30" inputmode="tel" placeholder="01xxxxxxxxx" dir="ltr" style="text-align:right"></label>
+        <label class="switch-row wide"><span>الموظف نشط</span><input type="checkbox" id="fActive" checked></label>
+      </div>
+      <p id="fError" class="error" role="alert"></p>
+    </div>
+    <div class="dlg-f"><button type="submit" class="btn primary">حفظ</button><button type="button" class="btn" id="fCancel">إلغاء</button></div>
+  </form>
+</dialog>
+
+<dialog id="bulkDialog" class="dlg">
+  <form id="bulkForm" method="dialog">
+    <div class="dlg-h"><div><h3>تعديل جماعي</h3><p id="bulkCount"></p></div></div>
+    <div class="dlg-b">
+      <p class="hint" style="margin-bottom:12px">سيبها «بدون تغيير» للحقول اللي مش عايز تعدّلها.</p>
+      <div class="form-grid">
+        <label class="field">الفرع<select id="bulkBranch" class="sel"><option value="">بدون تغيير</option><option>QCD 1</option><option>QCD 2</option></select></label>
+        <label class="field">نوع التعاقد<select id="bulkType" class="sel"><option value="">بدون تغيير</option><option value="FT">Full Time</option><option value="PT">Part Time</option></select></label>
+        <label class="field">الشيفت<input id="bulkShift" class="inp" list="shiftList" maxlength="80" placeholder="بدون تغيير" autocomplete="off"></label>
+        <label class="field">يوم الإجازة<select id="bulkDay" class="sel"><option value="">بدون تغيير</option><option value="Saturday">السبت</option><option value="Sunday">الأحد</option><option value="Monday">الاثنين</option><option value="Tuesday">الثلاثاء</option><option value="Wednesday">الأربعاء</option><option value="Thursday">الخميس</option><option value="Friday">الجمعة</option></select></label>
+      </div>
+      <p id="bulkError" class="error" role="alert"></p>
+    </div>
+    <div class="dlg-f"><button type="submit" class="btn primary">تطبيق على المحددين</button><button type="button" class="btn" id="bulkCancel">إلغاء</button></div>
+  </form>
+</dialog>
+
+<dialog id="impDialog" class="dlg wide">
+  <div class="dlg-h"><div><h3>استيراد موظفين</h3><p>انسخ الجدول من Excel والصقه هنا، أو ارفع ملف CSV.</p></div><button type="button" class="btn icon sm" id="impClose" aria-label="إغلاق"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <div class="dlg-b">
+    <div class="row" style="margin-bottom:10px">
+      <label class="btn sm" for="impFile"><svg class="i"><use href="#i-upload"/></svg>اختيار ملف CSV</label>
+      <input type="file" id="impFile" accept=".csv,.txt,text/csv" class="sr">
+      <button type="button" class="btn sm" id="impTemplate"><svg class="i"><use href="#i-download"/></svg>تنزيل نموذج جاهز</button>
+      <label class="check"><input type="checkbox" id="impUpdate" checked> تحديث الموظفين الموجودين (بالكود أو الاسم)</label>
+    </div>
+    <textarea id="impText" class="inp" placeholder="الاسم	الكود	الفرع	الشيفت	النوع	الإجازة	الموبايل&#10;أحمد محمد	1001	QCD 1	12 AM - 8 AM	FT	الجمعة	01012345678" spellcheck="false"></textarea>
+    <p class="hint" style="margin-top:8px">الأعمدة المقبولة: الاسم، الكود، الفرع (QCD 1 / QCD 2)، الشيفت، النوع (FT / PT)، الإجازة، الموبايل. لو الصف الأول عناوين بيتعرف عليها تلقائيًا، ولو مفيش بيتقرأ بنفس الترتيب ده.</p>
+    <div class="imp-sum" id="impSummary"></div>
+    <div class="imp-errors hidden" id="impErrors"></div>
+  </div>
+  <div class="dlg-f"><button type="button" class="btn primary" id="impRun" disabled>استيراد</button><button type="button" class="btn" id="impCancel">إغلاق</button></div>
+</dialog>
+
+<dialog id="histDialog" class="dlg wide">
+  <div class="dlg-h"><div><h3 id="histTitle"></h3><p id="histSub"></p></div><button type="button" class="btn icon sm" id="histClose" aria-label="إغلاق"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <div class="dlg-b">
+    <div class="row" style="margin-bottom:10px">
+      <select id="histRange" class="sel" style="width:auto" aria-label="الفترة"><option value="7">آخر 7 أيام</option><option value="30" selected>آخر 30 يوم</option><option value="90">آخر 90 يوم</option><option value="month">هذا الشهر</option></select>
+    </div>
+    <div class="hist-stats" id="histStats"></div>
+    <div class="table-wrap"><table class="tbl" style="min-width:560px"><thead><tr><th>اليوم</th><th>الحالة</th><th>الغرامة</th><th>السبب</th><th>ملاحظة</th></tr></thead><tbody id="histRows"></tbody></table></div>
+    <div id="histEmpty" class="empty hidden" style="margin-top:10px"><b>لا توجد تسجيلات</b>في الفترة المختارة.</div>
+  </div>
+  <div class="dlg-f"><button type="button" class="btn" id="histClose2">إغلاق</button></div>
+</dialog>
+
+<datalist id="shiftList"></datalist>
+<datalist id="reasonList"><option value="بدون إذن"></option><option value="ظرف طارئ"></option><option value="مرض"></option><option value="مواصلات"></option><option value="تأخر في الوصول"></option><option value="لم يُبلّغ"></option></datalist>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="/static/app.js?v=2"></script>
 </body>
 </html>
