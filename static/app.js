@@ -139,6 +139,17 @@ qsa(".js-logout").forEach(b => b.addEventListener("click", () => {
   logout();
 }));
 
+// ---------- theme (light / dark) ----------
+function applyTheme(t, save) {
+  document.documentElement.dataset.theme = t;
+  const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = t === "dark" ? "#08111f" : "#0f2747";
+  qsa(".js-theme").forEach(b => b.setAttribute("aria-checked", t === "dark" ? "true" : "false"));
+  if (save) { try { localStorage.setItem("bankai-theme", t); } catch (e) {} }
+}
+applyTheme(document.documentElement.dataset.theme || "light", false);
+qsa(".js-theme").forEach(b => b.addEventListener("click", () =>
+  applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark", true)));
+
 function showApp() {
   $("loginView").classList.add("hidden"); $("appView").classList.remove("hidden");
   $("todayPill").textContent = new Date().toLocaleDateString("ar-EG-u-nu-latn", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
