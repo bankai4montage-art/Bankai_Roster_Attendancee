@@ -2,6 +2,7 @@ import os
 import csv
 import io
 import hmac
+import re
 import hashlib
 import secrets
 import sqlite3
@@ -55,6 +56,9 @@ class Employee(Base):
     day_off = Column(String(12), nullable=False, default="Friday")
     active = Column(Boolean, nullable=False, default=True)
     phone = Column(String(30), nullable=True)
+    break_start = Column(String(5), nullable=True)      # "HH:MM"
+    break_min = Column(Integer, nullable=True)          # مدة البريك بالدقايق
+    off_locked = Column(Boolean, nullable=False, default=False)  # يوم الإجازة مثبّت (التوزيع التلقائي ما يغيّرهوش)
     created_at = Column(DateTime, default=utcnow)
 
 
@@ -72,6 +76,15 @@ class Attendance(Base):
     __table_args__ = (UniqueConstraint("employee_id", "attendance_date", name="uq_employee_attendance_day"),)
 
 
+class ShiftDef(Base):
+    """شيفتات معرّفة لكل فرع (عشان نقدر نضيف شيفت فاضي ونوزّع عليه بعدين)."""
+    __tablename__ = "shift_defs"
+    id = Column(Integer, primary_key=True)
+    branch = Column(String(20), nullable=False, index=True)
+    name = Column(String(80), nullable=False)
+    __table_args__ = (UniqueConstraint("branch", "name", name="uq_shift_branch_name"),)
+
+
 class Setting(Base):
     __tablename__ = "settings"
     key = Column(String(60), primary_key=True)
@@ -87,6 +100,13 @@ def ensure_columns():
     with engine.begin() as conn:
         if "phone" not in cols:
             conn.execute(text("ALTER TABLE employees ADD COLUMN phone VARCHAR(30)"))
+        if "break_start" not in cols:
+            conn.execute(text("ALTER TABLE employees ADD COLUMN break_start VARCHAR(5)"))
+        if "break_min" not in cols:
+            conn.execute(text("ALTER TABLE employees ADD COLUMN break_min INTEGER"))
+        if "off_locked" not in cols:
+            false = "0" if DATABASE_URL.startswith("sqlite") else "FALSE"
+            conn.execute(text(f"ALTER TABLE employees ADD COLUMN off_locked BOOLEAN NOT NULL DEFAULT {false}"))
 
 
 ensure_columns()
@@ -206,7 +226,9 @@ def employee_dict(e):
     return {
         "id": e.id, "name": e.name, "employee_code": e.employee_code or "",
         "branch": e.branch, "shift": e.shift, "employment_type": e.employment_type,
-        "day_off": e.day_off, "active": e.active, "phone": e.phone or ""
+        "day_off": e.day_off, "active": e.active, "phone": e.phone or "",
+        "break_start": e.break_start or "", "break_min": e.break_min or 60,
+        "off_locked": bool(e.off_locked)
     }
 
 
@@ -834,6 +856,333 @@ def export_employees_report(start: date, end: date, branch: Optional[str] = None
         [[r["branch"], r["employee_code"], r["name"], r["employment_type"], r["shift"], r["total"], r["present"],
           r["late"], r["absent"], r["excused"], r["rate"], f"{r['fine_total']:.2f}"] for r in data["employees"]],
         f"bankai_employees_summary_{start}_{end}.csv")
+
+
+# ---------------------------------------------------------------- schedule (جدول الشيفتات)
+_TIME_RE = re.compile(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.|ص|م)?", re.I)
+HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+WD_AR = {"Saturday": "السبت", "Sunday": "الأحد", "Monday": "الاثنين", "Tuesday": "الثلاثاء",
+         "Wednesday": "الأربعاء", "Thursday": "الخميس", "Friday": "الجمعة"}
+
+
+def parse_shift(name):
+    """يقرأ وقت بداية ونهاية الشيفت من اسمه (مثلًا '12 AM - 8 AM' أو '16:00-00:00'). يرجّع (start_min, end_min) أو None."""
+    text_ = str(name or "").translate(_AR_DIGITS)
+    times = []
+    for h, m, ap in _TIME_RE.findall(text_):
+        h, m = int(h), int(m or 0)
+        ap = ap.lower().replace(".", "")
+        if m > 59:
+            continue
+        if ap in ("am", "ص"):
+            if not 1 <= h <= 12:
+                continue
+            h = 0 if h == 12 else h
+        elif ap in ("pm", "م"):
+            if not 1 <= h <= 12:
+                continue
+            h = 12 if h == 12 else h + 12
+        else:
+            if h > 24:
+                continue
+            h %= 24
+        times.append(h * 60 + m)
+    if len(times) < 2:
+        return None
+    start, end = times[0], times[1]
+    if end <= start:
+        end += 1440
+    return start, end
+
+
+def hhmm(minutes):
+    minutes %= 1440
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+def shift_sort_key(name):
+    p = parse_shift(name)
+    return (0, p[0], name) if p else (1, 0, name)
+
+
+def break_slots(start, end, dur):
+    """أوقات بريك ثابتة (كل نص ساعة) في منتصف الشيفت تقريبًا (من 35% لحد 75% من مدته)، ومدة البريك dur دقيقة."""
+    length = end - start
+    t = ((start + int(length * 0.35) + 29) // 30) * 30
+    limit = start + int(length * 0.75)
+    slots = []
+    while t + dur <= limit:
+        slots.append(t % 1440)
+        t += 30
+    return slots or [(start + length // 2) % 1440]
+
+
+class ShiftIn(BaseModel):
+    branch: str
+    name: str = Field(min_length=1, max_length=80)
+
+
+class ShiftRenameIn(BaseModel):
+    branch: str
+    old: str
+    new: str = Field(min_length=1, max_length=80)
+
+
+class ScheduleAddItem(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    employment_type: str = "FT"
+    day_off: Optional[str] = None
+    break_start: Optional[str] = None
+
+
+class ScheduleAddIn(BaseModel):
+    branch: str
+    shift: str = Field(min_length=1, max_length=80)
+    items: List[ScheduleAddItem]
+
+
+class ScheduleApplyItem(BaseModel):
+    id: int
+    day_off: Optional[str] = None
+    break_start: Optional[str] = None      # "" = مسح البريك، None = بدون تغيير
+    break_min: Optional[int] = Field(default=None, ge=5, le=120)
+    off_locked: Optional[bool] = None
+    shift: Optional[str] = Field(default=None, max_length=80)
+
+
+class ScheduleApplyIn(BaseModel):
+    items: List[ScheduleApplyItem]
+
+
+class ScheduleAutoIn(BaseModel):
+    branch: str
+    shift: Optional[str] = None
+    include_locked: bool = False
+    allowed_days: List[str] = Field(default_factory=lambda: list(WEEKDAYS))
+    distribute_off: bool = True
+    distribute_breaks: bool = True
+    overwrite_breaks: bool = False
+    break_min: int = Field(default=60, ge=5, le=120)
+
+
+def _check_branch(branch):
+    if branch not in BRANCHES:
+        raise HTTPException(400, "الفرع يجب أن يكون QCD 1 أو QCD 2")
+
+
+@app.get("/api/schedule")
+def get_schedule(branch: str, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+    _check_branch(branch)
+    emps = db.query(Employee).filter(Employee.branch == branch, Employee.active.is_(True)).order_by(Employee.name).all()
+    names = {d.name for d in db.query(ShiftDef).filter(ShiftDef.branch == branch).all()} | {e.shift for e in emps}
+    return {"branch": branch, "days": list(WEEKDAYS), "shifts": sorted(names, key=shift_sort_key),
+            "employees": [employee_dict(e) for e in emps]}
+
+
+@app.post("/api/schedule/shifts")
+def create_shift(data: ShiftIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+    _check_branch(data.branch)
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(400, "اسم الشيفت مطلوب")
+    if not db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == name).first():
+        db.add(ShiftDef(branch=data.branch, name=name))
+        db.commit()
+    return {"name": name}
+
+
+@app.delete("/api/schedule/shifts")
+def delete_shift(branch: str, name: str, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+    _check_branch(branch)
+    if db.query(Employee).filter(Employee.branch == branch, Employee.shift == name, Employee.active.is_(True)).count():
+        raise HTTPException(400, "الشيفت فيه موظفين. انقلهم لشيفت آخر أو أوقفهم أولًا.")
+    db.query(ShiftDef).filter(ShiftDef.branch == branch, ShiftDef.name == name).delete()
+    db.commit()
+    return {"message": "تم حذف الشيفت"}
+
+
+@app.post("/api/schedule/shifts/rename")
+def rename_shift(data: ShiftRenameIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+    _check_branch(data.branch)
+    new = data.new.strip()
+    if not new:
+        raise HTTPException(400, "اسم الشيفت مطلوب")
+    if new == data.old:
+        return {"name": new, "moved": 0}
+    moved = db.query(Employee).filter(Employee.branch == data.branch, Employee.shift == data.old).update({"shift": new})
+    db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == data.old).delete()
+    if not db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == new).first():
+        db.add(ShiftDef(branch=data.branch, name=new))
+    db.commit()
+    return {"name": new, "moved": moved}
+
+
+@app.post("/api/schedule/add")
+def schedule_add(data: ScheduleAddIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+    _check_branch(data.branch)
+    shift = data.shift.strip()
+    if not shift:
+        raise HTTPException(400, "الشيفت مطلوب")
+    if not data.items:
+        raise HTTPException(400, "اكتب اسم واحد على الأقل")
+    if len(data.items) > 500:
+        raise HTTPException(400, "الحد الأقصى 500 اسم في المرة")
+    existing = {}
+    for e in db.query(Employee).filter(Employee.branch == data.branch).all():
+        key = e.name.strip().lower()
+        if key not in existing or (e.active and not existing[key].active):
+            existing[key] = e
+    if not db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == shift).first():
+        db.add(ShiftDef(branch=data.branch, name=shift))
+    created, out, notes = 0, [], []
+    for it in data.items:
+        name = " ".join(it.name.split())
+        if not name:
+            continue
+        etype = it.employment_type if it.employment_type in EMP_TYPES else "FT"
+        day = it.day_off if it.day_off in WEEKDAYS else None
+        bs = it.break_start.strip() if it.break_start and HHMM_RE.match(it.break_start.strip()) else None
+        e = existing.get(name.lower())
+        if e is not None:
+            if e.active and e.shift == shift:
+                notes.append({"name": e.name, "type": "same"})
+            else:
+                notes.append({"name": e.name, "type": "moved" if e.active else "reactivated",
+                              "from": e.shift if e.active else None})
+                e.shift, e.active = shift, True
+                if day:
+                    e.day_off, e.off_locked = day, True
+                if bs:
+                    e.break_start = bs
+        else:
+            e = Employee(name=name, branch=data.branch, shift=shift, employment_type=etype,
+                         day_off=day or "Friday", off_locked=bool(day), break_start=bs, break_min=60, active=True)
+            db.add(e)
+            existing[name.lower()] = e
+            created += 1
+            notes.append({"name": name, "type": "created"})
+        out.append(e)
+    db.commit()
+    for e in out:
+        db.refresh(e)
+    return {"created": created, "notes": notes, "employees": [employee_dict(e) for e in out]}
+
+
+@app.post("/api/schedule/apply")
+def schedule_apply(data: ScheduleApplyIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+    if not data.items:
+        raise HTTPException(400, "لا توجد تغييرات للحفظ")
+    if len(data.items) > 2000:
+        raise HTTPException(400, "عدد التعديلات كبير جدًا في طلب واحد")
+    emps = {e.id: e for e in db.query(Employee).filter(Employee.id.in_([i.id for i in data.items])).all()}
+    updated, errors = 0, []
+    for it in data.items:
+        e = emps.get(it.id)
+        if not e:
+            errors.append({"id": it.id, "detail": "الموظف غير موجود"}); continue
+        if it.day_off is not None and it.day_off not in WEEKDAYS:
+            errors.append({"id": it.id, "name": e.name, "detail": "يوم الإجازة غير صحيح"}); continue
+        bs = None if it.break_start is None else it.break_start.strip()
+        if bs and not HHMM_RE.match(bs):
+            errors.append({"id": it.id, "name": e.name, "detail": "وقت البريك غير صحيح"}); continue
+        sh = None if it.shift is None else it.shift.strip()
+        if sh is not None and not sh:
+            errors.append({"id": it.id, "name": e.name, "detail": "الشيفت مطلوب"}); continue
+        if it.day_off is not None:
+            e.day_off = it.day_off
+        if bs is not None:
+            e.break_start = bs or None
+        if it.break_min is not None:
+            e.break_min = it.break_min
+        if it.off_locked is not None:
+            e.off_locked = it.off_locked
+        if sh is not None:
+            e.shift = sh
+            if not db.query(ShiftDef).filter(ShiftDef.branch == e.branch, ShiftDef.name == sh).first():
+                db.add(ShiftDef(branch=e.branch, name=sh))
+        updated += 1
+    db.commit()
+    return {"updated": updated, "errors": errors}
+
+
+@app.post("/api/schedule/auto")
+def schedule_auto(data: ScheduleAutoIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+    """يقترح توزيع إجازات (متوازن على أيام الأسبوع داخل كل شيفت) وبريكات متدرّجة. مابيحفظش حاجة — الواجهة بتعرض الاقتراح وانت تحفظ."""
+    _check_branch(data.branch)
+    allowed = [d for d in WEEKDAYS if d in data.allowed_days]
+    if data.distribute_off and not allowed:
+        raise HTTPException(400, "اختر يوم واحد على الأقل متاح للإجازة")
+    q = db.query(Employee).filter(Employee.branch == data.branch, Employee.active.is_(True))
+    if data.shift:
+        q = q.filter(Employee.shift == data.shift)
+    groups = {}
+    for e in q.order_by(Employee.name).all():
+        groups.setdefault(e.shift, []).append(e)
+    changes, warnings = {}, []
+    off_changed = break_changed = 0
+    for shift in sorted(groups, key=shift_sort_key):
+        group = groups[shift]
+        new_off, new_brk = {}, {}
+        if data.distribute_off:
+            fixed = [e for e in group if e.off_locked and not data.include_locked]
+            counts = {d: 0 for d in WEEKDAYS}
+            for e in fixed:
+                counts[e.day_off] = counts.get(e.day_off, 0) + 1
+            fixed_ids = {e.id for e in fixed}
+            for e in group:
+                if e.id in fixed_ids:
+                    continue
+                best = min(allowed, key=lambda d: (counts[d], 0 if d == e.day_off else 1, WEEKDAYS.index(d)))
+                new_off[e.id] = best
+                counts[best] += 1
+        if data.distribute_breaks:
+            parsed = parse_shift(shift)
+            if not parsed:
+                warnings.append(f"ما قدرتش أقرأ وقت الشيفت «{shift}» — اكتبه بالشكل 8 AM - 4 PM عشان يتوزّع البريك.")
+            else:
+                slots = break_slots(parsed[0], parsed[1], data.break_min)
+                counts = {s: 0 for s in slots}
+                todo = []
+                for e in group:
+                    if e.break_start and not data.overwrite_breaks:
+                        try:
+                            h, m = e.break_start.split(":")
+                            t = int(h) * 60 + int(m)
+                            if t in counts:
+                                counts[t] += 1
+                        except ValueError:
+                            pass
+                    else:
+                        todo.append(e)
+                for e in todo:
+                    best = min(slots, key=lambda s: (counts[s], slots.index(s)))
+                    new_brk[e.id] = hhmm(best)
+                    counts[best] += 1
+        for e in group:
+            ch = {}
+            if e.id in new_off and new_off[e.id] != e.day_off:
+                ch["day_off"] = new_off[e.id]; off_changed += 1
+            if e.id in new_brk and (new_brk[e.id] != (e.break_start or "") or (e.break_min or 60) != data.break_min):
+                ch["break_start"] = new_brk[e.id]; ch["break_min"] = data.break_min
+                if new_brk[e.id] != (e.break_start or ""):
+                    break_changed += 1
+            if ch:
+                changes[e.id] = dict(ch, id=e.id, name=e.name, shift=shift)
+    return {"changes": list(changes.values()), "warnings": warnings, "off_changed": off_changed,
+            "break_changed": break_changed, "employees": sum(len(g) for g in groups.values())}
+
+
+@app.get("/api/schedule/export.csv")
+def schedule_export(branch: Optional[str] = None, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+    q = db.query(Employee).filter(Employee.active.is_(True))
+    if branch in BRANCHES:
+        q = q.filter(Employee.branch == branch)
+    emps = sorted(q.all(), key=lambda e: (e.branch, shift_sort_key(e.shift), e.name))
+    return csv_response(
+        ["الفرع", "الشيفت", "الاسم", "الكود", "النوع", "يوم الإجازة", "بداية البريك", "مدة البريك (دقيقة)"],
+        [[e.branch, e.shift, e.name, e.employee_code or "", e.employment_type, WD_AR.get(e.day_off, e.day_off),
+          e.break_start or "", (e.break_min or 60) if e.break_start else ""] for e in emps],
+        f"bankai_schedule_{(branch or 'all').replace(' ', '')}.csv")
 
 
 # ---------------------------------------------------------------- backup
