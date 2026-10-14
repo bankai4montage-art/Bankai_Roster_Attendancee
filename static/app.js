@@ -15,6 +15,7 @@ const todayISO = () => isoOf(new Date());
 const parseISO = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
 const addDays = (s, n) => { const d = parseISO(s); d.setDate(d.getDate() + n); return isoOf(d); };
 const fmtDay = (s, opts) => parseISO(s).toLocaleDateString("ar-EG-u-nu-latn", opts);
+const anyDrafts = () => S.draft.size + (S.sch ? S.sch.draft.size : 0);
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 const on = (id, ev, fn) => $(id).addEventListener(ev, fn);
 
@@ -129,12 +130,12 @@ on("loginForm", "submit", async e => {
 
 function logout(show = true) {
   S.token = ""; localStorage.removeItem("bankai_token");
-  S.draft.clear(); S.shown = false; S.page = "";
+  S.draft.clear(); if (S.sch) S.sch.draft.clear(); S.shown = false; S.page = "";
   $("appView").classList.add("hidden"); $("loginView").classList.remove("hidden");
   if (show) toast("تم تسجيل الخروج");
 }
 qsa(".js-logout").forEach(b => b.addEventListener("click", () => {
-  if (S.draft.size && !confirm("عندك تسجيلات حضور لم تُحفظ. هل تريد الخروج وتجاهلها؟")) return;
+  if (anyDrafts() && !confirm("عندك تغييرات لم تُحفظ. هل تريد الخروج وتجاهلها؟")) return;
   logout();
 }));
 
@@ -143,7 +144,7 @@ function showApp() {
   $("todayPill").textContent = new Date().toLocaleDateString("ar-EG-u-nu-latn", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 }
 
-const PAGES = { dashboard: "نظرة عامة", attendance: "الحضور اليومي", employees: "الموظفون", reports: "التقارير", settings: "الإعدادات" };
+const PAGES = { dashboard: "نظرة عامة", attendance: "الحضور اليومي", schedule: "الجدول", employees: "الموظفون", reports: "التقارير", settings: "الإعدادات" };
 qsa("[data-page]").forEach(b => b.addEventListener("click", () => { location.hash = b.dataset.page; }));
 window.addEventListener("hashchange", route);
 
@@ -152,9 +153,9 @@ function route() {
   const p = (location.hash || "#dashboard").slice(1);
   const target = PAGES[p] ? p : "dashboard";
   if (S.shown && target === S.page) return;
-  if (S.shown && S.page === "attendance" && target !== "attendance" && S.draft.size) {
-    if (!confirm("عندك تسجيلات حضور لم تُحفظ. هل تريد تجاهلها؟")) { location.hash = "attendance"; return; }
-    S.draft.clear();
+  if (S.shown && target !== S.page && ((S.page === "attendance" && S.draft.size) || (S.page === "schedule" && S.sch.draft.size))) {
+    if (!confirm("عندك تغييرات لم تُحفظ. هل تريد تجاهلها؟")) { location.hash = S.page; return; }
+    S.draft.clear(); S.sch.draft.clear(); updateSaveBar(); updateSchSaveBar();
   }
   showPage(target);
 }
@@ -169,6 +170,7 @@ function showPage(p) {
   window.scrollTo(0, 0);
   if (p === "dashboard") loadDashboard();
   if (p === "attendance") { syncAttControls(); loadRoster(); }
+  if (p === "schedule") loadSchedulePage();
   if (p === "employees") { renderEmployees(); }
   if (p === "reports") { if (!$("repStart").value) setPreset(S.rep.preset); else runReport(); }
   if (p === "settings") loadSettings();
@@ -332,6 +334,7 @@ function rowHTML(e) {
   const d = rowState(e), st = d.status || "";
   const fineOn = st === "Late" || st === "Absent";
   const sub = [esc(e.employee_code || "بدون كود"), e.employment_type];
+  if (e.break_start) sub.push(`بريك <span class="num">${esc(e.break_start)}</span>`);
   if (!S.att.group) sub.push(esc(e.branch), sh(e.shift));
   return `<div class="arow${S.draft.has(e.id) ? " dirty" : ""}" data-id="${e.id}" data-st="${st}">
     <div class="a-who"><div class="a-name">${esc(e.name)}${contactHTML(e)}</div><div class="a-sub">${sub.join(" · ")}</div></div>
@@ -527,11 +530,12 @@ on("attList", "input", ev => {
   maybeClean(e); row.classList.toggle("dirty", S.draft.has(e.id)); updateSaveBar();
 });
 
-window.addEventListener("beforeunload", ev => { if (S.draft.size) { ev.preventDefault(); ev.returnValue = ""; } });
+window.addEventListener("beforeunload", ev => { if (anyDrafts()) { ev.preventDefault(); ev.returnValue = ""; } });
 document.addEventListener("keydown", ev => {
   if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "s" && S.page === "attendance") { ev.preventDefault(); saveAttendance(); return; }
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "s" && S.page === "schedule") { ev.preventDefault(); schSave(); return; }
   if (ev.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) {
-    const el = S.page === "attendance" ? $("attSearch") : S.page === "employees" ? $("empSearch") : null;
+    const el = S.page === "attendance" ? $("attSearch") : S.page === "employees" ? $("empSearch") : S.page === "schedule" ? $("schSearch") : null;
     if (el) { ev.preventDefault(); el.focus(); }
   }
 });
@@ -841,6 +845,328 @@ function renderReportRows() {
   $("repEmpty").classList.toggle("hidden", total > 0);
   renderPager($("repPager"), total, S.rep, renderReportRows);
 }
+
+
+/* ============================== schedule ============================== */
+const JS_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+S.sch = { branch: "QCD 1", data: null, base: new Map(), draft: new Map(), q: "", defaults: {}, built: false };
+const schToday = () => JS_DAYS[new Date().getDay()];
+const schEmp = e => { const d = S.sch.draft.get(e.id); return d ? { ...e, ...d } : e; };
+const findCard = name => qsa(".shcard", $("schShifts")).find(c => c.dataset.shift === name);
+
+function loadSchedulePage() {
+  if (!S.sch.built) {
+    S.sch.built = true;
+    $("autoDays").innerHTML = WEEKDAYS.map(d => `<label><input type="checkbox" value="${d}" checked>${WD_AR[d]}</label>`).join("");
+  }
+  loadSchedule();
+}
+async function loadSchedule(keepDraft = false) {
+  try {
+    const r = await api(`/api/schedule?branch=${encodeURIComponent(S.sch.branch)}`);
+    S.sch.data = r; S.sch.base = new Map(r.employees.map(e => [e.id, e]));
+    if (!keepDraft) S.sch.draft.clear();
+    else for (const id of [...S.sch.draft.keys()]) if (!S.sch.base.has(id)) S.sch.draft.delete(id);
+    renderSchedule(); updateSchSaveBar();
+  } catch (e) { toast(e.message, "err"); }
+}
+function schSegCounts() {
+  const n = b => S.employees.filter(e => e.active && e.branch === b).length;
+  qsa("#schBranchSeg button").forEach(b => { b.classList.toggle("on", b.dataset.branch === S.sch.branch); qs("small", b).textContent = n(b.dataset.branch); });
+}
+function schGroups() {
+  const D = S.sch.data, g = new Map(D.shifts.map(s => [s, []]));
+  D.employees.map(schEmp).forEach(e => { if (!g.has(e.shift)) g.set(e.shift, []); g.get(e.shift).push(e); });
+  return g;
+}
+function schCover(list) {
+  const c = {}; WEEKDAYS.forEach(d => c[d] = list.length);
+  list.forEach(e => { if (c[e.day_off] !== undefined) c[e.day_off]--; });
+  return c;
+}
+function schSpread(list) { const v = Object.values(schCover(list)); return Math.max(...v) - Math.min(...v); }
+function parseShiftJS(name) {
+  const s = String(name || "").replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)), re = /(\d{1,2})(?::(\d{2}))?\s*(am|pm|ص|م)?/gi, t = [];
+  let m;
+  while ((m = re.exec(s))) {
+    let h = +m[1]; const mi = +(m[2] || 0), ap = (m[3] || "").toLowerCase();
+    if (mi > 59) continue;
+    if (ap === "am" || ap === "ص") { if (h < 1 || h > 12) continue; h = h === 12 ? 0 : h; }
+    else if (ap === "pm" || ap === "م") { if (h < 1 || h > 12) continue; h = h === 12 ? 12 : h + 12; }
+    else { if (h > 24) continue; h %= 24; }
+    t.push(h * 60 + mi);
+  }
+  if (t.length < 2) return null;
+  return [t[0], t[1] <= t[0] ? t[1] + 1440 : t[1]];
+}
+const hhmmOf = m => { m = ((m % 1440) + 1440) % 1440; return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`; };
+const fmt12hm = v => { const [h, m] = v.split(":").map(Number), hh = h % 12 || 12; return `${hh}:${pad(m)} ${h >= 12 ? "م" : "ص"}`; };
+function schBreakOptions(shift, current) {
+  const p = parseShiftJS(shift), vals = [];
+  if (p) for (let t = p[0]; t <= p[1]; t += 30) vals.push(hhmmOf(t));
+  else for (let t = 0; t < 1440; t += 30) vals.push(hhmmOf(t));
+  const all = [...new Set(vals)];
+  if (current && !all.includes(current)) { all.push(current); all.sort(); }
+  return `<option value="">بدون بريك</option>` + all.map(v => `<option value="${v}" ${v === current ? "selected" : ""}>${fmt12hm(v)}</option>`).join("");
+}
+
+function schRow(e, all) {
+  const moves = all.filter(s => s !== e.shift).map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+  const dirty = S.sch.draft.get(e.id) || {};
+  return `<tr data-id="${e.id}" class="${S.sch.draft.has(e.id) ? "dirty" : ""}">
+    <td class="who"><b>${esc(e.name)}</b><small>${esc(e.employee_code || "")}</small></td>
+    <td class="c"><span class="tag ${e.employment_type === "FT" ? "brand" : ""}">${e.employment_type}</span></td>
+    <td><select class="sel f-off${dirty.day_off ? " chg" : ""}" aria-label="يوم الإجازة">${WEEKDAYS.map(d => `<option value="${d}" ${d === e.day_off ? "selected" : ""}>${WD_AR[d]}</option>`).join("")}</select></td>
+    <td><select class="sel f-bs${"break_start" in dirty ? " chg" : ""}" aria-label="ساعة البريك">${schBreakOptions(e.shift, e.break_start || "")}</select></td>
+    <td class="acts no-print"><button type="button" class="btn sm icon pin${e.off_locked ? " on" : ""}" data-pin title="${e.off_locked ? "يوم الإجازة مثبّت (التوزيع التلقائي مش هيغيّره). اضغط للإلغاء" : "ثبّت يوم الإجازة عشان التوزيع التلقائي ما يغيّروش"}" aria-pressed="${!!e.off_locked}"><svg class="i"><use href="#i-pin"/></svg></button><select class="sel tiny f-mv" aria-label="نقل لشيفت آخر"><option value="">نقل…</option>${moves}</select><button type="button" class="btn sm icon danger" data-del title="إزالة من الجدول" aria-label="إزالة ${esc(e.name)}"><svg class="i"><use href="#i-x"/></svg></button></td></tr>`;
+}
+function schHead(name, list) {
+  const sp = schSpread(list), c = schCover(list), v = WEEKDAYS.map(d => c[d]), mx = Math.max(...v), mn = Math.min(...v);
+  const strip = list.length ? `<div class="week-strip" title="عدد العاملين في كل يوم بعد خصم الإجازات">${WEEKDAYS.map(d => `<span class="ws${c[d] === 0 || (mx - mn > 1 && c[d] === mn) ? " low" : mx - mn > 1 && c[d] === mx ? " high" : ""}"><small>${WD_AR[d]}</small><b class="num">${c[d]}</b></span>`).join("")}</div>` : "";
+  return `<div class="shtop"><div><h4><bdi dir="ltr">${esc(name)}</bdi><span class="tag">${list.length} موظف</span>${list.length ? `<span class="tag ${sp <= 1 ? "ok" : "warn"}">${sp <= 1 ? "الإجازات موزّعة بالتساوي" : `فرق ${sp} بين أقل وأكثر يوم`}</span>` : ""}</h4></div>
+    <div class="row no-print"><button class="btn sm" data-sh="paste">لصق أسماء</button><button class="btn sm" data-sh="auto">وزّع هذا الشيفت</button><button class="btn sm" data-sh="rename">تعديل الاسم</button>${list.length ? "" : `<button class="btn sm danger" data-sh="delete">حذف الشيفت</button>`}</div></div>${strip}`;
+}
+function schTable(name, list, all) {
+  const q = S.sch.q.trim().toLowerCase();
+  const shown = q ? list.filter(e => `${e.name} ${e.employee_code}`.toLowerCase().includes(q)) : list;
+  if (!list.length) return `<div class="shempty">الشيفت فاضي. اكتب اسم موظف تحت واضغط Enter.</div>`;
+  return `<table class="sch"><thead><tr><th>الموظف</th><th>النوع</th><th>يوم الإجازة</th><th>ساعة البريك</th><th class="no-print"></th></tr></thead>
+    <tbody>${shown.map(e => schRow(e, all)).join("") || `<tr><td colspan="5" class="shempty">لا نتائج مطابقة في هذا الشيفت.</td></tr>`}</tbody></table>`;
+}
+function schCard(name, list, all) {
+  const q = S.sch.q.trim();
+  if (q && !list.some(e => `${e.name} ${e.employee_code}`.toLowerCase().includes(q.toLowerCase()))) return "";
+  const def = S.sch.defaults[name] || { type: "FT", day: "" };
+  return `<section class="shcard" data-shift="${esc(name)}"><header class="shhead">${schHead(name, list)}</header>
+    <div class="shwrap">${schTable(name, list, all)}</div>
+    <div class="pastebox hidden"><textarea class="inp paste-ta" placeholder="اسم في كل سطر. ممكن تلصق عمود من Excel. ولو كتبت PT بعد الاسم (تاب أو فاصلة) بيتسجل بارت تايم."></textarea><div class="row" style="margin-top:8px"><button class="btn primary sm paste-go">إضافة كل الأسماء</button><button class="btn sm paste-cancel">إلغاء</button></div></div>
+    <div class="addrow no-print"><input class="inp add-name" list="schNames" placeholder="اكتب اسم موظف واضغط Enter لإضافته" autocomplete="off" aria-label="اسم موظف جديد">
+      <select class="sel add-type" aria-label="النوع"><option value="FT" ${def.type === "FT" ? "selected" : ""}>Full Time</option><option value="PT" ${def.type === "PT" ? "selected" : ""}>Part Time</option></select>
+      <select class="sel add-day" aria-label="يوم الإجازة"><option value="">إجازة: تلقائي</option>${WEEKDAYS.map(d => `<option value="${d}" ${def.day === d ? "selected" : ""}>${WD_AR[d]}</option>`).join("")}</select>
+      <button class="btn primary add-go"><svg class="i"><use href="#i-plus"/></svg>إضافة</button></div></section>`;
+}
+function renderTotals(emps) {
+  const total = emps.length, off = {}; WEEKDAYS.forEach(d => off[d] = 0);
+  emps.forEach(e => { if (off[e.day_off] !== undefined) off[e.day_off]++; });
+  const today = schToday();
+  $("schTotals").innerHTML = WEEKDAYS.map(d => `<div class="dt${d === today ? " today" : ""}"><small>${WD_AR[d]}</small><strong class="num">${total - off[d]}</strong><span>إجازة: ${off[d]}</span></div>`).join("");
+}
+function renderSchedule() {
+  const D = S.sch.data; if (!D) return;
+  schSegCounts();
+  const groups = schGroups(), names = [...groups.keys()], emps = D.employees.map(schEmp);
+  $("schNames").innerHTML = emps.map(e => `<option value="${esc(e.name)}">${esc(e.shift)}</option>`).join("");
+  const scope = $("autoScope").value;
+  $("autoScope").innerHTML = `<option value="">كل شيفتات الفرع</option>` + names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  $("autoScope").value = names.includes(scope) ? scope : "";
+  $("schShifts").innerHTML = names.length ? names.map(n => schCard(n, groups.get(n), names)).join("") : `<div class="empty"><b>مفيش شيفتات في ${esc(S.sch.branch)} لسه</b>أضف أول شيفت من القسم اللي تحت، وبعدها ابدأ إضافة الموظفين.</div>`;
+  renderTotals(emps);
+  $("schPrintTitle").textContent = `جدول الشيفتات — ${S.sch.branch}`;
+  $("schPrintSub").textContent = new Date().toLocaleDateString("ar-EG-u-nu-latn", { day: "numeric", month: "long", year: "numeric" });
+}
+function schRefreshShift(name) {
+  const groups = schGroups(), list = groups.get(name), all = [...groups.keys()], card = findCard(name);
+  if (!card || !list) { renderSchedule(); return; }
+  qs(".shhead", card).innerHTML = schHead(name, list);
+  qs(".shwrap", card).innerHTML = schTable(name, list, all);
+  renderTotals(S.sch.data.employees.map(schEmp));
+}
+
+/* draft handling */
+function schSet(id, patch) {
+  const base = S.sch.base.get(id); if (!base) return;
+  const d = { ...(S.sch.draft.get(id) || {}), ...patch };
+  Object.keys(d).forEach(k => { if (String(d[k] ?? "") === String(base[k] ?? "")) delete d[k]; });
+  Object.keys(d).length ? S.sch.draft.set(id, d) : S.sch.draft.delete(id);
+}
+function updateSchSaveBar() {
+  const n = S.sch.draft.size;
+  $("schSaveBar").classList.toggle("hidden", n === 0);
+  $("schSaveMsg").textContent = `${n} موظف عليهم تعديلات لم تُحفظ بعد`;
+}
+async function schSave(silent = false) {
+  if (!S.sch.draft.size) return true;
+  const items = [...S.sch.draft].map(([id, d]) => {
+    const o = { id };
+    if (d.day_off) o.day_off = d.day_off;
+    if ("break_start" in d) o.break_start = d.break_start || "";
+    if ("break_min" in d) o.break_min = Number(d.break_min);
+    if ("off_locked" in d) o.off_locked = !!d.off_locked;
+    if (d.shift) o.shift = d.shift;
+    return o;
+  });
+  $("schSave").disabled = true;
+  try {
+    const r = await api("/api/schedule/apply", { method: "POST", body: { items } });
+    await loadSchedule();
+    refreshEmployees().then(schSegCounts).catch(() => {});
+    if (r.errors.length) { toast(`تعذر حفظ ${r.errors.length}: ${r.errors[0].name ? r.errors[0].name + " — " : ""}${r.errors[0].detail}`, "err"); return false; }
+    if (!silent) toast(`تم حفظ الجدول (${r.updated} موظف).`, "ok");
+    return true;
+  } catch (e) { toast(e.message, "err"); return false; }
+  finally { $("schSave").disabled = false; }
+}
+on("schSave", "click", () => schSave());
+on("schDiscard", "click", () => { if (!S.sch.draft.size || !confirm("تجاهل كل التعديلات غير المحفوظة في الجدول؟")) return; S.sch.draft.clear(); renderSchedule(); updateSchSaveBar(); });
+
+/* toolbar */
+on("schBranchSeg", "click", ev => {
+  const b = ev.target.closest("button"); if (!b || b.dataset.branch === S.sch.branch) return;
+  if (S.sch.draft.size && !confirm("عندك تغييرات لم تُحفظ في هذا الفرع. تجاهلها والانتقال؟")) return;
+  S.sch.branch = b.dataset.branch; S.sch.draft.clear(); updateSchSaveBar(); loadSchedule();
+});
+on("schSearch", "input", debounce(() => { S.sch.q = $("schSearch").value; renderSchedule(); }, 150));
+on("schExport", "click", () => download(`/api/schedule/export.csv?branch=${encodeURIComponent(S.sch.branch)}`, `bankai_schedule_${S.sch.branch.replace(" ", "")}.csv`).catch(e => toast(e.message, "err")));
+on("schPrint", "click", () => window.print());
+
+/* one-click day off, pin, move, remove, break edits (event delegation) */
+on("schShifts", "click", async ev => {
+  const t = ev.target, card = t.closest(".shcard"); if (!card) return;
+  const name = card.dataset.shift, tr = t.closest("tr[data-id]");
+  const day = t.closest("[data-d]");
+  if (day && tr) { schSet(+tr.dataset.id, { day_off: day.dataset.d, off_locked: true }); schRefreshShift(name); updateSchSaveBar(); return; }
+  if (t.closest("[data-pin]") && tr) {
+    const id = +tr.dataset.id, e = schEmp(S.sch.base.get(id));
+    schSet(id, { off_locked: !e.off_locked }); schRefreshShift(name); updateSchSaveBar(); return;
+  }
+  if (t.closest("[data-del]") && tr) {
+    const id = +tr.dataset.id, e = S.sch.base.get(id);
+    if (!confirm(`إزالة «${e.name}» من الجدول؟ هيتوقف مع الاحتفاظ بسجل حضوره، وتقدر تفعّله من صفحة الموظفين.`)) return;
+    try {
+      await api(`/api/employees/${id}`, { method: "DELETE" });
+      S.sch.data.employees = S.sch.data.employees.filter(x => x.id !== id); S.sch.base.delete(id); S.sch.draft.delete(id);
+      renderSchedule(); updateSchSaveBar(); toast(`تمت إزالة ${e.name}.`, "ok");
+      refreshEmployees().then(schSegCounts).catch(() => {});
+    } catch (err) { toast(err.message, "err"); }
+    return;
+  }
+  if (t.closest(".add-go")) { schAddFromRow(card); return; }
+  const sh = t.closest("[data-sh]");
+  if (sh) { schShiftAction(sh.dataset.sh, name, card); return; }
+  if (t.closest(".paste-cancel")) { qs(".pastebox", card).classList.add("hidden"); return; }
+  if (t.closest(".paste-go")) { schPasteAdd(card); }
+});
+on("schShifts", "change", ev => {
+  const t = ev.target, card = t.closest(".shcard"); if (!card) return;
+  const name = card.dataset.shift, tr = t.closest("tr[data-id]");
+  if (t.classList.contains("add-type") || t.classList.contains("add-day")) { S.sch.defaults[name] = { type: qs(".add-type", card).value, day: qs(".add-day", card).value }; return; }
+  if (!tr) return;
+  const id = +tr.dataset.id;
+  if (t.classList.contains("f-off")) { schSet(id, { day_off: t.value, off_locked: true }); schRefreshShift(name); }
+  else if (t.classList.contains("f-bs")) { schSet(id, { break_start: t.value, break_min: Number(S.sch.base.get(id).break_min) || 60 }); schRefreshShift(name); }
+  else if (t.classList.contains("f-bm")) { schSet(id, { break_min: Number(t.value) }); schRefreshShift(name); }
+  else if (t.classList.contains("f-mv") && t.value) { schSet(id, { shift: t.value }); renderSchedule(); }
+  updateSchSaveBar();
+});
+on("schShifts", "keydown", ev => {
+  if (ev.key === "Enter" && ev.target.classList.contains("add-name")) { ev.preventDefault(); schAddFromRow(ev.target.closest(".shcard")); }
+});
+
+/* add people inline: type name + Enter, the field stays focused for the next one */
+function schUpsert(emp) {
+  const arr = S.sch.data.employees, i = arr.findIndex(x => x.id === emp.id);
+  if (i >= 0) arr[i] = emp; else arr.push(emp);
+  S.sch.base.set(emp.id, emp); S.sch.draft.delete(emp.id);
+  arr.sort((a, b) => a.name.localeCompare(b.name, "ar"));
+}
+async function schAdd(card, items, restore) {
+  const shift = card.dataset.shift;
+  try {
+    const r = await api("/api/schedule/add", { method: "POST", body: { branch: S.sch.branch, shift, items } });
+    r.employees.forEach(schUpsert);
+    renderSchedule(); updateSchSaveBar();
+    const nc = findCard(shift); if (nc) { const f = qs(".add-name", nc); f.focus(); nc.querySelector(".addrow").scrollIntoView({ block: "nearest" }); }
+    const same = r.notes.filter(n => n.type === "same").length, moved = r.notes.filter(n => n.type === "moved"), react = r.notes.filter(n => n.type === "reactivated").length;
+    const bits = [];
+    if (r.created) bits.push(r.created === 1 ? `تمت إضافة ${r.notes.find(n => n.type === "created").name}` : `تمت إضافة ${r.created} موظف`);
+    if (moved.length) bits.push(moved.length === 1 ? `تم نقل ${moved[0].name} من «${moved[0].from}»` : `تم نقل ${moved.length} موظف من شيفتات أخرى`);
+    if (react) bits.push(`تم تفعيل ${react} موظف موقوف`);
+    if (same) bits.push(`${same} موجود بالفعل في الشيفت`);
+    toast(bits.join(" · ") || "لا تغييرات", same && !r.created && !moved.length && !react ? "" : "ok");
+    refreshEmployees().then(schSegCounts).catch(() => {});
+  } catch (e) { toast(e.message, "err"); if (restore) restore(); }
+}
+function schAddFromRow(card) {
+  const input = qs(".add-name", card), name = input.value.trim();
+  if (!name) { input.focus(); return; }
+  const type = qs(".add-type", card).value, day = qs(".add-day", card).value;
+  S.sch.defaults[card.dataset.shift] = { type, day };
+  input.value = "";
+  schAdd(card, [{ name, employment_type: type, day_off: day || null }], () => { input.value = name; input.focus(); });
+}
+function schPasteAdd(card) {
+  const ta = qs(".paste-ta", card), type = qs(".add-type", card).value, day = qs(".add-day", card).value;
+  const items = ta.value.split(/\r?\n/).map(l => l.split(/\t|,|،|;/).map(x => x.trim())).filter(c => c[0])
+    .map(c => ({ name: c[0], employment_type: /^(pt|part)/i.test(c[1] || "") || /جزئي/.test(c[1] || "") ? "PT" : /^(ft|full)/i.test(c[1] || "") ? "FT" : type, day_off: day || null }));
+  if (!items.length) { toast("الصق اسم واحد على الأقل.", "err"); return; }
+  schAdd(card, items, null).then(() => { const nc = findCard(card.dataset.shift); if (nc) qs(".pastebox", nc).classList.add("hidden"); });
+}
+
+/* shift header actions */
+async function schShiftAction(act, name, card) {
+  if (act === "paste") { const pb = qs(".pastebox", card); pb.classList.toggle("hidden"); if (!pb.classList.contains("hidden")) qs(".paste-ta", card).focus(); return; }
+  if (act === "auto") { openAuto(name); return; }
+  if (act === "rename") {
+    const nn = (prompt("اسم الشيفت الجديد (مثال: 8 AM - 4 PM)", name) || "").trim();
+    if (!nn || nn === name) return;
+    try {
+      await api("/api/schedule/shifts/rename", { method: "POST", body: { branch: S.sch.branch, old: name, new: nn } });
+      await loadSchedule(true); refreshEmployees().catch(() => {}); toast("تم تعديل اسم الشيفت.", "ok");
+    } catch (e) { toast(e.message, "err"); }
+    return;
+  }
+  if (act === "delete") {
+    if (!confirm(`حذف الشيفت «${name}»؟`)) return;
+    try { await api(`/api/schedule/shifts?branch=${encodeURIComponent(S.sch.branch)}&name=${encodeURIComponent(name)}`, { method: "DELETE" }); await loadSchedule(true); toast("تم حذف الشيفت.", "ok"); }
+    catch (e) { toast(e.message, "err"); }
+  }
+}
+const fmt12 = t => { const [h, m] = t.split(":").map(Number), hh = h % 12 || 12; return `${hh}${m ? ":" + String(m).padStart(2, "0") : ""} ${h >= 12 ? "PM" : "AM"}`; };
+on("nsAdd", "click", async () => {
+  const from = $("nsFrom").value, to = $("nsTo").value, custom = $("nsName").value.trim();
+  const name = custom || (from && to ? `${fmt12(from)} - ${fmt12(to)}` : "");
+  if (!name) { toast("اختر وقت البداية والنهاية أو اكتب اسم الشيفت.", "err"); return; }
+  try {
+    await api("/api/schedule/shifts", { method: "POST", body: { branch: S.sch.branch, name } });
+    $("nsName").value = ""; await loadSchedule(true); toast(`تم إضافة الشيفت ${name}. اكتب أسماء الموظفين فيه.`, "ok");
+    const c = findCard(name); if (c) { c.scrollIntoView({ block: "center", behavior: "smooth" }); qs(".add-name", c).focus({ preventScroll: true }); }
+  } catch (e) { toast(e.message, "err"); }
+});
+
+/* auto distribution */
+function openAuto(scope) {
+  $("schAutoPanel").classList.remove("hidden");
+  $("autoScope").value = scope || "";
+  $("autoHint").textContent = "";
+  $("schAutoPanel").scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+on("schAutoBtn", "click", () => $("schAutoPanel").classList.contains("hidden") ? openAuto("") : $("schAutoPanel").classList.add("hidden"));
+on("schAutoClose", "click", () => $("schAutoPanel").classList.add("hidden"));
+on("autoRun", "click", async () => {
+  const days = qsa("#autoDays input:checked").map(i => i.value);
+  if ($("autoOff").checked && !days.length) { toast("اختر يوم واحد على الأقل متاح للإجازة.", "err"); return; }
+  if (!$("autoOff").checked && !$("autoBreaks").checked) { toast("اختر توزيع الإجازات أو البريك.", "err"); return; }
+  if (S.sch.draft.size && !(await schSave(true))) return;
+  const btn = $("autoRun"); btn.disabled = true;
+  try {
+    const r = await api("/api/schedule/auto", { method: "POST", body: {
+      branch: S.sch.branch, shift: $("autoScope").value || null, include_locked: $("autoLocked").checked, allowed_days: days,
+      distribute_off: $("autoOff").checked, distribute_breaks: $("autoBreaks").checked, overwrite_breaks: $("autoOverwrite").checked, break_min: Number($("autoBreakMin").value) } });
+    r.changes.forEach(c => {
+      const p = {};
+      if (c.day_off) p.day_off = c.day_off;
+      if (c.break_start) { p.break_start = c.break_start; p.break_min = c.break_min; }
+      schSet(c.id, p);
+    });
+    renderSchedule(); updateSchSaveBar();
+    const parts = [];
+    if (r.off_changed) parts.push(`${r.off_changed} تغيير في الإجازات`);
+    if (r.break_changed) parts.push(`${r.break_changed} في البريك`);
+    $("autoHint").innerHTML = (r.changes.length ? `تم اقتراح ${parts.join(" و")}. راجع الجدول (الخانات اللي اتغيّرت بإطار أزرق) وبعدين اضغط «حفظ الجدول».` : (r.employees ? "الجدول متوزّع بالفعل ومفيش حاجة محتاجة تتغيّر." : "مفيش موظفين في النطاق ده.")) + r.warnings.map(w => `<br><span style="color:var(--warn)">${esc(w)}</span>`).join("");
+    if (r.changes.length) toast("تم اقتراح التوزيع. راجعه واحفظ.", "ok");
+  } catch (e) { toast(e.message, "err"); }
+  finally { btn.disabled = false; }
+});
 
 /* ============================== settings ============================== */
 async function loadSettings() {
