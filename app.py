@@ -1251,15 +1251,93 @@ def parse_break_time(raw, start=None, end=None):
     return f"{h:02d}:{mi:02d}"
 
 
+import zipfile
+import xml.etree.ElementTree as ET
+from collections import namedtuple
+
+_XNS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+_RNS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+_XCell = namedtuple("XCell", "value")
+
+
+class _XSheet:
+    def __init__(self, title, cells):
+        self.title, self.cells = title, cells
+        self.max_row = max((r for r, _ in cells), default=0)
+        self.max_column = max((c for _, c in cells), default=0)
+
+    def cell(self, r, c):
+        return _XCell(self.cells.get((r, c)))
+
+
+def _col_index(letters):
+    n = 0
+    for ch in letters:
+        n = n * 26 + ord(ch) - 64
+    return n
+
+
+def _col_letter(n):
+    out = ""
+    while n:
+        n, rem = divmod(n - 1, 26)
+        out = chr(65 + rem) + out
+    return out
+
+
+def read_xlsx(data):
+    """قارئ xlsx بالمكتبة القياسية فقط (من غير openpyxl) — يرجّع شيتات بقيمها."""
+    try:
+        z = zipfile.ZipFile(io.BytesIO(data))
+        if sum(i.file_size for i in z.infolist()) > 60_000_000:
+            raise ValueError("too big")
+        wb = ET.fromstring(z.read("xl/workbook.xml"))
+        rels = {r.get("Id"): r.get("Target") for r in ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))}
+        shared = []
+        if "xl/sharedStrings.xml" in z.namelist():
+            for si in ET.fromstring(z.read("xl/sharedStrings.xml")).iter(_XNS + "si"):
+                txt = []
+                for ch in si:
+                    if ch.tag == _XNS + "t":
+                        txt.append(ch.text or "")
+                    elif ch.tag == _XNS + "r":
+                        txt.extend(t.text or "" for t in ch if t.tag == _XNS + "t")
+                shared.append("".join(txt))
+        sheets = []
+        for sh in wb.iter(_XNS + "sheet"):
+            target = rels[sh.get(_RNS + "id")].lstrip("/")
+            path = target if target.startswith("xl/") else "xl/" + target
+            cells = {}
+            for c in ET.fromstring(z.read(path)).iter(_XNS + "c"):
+                m = re.match(r"([A-Z]+)(\d+)$", c.get("r") or "")
+                if not m:
+                    continue
+                t, v = c.get("t"), c.find(_XNS + "v")
+                if t == "inlineStr":
+                    val = "".join(x.text or "" for x in c.iter(_XNS + "t"))
+                elif v is None or v.text is None:
+                    continue
+                elif t == "s":
+                    val = shared[int(v.text)]
+                elif t in ("str", "e"):
+                    val = v.text
+                elif t == "b":
+                    val = "TRUE" if v.text == "1" else "FALSE"
+                else:
+                    f = float(v.text)
+                    val = int(f) if f == int(f) else f
+                cells[(int(m.group(2)), _col_index(m.group(1)))] = val
+            sheets.append(_XSheet(sh.get("name") or "Sheet", cells))
+        return sheets
+    except Exception:
+        raise HTTPException(400, "الملف مش Excel (.xlsx) صالح. احفظه من Excel بصيغة .xlsx وحاول تاني.")
+
+
 def parse_schedule_workbook(data):
     """يقرأ الشيت (عمودين/بلوكين: FULL TIME + PART TIME أو أي ترتيب) ويرجّع صفوف خام + ملاحظات."""
-    try:
-        import openpyxl
-        wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
-    except Exception:
-        raise HTTPException(400, "الملف مش Excel (.xlsx) صالح")
+    sheets_ = read_xlsx(data)
     rows, notes, used = [], [], []
-    for ws in wb.worksheets:
+    for ws in sheets_:
         hdr_row, hdr = None, {}
         for r in range(1, min(ws.max_row, 15) + 1):
             found = {c: _HDR(ws.cell(r, c).value) for c in range(1, ws.max_column + 1)}
@@ -1298,7 +1376,7 @@ def parse_schedule_workbook(data):
             if content and any(cols.get(k) != v for k, v in content.items()):
                 label = {"shift": "SHIFT", "break": "BREAK", "day": "DAY OFF"}
                 notes.append(f"عناوين الأعمدة في الشيت مش مطابقة للمحتوى ({ws.title}) — اتقرا حسب القيم الفعلية: "
-                             + "، ".join(f"عمود {openpyxl.utils.get_column_letter(v)} = {label[k]}" for k, v in sorted(content.items(), key=lambda x: x[1])))
+                             + "، ".join(f"عمود {_col_letter(v)} = {label[k]}" for k, v in sorted(content.items(), key=lambda x: x[1])))
                 cols = {**{k: v for k, v in cols.items() if k == "type"}, **content}
             blocks.append({"name": c, "type": _NAME_HDR[hdr[c]], "cols": cols})
         used.append(ws.title)
