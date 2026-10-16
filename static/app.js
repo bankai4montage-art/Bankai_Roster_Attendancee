@@ -1112,7 +1112,7 @@ function simpRender() {
   const s = p.summary;
   $("schImpMismatch").classList.toggle("hidden", !p.branch_mismatch);
   if (p.branch_mismatch) $("schImpMismatch").innerHTML = `الملف باين إنه لفرع <b>${esc(p.branch_hint)}</b> لكن انت واقف على <b>${esc(p.branch)}</b>.<label><input type="checkbox" id="simpAck" ${m.ack ? "checked" : ""}> متأكد، استورد في ${esc(p.branch)}</label>`;
-  const notes = (p.notes || []).map(n => `<div class="imp-note">ℹ️ ${esc(n)}</div>`).join("");
+  const notes = (p.notes || []).map(n => `<div class="imp-note"><svg class="i"><use href="#i-info"/></svg>${esc(n)}</div>`).join("");
   const chips = [["", "الكل", p.items.length], ["create", "جديد", s.create], ["update", "تعديل", s.update], ["same", "بدون تغيير", s.same], ["review", "مراجعة", s.review], ["skip", "متخطّى", s.skip]]
     .filter(([k, , n]) => !k || n);
   const rows = p.items.filter(i => !m.filter || i.status === m.filter);
