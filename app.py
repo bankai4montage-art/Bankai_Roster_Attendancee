@@ -24,6 +24,8 @@ from starlette.background import BackgroundTask
 APP_NAME = "Bankai Roster & Attendance"
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./bankai.db")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "ChangeThisPassword123!")
+# كلمة مرور المشرفين: مشاهدة كل حاجة + تعديل الحضور اليومي فقط. فاضية = الخاصية مقفولة.
+SUPERVISOR_PASSWORD = os.getenv("SUPERVISOR_PASSWORD", "")
 # المفتاح السري لتوقيع جلسات الدخول. لو مش متحدد بيتولد من كلمة المرور فتفضل الجلسات شغالة بعد إعادة التشغيل.
 SECRET_KEY = (os.getenv("SECRET_KEY") or os.getenv("ADMIN_TOKEN")
               or hashlib.sha256(("bankai|" + ADMIN_PASSWORD).encode()).hexdigest())
@@ -132,23 +134,37 @@ def _sign(payload: str) -> str:
     return hmac.new(SECRET_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
 
-def make_token() -> str:
+def make_token(role: str) -> str:
     exp = str(int(time.time()) + TOKEN_TTL_SECONDS)
-    return f"{exp}.{_sign(exp)}"
+    return f"{role}.{exp}.{_sign(role + '|' + exp)}"
+
+
+def token_role(token: str) -> Optional[str]:
+    """يرجع الدور (admin/supervisor) لو التوكن سليم، وإلا None. التوكنات القديمة (بدون دور) بتبقى غير صالحة."""
+    try:
+        role, exp, sig = token.split(".", 2)
+        if role not in ("admin", "supervisor"):
+            return None
+        return role if (hmac.compare_digest(sig, _sign(role + "|" + exp)) and int(exp) > time.time()) else None
+    except Exception:
+        return None
 
 
 def valid_token(token: str) -> bool:
-    try:
-        exp, sig = token.split(".", 1)
-        return hmac.compare_digest(sig, _sign(exp)) and int(exp) > time.time()
-    except Exception:
-        return False
+    return token_role(token) is not None
 
 
 def require_auth(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    if not credentials or not valid_token(credentials.credentials):
+    role = token_role(credentials.credentials) if credentials else None
+    if not role:
         raise HTTPException(status_code=401, detail="جلسة الدخول غير صالحة. سجّل الدخول مرة أخرى.")
-    return True
+    return role
+
+
+def require_admin(role: str = Depends(require_auth)):
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="العملية دي متاحة للأدمن فقط.")
+    return role
 
 
 _login_state: Dict[str, List[float]] = {}  # ip -> [failed_count, locked_until]
@@ -332,7 +348,11 @@ def login(data: LoginIn, request: Request):
     if locked_until > now:
         minutes = int((locked_until - now) // 60) + 1
         raise HTTPException(429, f"محاولات كثيرة خاطئة. حاول مرة أخرى بعد {minutes} دقيقة.")
-    if not secrets.compare_digest(data.password.encode(), ADMIN_PASSWORD.encode()):
+    if secrets.compare_digest(data.password.encode(), ADMIN_PASSWORD.encode()):
+        role = "admin"
+    elif SUPERVISOR_PASSWORD and secrets.compare_digest(data.password.encode(), SUPERVISOR_PASSWORD.encode()):
+        role = "supervisor"
+    else:
         fails += 1
         if fails >= MAX_FAILS:
             _login_state[ip] = [0, now + LOCK_SECONDS]
@@ -340,12 +360,12 @@ def login(data: LoginIn, request: Request):
             _login_state[ip] = [fails, 0.0]
         raise HTTPException(401, "كلمة المرور غير صحيحة")
     _login_state.pop(ip, None)
-    return {"token": make_token(), "message": "تم تسجيل الدخول"}
+    return {"token": make_token(role), "role": role, "message": "تم تسجيل الدخول"}
 
 
 @app.get("/api/me")
-def me(_: bool = Depends(require_auth)):
-    return {"app": APP_NAME, "authenticated": True}
+def me(role: str = Depends(require_auth)):
+    return {"app": APP_NAME, "authenticated": True, "role": role}
 
 
 # ---------------------------------------------------------------- settings
@@ -355,7 +375,7 @@ def read_settings(_: bool = Depends(require_auth), db: Session = Depends(get_db)
 
 
 @app.put("/api/settings")
-def update_settings(data: SettingsIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def update_settings(data: SettingsIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
     for key, value in (("fine_late", data.fine_late), ("fine_absent", data.fine_absent)):
         row = db.query(Setting).filter(Setting.key == key).first()
         if row:
@@ -379,7 +399,7 @@ def list_employees(branch: Optional[str] = None, active_only: bool = False,
 
 
 @app.post("/api/employees")
-def create_employee(data: EmployeeIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def create_employee(data: EmployeeIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
     check_employee_values(data.branch, data.employment_type, data.day_off)
     code = (data.employee_code or "").strip() or None
     if code and db.query(Employee).filter(Employee.employee_code == code).first():
@@ -394,7 +414,7 @@ def create_employee(data: EmployeeIn, _: bool = Depends(require_auth), db: Sessi
 
 
 @app.put("/api/employees/{employee_id}")
-def update_employee(employee_id: int, data: EmployeeIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def update_employee(employee_id: int, data: EmployeeIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
     e = db.query(Employee).filter(Employee.id == employee_id).first()
     if not e:
         raise HTTPException(404, "الموظف غير موجود")
@@ -416,7 +436,7 @@ def update_employee(employee_id: int, data: EmployeeIn, _: bool = Depends(requir
 
 
 @app.delete("/api/employees/{employee_id}")
-def delete_employee(employee_id: int, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def delete_employee(employee_id: int, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
     e = db.query(Employee).filter(Employee.id == employee_id).first()
     if not e:
         raise HTTPException(404, "الموظف غير موجود")
@@ -427,7 +447,7 @@ def delete_employee(employee_id: int, _: bool = Depends(require_auth), db: Sessi
 
 
 @app.post("/api/employees/bulk")
-def bulk_employees(data: BulkEmployeesIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def bulk_employees(data: BulkEmployeesIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
     if not data.ids:
         raise HTTPException(400, "لم يتم تحديد أي موظف")
     if len(data.ids) > 2000:
@@ -464,7 +484,7 @@ def bulk_employees(data: BulkEmployeesIn, _: bool = Depends(require_auth), db: S
 
 
 @app.post("/api/employees/import")
-def import_employees(data: ImportIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def import_employees(data: ImportIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
     if not data.rows:
         raise HTTPException(400, "الملف فاضي")
     if len(data.rows) > 5000:
@@ -980,7 +1000,7 @@ def get_schedule(branch: str, _: bool = Depends(require_auth), db: Session = Dep
 
 
 @app.post("/api/schedule/shifts")
-def create_shift(data: ShiftIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def create_shift(data: ShiftIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
     _check_branch(data.branch)
     name = data.name.strip()
     if not name:
@@ -992,7 +1012,7 @@ def create_shift(data: ShiftIn, _: bool = Depends(require_auth), db: Session = D
 
 
 @app.delete("/api/schedule/shifts")
-def delete_shift(branch: str, name: str, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def delete_shift(branch: str, name: str, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
     _check_branch(branch)
     if db.query(Employee).filter(Employee.branch == branch, Employee.shift == name, Employee.active.is_(True)).count():
         raise HTTPException(400, "الشيفت فيه موظفين. انقلهم لشيفت آخر أو أوقفهم أولًا.")
@@ -1002,7 +1022,7 @@ def delete_shift(branch: str, name: str, _: bool = Depends(require_auth), db: Se
 
 
 @app.post("/api/schedule/shifts/rename")
-def rename_shift(data: ShiftRenameIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def rename_shift(data: ShiftRenameIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
     _check_branch(data.branch)
     new = data.new.strip()
     if not new:
@@ -1018,7 +1038,7 @@ def rename_shift(data: ShiftRenameIn, _: bool = Depends(require_auth), db: Sessi
 
 
 @app.post("/api/schedule/add")
-def schedule_add(data: ScheduleAddIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def schedule_add(data: ScheduleAddIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
     _check_branch(data.branch)
     shift = data.shift.strip()
     if not shift:
@@ -1069,7 +1089,7 @@ def schedule_add(data: ScheduleAddIn, _: bool = Depends(require_auth), db: Sessi
 
 
 @app.post("/api/schedule/apply")
-def schedule_apply(data: ScheduleApplyIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def schedule_apply(data: ScheduleApplyIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
     if not data.items:
         raise HTTPException(400, "لا توجد تغييرات للحفظ")
     if len(data.items) > 2000:
@@ -1106,7 +1126,7 @@ def schedule_apply(data: ScheduleApplyIn, _: bool = Depends(require_auth), db: S
 
 
 @app.post("/api/schedule/auto")
-def schedule_auto(data: ScheduleAutoIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def schedule_auto(data: ScheduleAutoIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
     """يقترح توزيع إجازات (متوازن على أيام الأسبوع داخل كل شيفت) وبريكات متدرّجة. مابيحفظش حاجة — الواجهة بتعرض الاقتراح وانت تحفظ."""
     _check_branch(data.branch)
     allowed = [d for d in WEEKDAYS if d in data.allowed_days]
@@ -1570,7 +1590,7 @@ class ScheduleImportIn(BaseModel):
 
 
 @app.post("/api/schedule/import")
-def schedule_import(data: ScheduleImportIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def schedule_import(data: ScheduleImportIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
     _check_branch(data.branch)
     try:
         raw = base64.b64decode(data.file_b64, validate=False)
@@ -1641,7 +1661,7 @@ def schedule_import(data: ScheduleImportIn, _: bool = Depends(require_auth), db:
 
 # ---------------------------------------------------------------- backup
 @app.get("/api/backup")
-def backup(_: bool = Depends(require_auth)):
+def backup(_: bool = Depends(require_admin)):
     if not DATABASE_URL.startswith("sqlite"):
         raise HTTPException(400, "النسخ الاحتياطي المباشر متاح لقاعدة SQLite فقط")
     path = DATABASE_URL.replace("sqlite:///", "", 1)
