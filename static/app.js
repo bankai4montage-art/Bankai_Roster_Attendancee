@@ -179,7 +179,7 @@ function showPage(p) {
   $("pageTitle").textContent = PAGES[p];
   document.title = `${PAGES[p]} — Bankai`;
   window.scrollTo(0, 0);
-  if (p === "dashboard") loadDashboard();
+  if (p === "dashboard") { loadDashboard(); restartFeedTimer(); } else stopFeedTimer();
   if (p === "attendance") { syncAttControls(); loadRoster(); }
   if (p === "schedule") loadSchedulePage();
   if (p === "employees") { renderEmployees(); }
@@ -199,6 +199,12 @@ document.addEventListener("click", ev => {
   const h = ev.target.closest("[data-hist]");
   if (h) openHistory(+h.dataset.hist);
 });
+
+on("navSearch", "input", debounce(() => {
+  const q = $("navSearch").value.trim();
+  S.emp.q = q; if ($("empSearch")) $("empSearch").value = q;
+  if (S.page !== "employees") showPage("employees"); else empRedraw();
+}, 300));
 
 async function init() {
   try {
@@ -232,7 +238,16 @@ function renderDashboard(d) {
     ["متأخر", t.late, "warn", { date, status: "Late" }], ["غائب", t.absent, "bad", { date, status: "Absent" }],
     ["بعذر", t.excused, "info", { date, status: "Excused" }], ["لم يُسجل", t.unmarked, "", { date, status: "none" }],
   ];
-  $("dashKpis").innerHTML = kp.map(([l, v, c, go]) => `<button class="kpi ${c}" data-go="${esc(JSON.stringify(go))}"><span>${l}</span><strong class="num">${v}</strong></button>`).join("");
+  const pct = v => t.scheduled ? Math.round(v * 100 / t.scheduled) : 0;
+  const kd = {
+    "مجدولون اليوم": ["flat", `${d.active_total} نشط`],
+    "حاضر": [t.present >= t.scheduled * .8 ? "up" : "flat", pct(t.present) + "%"],
+    "متأخر": [t.late ? "down" : "flat", t.late ? pct(t.late) + "%" : "ممتاز"],
+    "غائب": [t.absent ? "down" : "flat", t.absent ? pct(t.absent) + "%" : "ممتاز"],
+    "بعذر": ["flat", pct(t.excused) + "%"],
+    "لم يُسجل": [t.unmarked ? "down" : "flat", pct(t.unmarked) + "%"],
+  };
+  $("dashKpis").innerHTML = kp.map(([l, v, c, go]) => { const [k, kt] = kd[l] || ["flat", ""]; return `<button class="kpi ${c}" data-go="${esc(JSON.stringify(go))}"><span class="kl">${l}</span><span class="kv num">${v}</span><span class="kd ${k}">${kt}</span></button>`; }).join("");
   $("dashNote").innerHTML = `<span>غرامات اليوم: <b>${money(t.fines)}</b></span><span>في إجازة اليوم: <b class="num">${d.off_today}</b> موظف</span><span>إجمالي الموظفين النشطين: <b class="num">${d.active_total}</b></span>`;
   $("dashBranches").innerHTML = Object.entries(d.branches).map(([name, b]) => branchPanel(name, b, date)).join("");
   renderTrend(d.trend, date);
@@ -240,6 +255,33 @@ function renderDashboard(d) {
     ? `<table class="mini-tbl"><thead><tr><th>الموظف</th><th>غياب</th><th>تأخير</th><th>غرامات</th></tr></thead><tbody>${d.watchlist.map(w => `<tr data-hist="${w.id}" style="cursor:pointer"><td><b>${esc(w.name)}</b><br><small class="muted">${esc(w.branch)} · ${sh(w.shift)}</small></td><td class="num">${w.absent}</td><td class="num">${w.late}</td><td class="num">${w.fines ? num(w.fines) : "—"}</td></tr>`).join("")}</tbody></table>`
     : `<p class="muted" style="padding:20px 0">مفيش غياب أو تأخير مسجل في آخر 30 يوم.</p>`;
 }
+
+/* ===== live activity feed (dashboard) ===== */
+let feedTimer = null;
+function relTime(iso) {
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return "الآن";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `منذ ${m} ${m === 1 ? "دقيقة" : m === 2 ? "دقيقتين" : "دقائق"}`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `منذ ${h} ${h === 1 ? "ساعة" : h === 2 ? "ساعتين" : "ساعات"}`;
+  return fmtDay(iso.slice(0, 10), { day: "numeric", month: "short" });
+}
+async function loadFeed() {
+  const el = $("liveFeed"); if (!el || S.page !== "dashboard") return;
+  try {
+    const r = await api(`/api/roster?attendance_date=${S.dash.date}`);
+    const rows = (r.employees || []).filter(e => e.attendance && e.attendance.status && e.attendance.updated_at)
+      .sort((a, b) => new Date(b.attendance.updated_at) - new Date(a.attendance.updated_at)).slice(0, 8);
+    const AV = { Present: "linear-gradient(135deg,#0e9f6e,#34d399)", Late: "linear-gradient(135deg,#d97706,#f0b429)", Absent: "linear-gradient(135deg,#e02424,#f87171)", Excused: "linear-gradient(135deg,#0284c7,#38bdf8)" };
+    el.innerHTML = rows.length ? rows.map(e => {
+      const a = e.attendance, lbl = (ST[a.status] || [a.status])[0];
+      return `<div class="feed-row"><div class="feed-ava" style="background:${AV[a.status] || "#94a3b8"}">${esc(e.name.trim()[0] || "؟")}</div><div class="who"><b>${esc(e.name)}</b><small>سجّل ${lbl} — ${esc(e.branch || "")}</small></div><span class="feed-tm">${relTime(a.updated_at)}</span></div>`;
+    }).join("") : `<div class="empty">لا توجد تسجيلات بعد اليوم</div>`;
+  } catch (e) { /* keep old feed on error */ }
+}
+function restartFeedTimer() { stopFeedTimer(); loadFeed(); feedTimer = setInterval(loadFeed, 30000); }
+function stopFeedTimer() { if (feedTimer) { clearInterval(feedTimer); feedTimer = null; } }
 
 function branchPanel(name, b, date) {
   const done = b.scheduled - b.unmarked, pct = b.scheduled ? Math.round(done * 100 / b.scheduled) : 0;
