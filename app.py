@@ -1677,3 +1677,12 @@ def backup(_: bool = Depends(require_admin)):
     name = f"bankai_backup_{utcnow().strftime('%Y%m%d_%H%M')}.db"
     return FileResponse(tmp.name, filename=name, media_type="application/octet-stream",
                         background=BackgroundTask(os.remove, tmp.name))
+
+
+# ---------------------------------------------------------------- danger zone (admin only)
+@app.post("/api/admin/wipe-attendance")
+def wipe_attendance(_: str = Depends(require_admin), db: Session = Depends(get_db)):
+    """مسح سجل الحضور بالكامل (الموظفين والإعدادات والجدول بيفضلوا زي ما هما)."""
+    n = db.query(Attendance).delete(synchronize_session=False)
+    db.commit()
+    return {"deleted": n, "message": f"تم مسح {n} تسجيلة حضور. السجل بقى فاضي."}
