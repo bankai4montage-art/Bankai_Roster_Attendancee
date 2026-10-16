@@ -1349,6 +1349,18 @@ on("setBackup", "click", async () => {
   try { await download("/api/backup", `bankai_backup_${todayISO()}.db`); toast("تم تنزيل النسخة الاحتياطية.", "ok"); }
   catch (e) { toast(e.message, "err"); }
 });
+on("setWipeAtt", "click", async () => {
+  if (!confirm("هتمسح سجل الحضور بالكامل (كل التسجيلات والغرامات المسجلة). الموظفين والجدول والإعدادات هيفضلوا زي ما هما. متأكد؟")) return;
+  const word = prompt("خطوة أخيرة: اكتب كلمة «مسح» عشان تأكّد المسح النهائي.");
+  if (word !== "مسح") { if (word !== null) toast("الكلمة غير مطابقة — ما اتمسحش حاجة.", "err"); return; }
+  try {
+    const r = await api("/api/admin/wipe-attendance", { method: "POST" });
+    toast(r.message || "تم مسح سجل الحضور.", "ok");
+    if (S.page === "dashboard") loadDashboard();
+    else if (S.page === "reports" && $("repStart").value) runReport();
+    else if (S.page === "attendance") loadRoster();
+  } catch (e) { toast(e.message, "err"); }
+});
 on("setExportEmp", "click", () => download("/api/employees/export.csv", "bankai_employees.csv").catch(e => toast(e.message, "err")));
 
 /* ============================== boot ============================== */
