@@ -3,16 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#05070d">
+  <meta name="theme-color" content="#0f2747">
   <script>try{var t=localStorage.getItem("bankai-theme");if(!t)t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.dataset.theme=t}catch(e){}</script>
   <title>Bankai — الروستر والحضور</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700;800;900&display=swap">
-  <link rel="stylesheet" href="/static/style.css?v=10">
+  <link rel="stylesheet" href="/static/style.css?v=12">
 </head>
 <body>
-<canvas id="aurora" aria-hidden="true"></canvas>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
   <defs>
     <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></symbol>
@@ -59,30 +58,36 @@
 
 <!-- ===================== APP ===================== -->
 <div id="appView" class="app-shell hidden">
-  <aside class="sidebar">
-    <div class="brand-row"><div class="brand-mark">B</div><div><b>Bankai</b><small>الروستر والحضور</small></div></div>
-    <button class="nav-item" data-page="dashboard" title="نظرة عامة"><svg class="i"><use href="#i-grid"/></svg></button>
-    <button class="nav-item" data-page="attendance" title="الحضور اليومي"><svg class="i"><use href="#i-check"/></svg></button>
-    <button class="nav-item" data-page="schedule" title="الجدول"><svg class="i"><use href="#i-cal"/></svg></button>
-    <button class="nav-item" data-page="employees" title="الموظفون"><svg class="i"><use href="#i-users"/></svg></button>
-    <button class="nav-item" data-page="reports" title="التقارير"><svg class="i"><use href="#i-chart"/></svg></button>
-    <button class="nav-item" data-page="settings" title="الإعدادات"><svg class="i"><use href="#i-sliders"/></svg></button>
-    <div class="sidebar-bottom"><button class="nav-item js-logout" title="تسجيل الخروج"><svg class="i"><use href="#i-logout"/></svg></button></div>
-  </aside>
+  <nav class="topnav">
+    <div class="brand"><div class="mark">B</div><div>Bankai<small>الروستر والحضور</small></div></div>
+    <div class="tabs" role="navigation">
+      <button class="nav-btn" data-page="dashboard"><span class="nav-ico">&#9672;</span>نظرة عامة</button>
+      <button class="nav-btn" data-page="attendance"><span class="nav-ico">&#10003;</span>الحضور اليومي</button>
+      <button class="nav-btn" data-page="schedule"><span class="nav-ico">&#9638;</span>الجدول</button>
+      <button class="nav-btn" data-page="employees"><span class="nav-ico">&#9673;</span>الموظفون</button>
+      <button class="nav-btn" data-page="reports"><span class="nav-ico">&#9635;</span>التقارير</button>
+      <button class="nav-btn" data-page="settings"><span class="nav-ico">&#9881;</span>الإعدادات</button>
+    </div>
+    <div class="tools">
+      <div class="nav-search"><span class="sic">&#8981;</span><input id="navSearch" placeholder="ابحث عن موظف&hellip;" autocomplete="off"></div>
+      <div class="ava" id="navAva">&#1605;</div>
+      <button class="icon-btn js-logout" title="تسجيل الخروج">&#9095;</button>
+    </div>
+  </nav>
 
   <nav class="bnav" aria-label="التنقل">
-    <button data-page="dashboard"><svg class="i"><use href="#i-grid"/></svg>الرئيسية</button>
-    <button data-page="attendance"><svg class="i"><use href="#i-check"/></svg>الحضور</button>
-    <button data-page="schedule"><svg class="i"><use href="#i-cal"/></svg>الجدول</button>
-    <button data-page="employees"><svg class="i"><use href="#i-users"/></svg>الموظفون</button>
-    <button data-page="reports"><svg class="i"><use href="#i-chart"/></svg>التقارير</button>
-    <button data-page="settings"><svg class="i"><use href="#i-sliders"/></svg>الإعدادات</button>
+    <button class="nav-btn" data-page="dashboard"><svg class="i"><use href="#i-grid"/></svg>الرئيسية</button>
+    <button class="nav-btn" data-page="attendance"><svg class="i"><use href="#i-check"/></svg>الحضور</button>
+    <button class="nav-btn" data-page="schedule"><svg class="i"><use href="#i-cal"/></svg>الجدول</button>
+    <button class="nav-btn" data-page="employees"><svg class="i"><use href="#i-users"/></svg>الموظفون</button>
+    <button class="nav-btn" data-page="reports"><svg class="i"><use href="#i-chart"/></svg>التقارير</button>
+    <button class="nav-btn" data-page="settings"><svg class="i"><use href="#i-sliders"/></svg>الإعدادات</button>
   </nav>
 
   <main class="main">
     <header class="topbar">
       <h2 id="pageTitle">نظرة عامة</h2>
-      <div class="topbar-tools"><span class="clock" id="clockTime" dir="ltr">--:--:--</span><span class="date-pill" id="todayPill"></span><button class="theme-sw js-theme" type="button" role="switch" aria-label="الوضع الداكن" title="تبديل الوضع الليلي"><svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button></div>
+      <div class="topbar-tools"><span class="date-pill" id="todayPill"></span><button class="theme-sw js-theme" type="button" role="switch" aria-label="الوضع الداكن" title="تبديل الوضع الليلي"><svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button></div>
     </header>
 
     <!-- ============ DASHBOARD ============ -->
@@ -99,10 +104,11 @@
       <div class="kpis" id="dashKpis"></div>
       <div class="dash-note" id="dashNote"></div>
       <div class="branch-grid" id="dashBranches"></div>
-      <div class="two-col">
-        <div class="panel"><div class="panel-h"><div><h3>آخر 7 أيام</h3><p>اضغط على أي يوم لفتحه في الحضور</p></div></div><div class="panel-b"><div class="trend" id="dashTrend"></div><div class="legend" style="margin-top:12px"><span><i class="dot ok"></i>حاضر</span><span><i class="dot warn"></i>متأخر</span><span><i class="dot bad"></i>غائب</span><span><i class="dot info"></i>بعذر</span></div></div></div>
-        <div class="panel"><div class="panel-h"><div><h3>يحتاجون متابعة</h3><p>الأكثر غيابًا وتأخيرًا خلال آخر 30 يوم</p></div></div><div class="panel-b" id="dashWatch"></div></div>
+      <div class="dash-grid">
+        <div class="panel"><div class="panel-h"><div><h3>الحضور &mdash; آخر ٧ أيام</h3><p>نسبة الحضور اليومية</p></div></div><div class="panel-b"><div class="trend" id="dashTrend"></div></div></div>
+        <div class="panel"><div class="panel-h"><div><h3>أحدث التسجيلات</h3><p>اليوم</p></div><span class="live-tag"><i></i>LIVE</span></div><div class="panel-b"><div class="feed" id="liveFeed"></div></div></div>
       </div>
+      <div class="panel" style="margin-bottom:0"><div class="panel-h"><div><h3>يحتاجون متابعة</h3><p>الأكثر غيابًا وتأخيرًا خلال آخر 30 يوم</p></div></div><div class="panel-b" id="dashWatch"></div></div>
     </section>
 
     <!-- ============ ATTENDANCE ============ -->
@@ -409,32 +415,6 @@
 <datalist id="schNames"></datalist>
 <datalist id="reasonList"><option value="بدون إذن"></option><option value="ظرف طارئ"></option><option value="مرض"></option><option value="مواصلات"></option><option value="تأخر في الوصول"></option><option value="لم يُبلّغ"></option></datalist>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<script src="/static/app.js?v=10"></script>
-<script>
-/* rail theme extras: aurora background + live clock (app logic untouched) */
-(function(){
-  var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  function tickClock(){ var d=new Date(),p=function(n){return String(n).padStart(2,"0");};
-    var el=document.getElementById("clockTime"); if(el) el.textContent=p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds()); }
-  tickClock(); setInterval(tickClock,1000);
-  var cv=document.getElementById("aurora");
-  if(!cv||reduced) return;
-  var ctx=cv.getContext("2d"),W,H,blobs,t0=performance.now(),running=true;
-  function size(){ W=cv.width=innerWidth; H=cv.height=innerHeight;
-    blobs=[{x:.18,y:.1,r:.42,c:"#22d3ee",a:.10,sp:.00011,ph:0},{x:.85,y:.22,r:.38,c:"#0ea5e9",a:.09,sp:.00013,ph:2},
-           {x:.7,y:.85,r:.46,c:"#34d399",a:.06,sp:.00009,ph:4},{x:.1,y:.8,r:.34,c:"#22d3ee",a:.07,sp:.00012,ph:1}]; }
-  size(); addEventListener("resize",size);
-  document.addEventListener("visibilitychange",function(){ running=!document.hidden; if(running) requestAnimationFrame(frame); });
-  function frame(now){ if(!running) return;
-    ctx.clearRect(0,0,W,H);
-    for(var i=0;i<blobs.length;i++){ var b=blobs[i],t=(now-t0)*b.sp+b.ph;
-      var x=(b.x+Math.sin(t*2.1)*.06)*W, y=(b.y+Math.cos(t*1.7)*.06)*H, r=b.r*Math.min(W,H)*(1+Math.sin(t*1.3)*.08);
-      var g=ctx.createRadialGradient(x,y,0,x,y,r);
-      g.addColorStop(0,b.c); g.addColorStop(1,"rgba(5,7,13,0)");
-      ctx.globalAlpha=b.a; ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); }
-    ctx.globalAlpha=1; requestAnimationFrame(frame); }
-  requestAnimationFrame(frame);
-})();
-</script>
+<script src="/static/app.js?v=12"></script>
 </body>
 </html>
