@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700;800;900&display=swap">
-  <link rel="stylesheet" href="/static/style.css?v=5">
+  <link rel="stylesheet" href="/static/style.css?v=8">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -158,6 +158,7 @@
           </div>
           <label class="search"><svg class="i"><use href="#i-search"/></svg><input id="schSearch" class="inp" placeholder="ابحث عن موظف في الجدول" autocomplete="off"></label>
           <button class="btn primary" id="schAutoBtn"><svg class="i"><use href="#i-refresh"/></svg>وزّع الإجازات والبريك</button>
+          <button class="btn" id="schImport"><svg class="i"><use href="#i-upload"/></svg>استيراد من Excel</button>
           <button class="btn" id="schExport"><svg class="i"><use href="#i-download"/></svg>تصدير</button>
           <button class="btn" id="schPrint"><svg class="i"><use href="#i-print"/></svg>طباعة</button>
         </div>
@@ -376,6 +377,20 @@
   <div class="dlg-f"><button type="button" class="btn primary" id="impRun" disabled>استيراد</button><button type="button" class="btn" id="impCancel">إغلاق</button></div>
 </dialog>
 
+<dialog id="schImpDialog" class="dlg xwide">
+  <div class="dlg-h"><div><h3>استيراد الجدول من Excel</h3><p>الشيت بيتقرا تلقائي (فول تايم + بارت تايم). هتشوف المعاينة الأول ومفيش حاجة بتتحفظ إلا لما تأكّد.</p></div><button type="button" class="btn icon sm" id="schImpClose" aria-label="إغلاق"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <div class="dlg-b">
+    <div class="row" style="margin-bottom:12px">
+      <label class="btn" for="schImpFile"><svg class="i"><use href="#i-upload"/></svg>اختيار ملف Excel (.xlsx)</label>
+      <input type="file" id="schImpFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="sr">
+      <span class="muted" id="schImpName"></span>
+    </div>
+    <div class="imp-warn hidden" id="schImpMismatch"></div>
+    <div id="schImpBody"></div>
+  </div>
+  <div class="dlg-f"><button type="button" class="btn primary" id="schImpRun" disabled>استيراد</button><button type="button" class="btn" id="schImpCancel">إغلاق</button></div>
+</dialog>
+
 <dialog id="histDialog" class="dlg wide">
   <div class="dlg-h"><div><h3 id="histTitle"></h3><p id="histSub"></p></div><button type="button" class="btn icon sm" id="histClose" aria-label="إغلاق"><svg class="i"><use href="#i-x"/></svg></button></div>
   <div class="dlg-b">
@@ -393,6 +408,6 @@
 <datalist id="schNames"></datalist>
 <datalist id="reasonList"><option value="بدون إذن"></option><option value="ظرف طارئ"></option><option value="مرض"></option><option value="مواصلات"></option><option value="تأخر في الوصول"></option><option value="لم يُبلّغ"></option></datalist>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<script src="/static/app.js?v=5"></script>
+<script src="/static/app.js?v=8"></script>
 </body>
 </html>
