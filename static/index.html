@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700;800;900&display=swap">
-  <link rel="stylesheet" href="/static/style.css?v=15">
+  <link rel="stylesheet" href="/static/style.css?v=16">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -321,7 +321,14 @@
           <div class="panel-b">
             <div class="row admin-only"><button class="btn" id="setBackup"><svg class="i"><use href="#i-download"/></svg>تنزيل نسخة احتياطية كاملة (.db)</button></div>
             <div class="row"><button class="btn" id="setExportEmp"><svg class="i"><use href="#i-download"/></svg>تصدير قائمة الموظفين CSV</button></div>
-            <p class="hint">كلمة المرور بتتغير من متغير <b class="num">ADMIN_PASSWORD</b> في إعدادات الاستضافة. بعد تغييرها سجّل الدخول من جديد.</p>
+            <p class="hint">كلمة مرور الأدمن بتتغير من متغير <b class="num">ADMIN_PASSWORD</b> في إعدادات الاستضافة، وكلمة مرور المشرفين من <b class="num">SUPERVISOR_PASSWORD</b> (لو فاضية يبقى مفيش دخول للمشرفين). بعد تغيير أي واحدة سجّل الدخول من جديد.</p>
+          </div>
+        </div>
+        <div class="panel danger-zone admin-only">
+          <div class="panel-h"><div><h3>منطقة الخطر</h3><p>إجراءات لا يمكن التراجع عنها.</p></div></div>
+          <div class="panel-b">
+            <p class="hint">مسح <b>سجل الحضور بالكامل</b> (كل التسجيلات والغرامات المسجلة) والبدء من الصفر. الموظفين والجدول والإعدادات هيفضلوا زي ما هما.</p>
+            <div><button class="btn danger" id="setWipeAtt">مسح سجل الحضور بالكامل</button></div>
           </div>
         </div>
       </div>
@@ -416,6 +423,6 @@
 <datalist id="schNames"></datalist>
 <datalist id="reasonList"><option value="بدون إذن"></option><option value="ظرف طارئ"></option><option value="مرض"></option><option value="مواصلات"></option><option value="تأخر في الوصول"></option><option value="لم يُبلّغ"></option></datalist>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<script src="/static/app.js?v=15"></script>
+<script src="/static/app.js?v=16"></script>
 </body>
 </html>
