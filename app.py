@@ -1185,6 +1185,382 @@ def schedule_export(branch: Optional[str] = None, _: bool = Depends(require_auth
         f"bankai_schedule_{(branch or 'all').replace(' ', '')}.csv")
 
 
+# ---------------------------------------------------------------- schedule import (Excel)
+import base64
+import difflib
+import unicodedata
+
+
+def _clean(v):
+    if v is None:
+        return ""
+    if hasattr(v, "hour") and hasattr(v, "minute") and not hasattr(v, "year"):
+        return f"{v.hour:02d}:{v.minute:02d}"
+    s = unicodedata.normalize("NFKC", str(v)).replace("‏", "").replace("‎", "")
+    return " ".join(s.replace("\xa0", " ").split())
+
+
+def _name_key(name):
+    s = _clean(name).casefold()
+    return re.sub(r"[^\w\s]", "", s).strip()
+
+
+def _token_key(name):
+    return " ".join(sorted(_name_key(name).split()))
+
+
+_HDR = lambda s: re.sub(r"[\s_\-\.]", "", _clean(s).casefold())
+_NAME_HDR = {"fulltime": "FT", "ft": "FT", "فولتايم": "FT", "دوامكامل": "FT",
+             "parttime": "PT", "pt": "PT", "بارتتايم": "PT", "دوامجزئي": "PT",
+             "name": None, "employee": None, "employeename": None, "الاسم": None, "اسم": None, "الموظف": None, "المندوب": None}
+
+
+def _col_kind(h):
+    if "shift" in h or "شيفت" in h:
+        return "shift"
+    if "break" in h or "بريك" in h or "استراح" in h:
+        return "break"
+    if "dayoff" in h or "off" in h or "اجاز" in h or "إجاز" in h or "راحه" in h or "راحة" in h:
+        return "day"
+    if h in ("type", "نوع", "النوع", "employmenttype"):
+        return "type"
+    return None
+
+
+def parse_break_time(raw, start=None, end=None):
+    """'12:PM' / '1:AM' / '6 PM' / '18:30' -> 'HH:MM' أو None."""
+    s = _clean(raw).upper().translate(_AR_DIGITS).replace(".", "")
+    if not s:
+        return None
+    m = re.match(r"^(\d{1,2})(?::?(\d{2}))?\s*:?\s*(AM|PM|ص|م)?$", s)
+    if not m:
+        return None
+    h, mi, ap = int(m.group(1)), int(m.group(2) or 0), m.group(3)
+    if mi > 59:
+        return None
+    if ap in ("AM", "ص"):
+        if not 1 <= h <= 12:
+            return None
+        h = 0 if h == 12 else h
+    elif ap in ("PM", "م"):
+        if not 1 <= h <= 12:
+            return None
+        h = 12 if h == 12 else h + 12
+    elif h > 23:
+        return None
+    return f"{h:02d}:{mi:02d}"
+
+
+def parse_schedule_workbook(data):
+    """يقرأ الشيت (عمودين/بلوكين: FULL TIME + PART TIME أو أي ترتيب) ويرجّع صفوف خام + ملاحظات."""
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
+    except Exception:
+        raise HTTPException(400, "الملف مش Excel (.xlsx) صالح")
+    rows, notes, used = [], [], []
+    for ws in wb.worksheets:
+        hdr_row, hdr = None, {}
+        for r in range(1, min(ws.max_row, 15) + 1):
+            found = {c: _HDR(ws.cell(r, c).value) for c in range(1, ws.max_column + 1)}
+            marks = {c: h for c, h in found.items() if h in _NAME_HDR}
+            if marks:
+                hdr_row, hdr = r, found
+                break
+        if hdr_row is None:
+            continue
+        marks = [c for c, h in hdr.items() if h in _NAME_HDR]
+        blocks = []
+        for i, c in enumerate(marks):
+            stop = marks[i + 1] if i + 1 < len(marks) else ws.max_column + 1
+            cols = {}
+            for cc in range(c + 1, stop):
+                k = _col_kind(hdr.get(cc, ""))
+                if k and k not in cols:
+                    cols[k] = cc
+            # المحتوى أصدق من العنوان: لو عنوان BREAK فوق أيام أو العكس، نصحّح حسب القيم الفعلية
+            content = {}
+            for cc in range(c + 1, stop):
+                vals = [_clean(ws.cell(r, cc).value) for r in range(hdr_row + 1, ws.max_row + 1)]
+                vals = [v for v in vals if v]
+                if len(vals) < 2:
+                    continue
+                frac = lambda f: sum(1 for v in vals if f(v)) / len(vals)
+                if frac(lambda v: norm_day(v) is not None) >= 0.6:
+                    kind = "day"
+                elif frac(lambda v: parse_shift(v) is not None and re.search(r"\d\s*[-–—]\s*\d|\s[-–—]\s", v)) >= 0.6:
+                    kind = "shift"
+                elif frac(lambda v: parse_break_time(v) is not None) >= 0.6:
+                    kind = "break"
+                else:
+                    continue
+                content.setdefault(kind, cc)
+            if content and any(cols.get(k) != v for k, v in content.items()):
+                label = {"shift": "SHIFT", "break": "BREAK", "day": "DAY OFF"}
+                notes.append(f"عناوين الأعمدة في الشيت مش مطابقة للمحتوى ({ws.title}) — اتقرا حسب القيم الفعلية: "
+                             + "، ".join(f"عمود {openpyxl.utils.get_column_letter(v)} = {label[k]}" for k, v in sorted(content.items(), key=lambda x: x[1])))
+                cols = {**{k: v for k, v in cols.items() if k == "type"}, **content}
+            blocks.append({"name": c, "type": _NAME_HDR[hdr[c]], "cols": cols})
+        used.append(ws.title)
+        for r in range(hdr_row + 1, ws.max_row + 1):
+            for b in blocks:
+                g = lambda k: _clean(ws.cell(r, b["cols"][k]).value) if k in b["cols"] else ""
+                name = _clean(ws.cell(r, b["name"]).value)
+                shift, brk, day, typ = g("shift"), g("break"), g("day"), g("type")
+                if not (name or shift or brk or day):
+                    continue
+                etype = b["type"] or norm_type(typ) or "FT"
+                rows.append({"key": f"{ws.title}!{r}:{b['name']}", "sheet": ws.title, "row": r, "type": etype,
+                             "name": name, "shift": shift, "break": brk, "day": day,
+                             "has_break_col": "break" in b["cols"], "has_day_col": "day" in b["cols"]})
+    if not used:
+        raise HTTPException(400, "مش لاقي عناوين مفهومة في الشيت. لازم يكون فيه أعمدة FULL TIME / SHIFT / BREAK / DAY OFF (أو PART TIME).")
+    return rows, used, notes
+
+
+def _similar(name, pool):
+    """موظفين بأسماء قريبة (ترتيب مختلف/حرف ناقص) — بنقترحهم بس ومابنربطش تلقائي."""
+    nk, tk = _name_key(name), _token_key(name)
+    out = []
+    ntoks = set(nk.split())
+    for e in pool:
+        ek, etk = _name_key(e.name), _token_key(e.name)
+        score = max(difflib.SequenceMatcher(None, nk, ek).ratio(), difflib.SequenceMatcher(None, tk, etk).ratio())
+        etoks = set(ek.split())
+        small, big = (ntoks, etoks) if len(ntoks) <= len(etoks) else (etoks, ntoks)
+        if len(small) >= 2 and small <= big:
+            score = max(score, 0.9)
+        if score >= 0.86:
+            out.append((score, e))
+    out.sort(key=lambda x: -x[0])
+    return [(round(s, 2), e) for s, e in out[:3]]
+
+
+def _cand(e, score=None):
+    return {"id": e.id, "name": e.name, "branch": e.branch, "shift": e.shift, "active": bool(e.active),
+            **({"score": score} if score is not None else {})}
+
+
+def plan_schedule_import(db, branch, raw_rows, decisions=None, deactivate_missing=False):
+    decisions = decisions or {}
+    emps = db.query(Employee).all()
+    in_branch = [e for e in emps if e.branch == branch]
+    other = [e for e in emps if e.branch != branch]
+    shifts_known = {}
+    for e in in_branch:
+        p = parse_shift(e.shift)
+        if p and e.active:
+            shifts_known.setdefault(p, e.shift)
+    for d in db.query(ShiftDef).filter(ShiftDef.branch == branch).all():
+        p = parse_shift(d.name)
+        if p:
+            shifts_known.setdefault(p, d.name)
+
+    def find(pool, name, only_active=None):
+        nk, tk = _name_key(name), _token_key(name)
+        sel = [e for e in pool if only_active is None or bool(e.active) == only_active]
+        ex = [e for e in sel if _name_key(e.name) == nk]
+        return ex or [e for e in sel if _token_key(e.name) == tk]
+
+    plan, seen, claimed = [], {}, {}
+    for r in raw_rows:
+        item = {"key": r["key"], "sheet": r["sheet"], "row": r["row"], "type": r["type"], "name": r["name"],
+                "raw_shift": r["shift"], "raw_break": r["break"], "raw_day": r["day"],
+                "shift": None, "shift_new": False, "break": None, "day_off": None,
+                "status": "skip", "reason": "", "warnings": [], "changes": [], "match": None, "candidates": [],
+                "action": None, "decision": None}
+        plan.append(item)
+        if not r["name"]:
+            item["reason"] = "صف بدون اسم (فيه بيانات تانية) — اتخطّى"
+            continue
+        name = r["name"]
+        nk = _token_key(name)
+        if nk in seen:
+            item["reason"] = f"الاسم متكرر في الشيت (سطر {seen[nk]}) — اتخطّى"
+            continue
+        seen[nk] = r["row"]
+        if not r["shift"]:
+            item["reason"] = "مفيش شيفت — اتخطّى"
+            continue
+        p = parse_shift(r["shift"])
+        if p:
+            label = shifts_known.get(p) or f"{hhmm(p[0])}-{hhmm(p[1] % 1440)}"
+            item["shift"], item["shift_new"] = label, p not in shifts_known
+        else:
+            item["shift"], item["shift_new"] = r["shift"], True
+            item["warnings"].append("مش قادر أقرا وقت الشيفت")
+        if r["day"]:
+            d = norm_day(r["day"])
+            if d:
+                item["day_off"] = d
+            else:
+                item["warnings"].append(f"يوم الإجازة «{r['day']}» غير مفهوم")
+        elif r["has_day_col"]:
+            item["warnings"].append("بدون يوم إجازة")
+        if r["break"]:
+            b = parse_break_time(r["break"])
+            if not b:
+                item["warnings"].append(f"البريك «{r['break']}» غير مفهوم — اتتجاهل")
+            elif p:
+                rel = (int(b[:2]) * 60 + int(b[3:]) - p[0]) % 1440
+                if rel >= p[1] - p[0]:
+                    item["warnings"].append(f"البريك {b} خارج وقت الشيفت — اتتجاهل")
+                    b = None
+            item["break"] = b
+        # --- match
+        same = find(in_branch, name, True) or find(in_branch, name, False)
+        act = [e for e in same if e.active]
+        target, reason = None, ""
+        dec = decisions.get(r["key"])
+        if len(act) > 1:
+            reason = "ambiguous"; item["candidates"] = [_cand(e) for e in act]
+        elif same:
+            target = (act or same)[0]
+        else:
+            om = find(other, name)
+            if om:
+                reason = "other_branch"; item["candidates"] = [_cand(e) for e in om[:3]]
+            else:
+                sim = _similar(name, in_branch)
+                if sim:
+                    reason = "similar"; item["candidates"] = [_cand(e, s) for s, e in sim]
+        if reason:
+            default = "new" if reason == "similar" else "skip"
+            item["status"], item["reason"], item["decision"] = "review", reason, dec or default
+            if dec in ("skip", "new"):
+                pass
+            elif dec and dec.isdigit() and int(dec) in {c["id"] for c in item["candidates"]}:
+                target = next(e for e in emps if e.id == int(dec))
+            else:
+                item["decision"] = default
+            if item["decision"] == "skip":
+                continue
+            if target is None and item["decision"] != "new":
+                continue
+        if target is not None:
+            if target.id in claimed:
+                item["status"], item["reason"] = "skip", f"نفس الموظف اتربط بسطر {claimed[target.id]} — اتخطّى"
+                continue
+            claimed[target.id] = r["row"]
+            item["match"] = _cand(target)
+            ch = []
+            def chg(f, old, new):
+                if (old or "") != (new or ""):
+                    ch.append({"field": f, "from": old or "", "to": new or ""})
+            chg("branch", target.branch, branch)
+            chg("shift", target.shift, item["shift"])
+            chg("employment_type", target.employment_type, r["type"])
+            if item["day_off"]:
+                chg("day_off", target.day_off, item["day_off"])
+                if not target.off_locked:
+                    ch.append({"field": "off_locked", "from": "", "to": "مثبّت"})
+            if item["break"]:
+                chg("break_start", target.break_start, item["break"])
+            if not target.active:
+                ch.append({"field": "active", "from": "موقوف", "to": "نشط"})
+            item["changes"] = ch
+            item["action"] = "update"
+            if item["status"] != "review":
+                item["status"] = "update" if ch else "same"
+            if not ch:
+                item["action"] = "same"
+        else:
+            item["action"] = "create"
+            if item["status"] != "review":
+                item["status"] = "create"
+    matched = {i["match"]["id"] for i in plan if i["match"] and i["action"] in ("update", "same")}
+    missing = [_cand(e) for e in in_branch if e.active and e.id not in matched]
+    summary = {k: sum(1 for i in plan if i["status"] == k) for k in ("create", "update", "same", "review", "skip")}
+    summary["warnings"] = sum(1 for i in plan if i["warnings"] and i["status"] != "skip")
+    summary["missing"] = len(missing)
+    shifts = {}
+    for i in plan:
+        if i["action"] in ("create", "update", "same") and i["shift"]:
+            s = shifts.setdefault(i["shift"], {"name": i["shift"], "count": 0, "new": i["shift_new"]})
+            s["count"] += 1
+    return {"items": plan, "summary": summary, "missing": missing,
+            "shifts": sorted(shifts.values(), key=lambda s: shift_sort_key(s["name"]))}
+
+
+class ScheduleImportIn(BaseModel):
+    branch: str
+    filename: str = ""
+    file_b64: str = Field(min_length=10, max_length=9_000_000)
+    decisions: Dict[str, str] = Field(default_factory=dict)
+    deactivate_missing: bool = False
+    apply: bool = False
+
+
+@app.post("/api/schedule/import")
+def schedule_import(data: ScheduleImportIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+    _check_branch(data.branch)
+    try:
+        raw = base64.b64decode(data.file_b64, validate=False)
+    except Exception:
+        raise HTTPException(400, "الملف غير صالح")
+    if len(raw) > 6_000_000:
+        raise HTTPException(400, "الملف كبير جدًا")
+    rows, sheets, notes = parse_schedule_workbook(raw)
+    if len(rows) > 3000:
+        raise HTTPException(400, "عدد الصفوف كبير جدًا")
+    plan = plan_schedule_import(db, data.branch, rows, data.decisions, data.deactivate_missing)
+    hint = None
+    m = re.search(r"qcd\s*[-_]?\s*([12])", f"{data.filename} {' '.join(sheets)}", re.I)
+    if m:
+        hint = f"QCD {m.group(1)}"
+    plan.update({"branch": data.branch, "sheets": sheets, "notes": notes, "branch_hint": hint,
+                 "branch_mismatch": bool(hint and hint != data.branch)})
+    if not data.apply:
+        return plan
+    # ---------- apply (كله في transaction واحدة)
+    by_id = {e.id: e for e in db.query(Employee).all()}
+    known_defs = {d.name for d in db.query(ShiftDef).filter(ShiftDef.branch == data.branch).all()}
+    created = updated = 0
+    expected = []
+    for it in plan["items"]:
+        if it["action"] not in ("create", "update", "same"):
+            continue
+        if it["shift"] not in known_defs:
+            db.add(ShiftDef(branch=data.branch, name=it["shift"]))
+            known_defs.add(it["shift"])
+        if it["action"] == "create":
+            e = Employee(name=" ".join(it["name"].split()), branch=data.branch, shift=it["shift"],
+                         employment_type=it["type"], day_off=it["day_off"] or "Friday",
+                         off_locked=bool(it["day_off"]), break_start=it["break"], break_min=60, active=True)
+            db.add(e)
+            created += 1
+        else:
+            e = by_id[it["match"]["id"]]
+            if it["action"] == "update":
+                e.branch, e.shift, e.employment_type, e.active = data.branch, it["shift"], it["type"], True
+                if it["day_off"]:
+                    e.day_off, e.off_locked = it["day_off"], True
+                if it["break"]:
+                    e.break_start = it["break"]
+                    e.break_min = e.break_min or 60
+                updated += 1
+        expected.append((it, e))
+    deactivated = 0
+    if data.deactivate_missing:
+        for c in plan["missing"]:
+            by_id[c["id"]].active = False
+            deactivated += 1
+    db.flush()
+    bad = []
+    for it, e in expected:
+        ok = (e.shift == it["shift"] and e.employment_type == it["type"] and e.branch == data.branch and bool(e.active)
+              and (not it["day_off"] or e.day_off == it["day_off"]) and (not it["break"] or e.break_start == it["break"]))
+        if not ok:
+            bad.append(it["name"])
+    if bad:
+        db.rollback()
+        raise HTTPException(500, "فشل التحقق بعد الاستيراد، ما اتحفظش أي حاجة: " + "، ".join(bad[:5]))
+    db.commit()
+    plan["applied"] = {"created": created, "updated": updated, "same": sum(1 for it, _ in expected if it["action"] == "same"),
+                       "deactivated": deactivated, "verified": len(expected)}
+    return plan
+
+
 # ---------------------------------------------------------------- backup
 @app.get("/api/backup")
 def backup(_: bool = Depends(require_auth)):
