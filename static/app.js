@@ -1027,6 +1027,91 @@ on("schBranchSeg", "click", ev => {
   S.sch.branch = b.dataset.branch; S.sch.draft.clear(); updateSchSaveBar(); loadSchedule();
 });
 on("schSearch", "input", debounce(() => { S.sch.q = $("schSearch").value; renderSchedule(); }, 150));
+
+// ---------- schedule: import from Excel ----------
+const SIMP_F = { shift: "الشيفت", employment_type: "النوع", day_off: "الإجازة", break_start: "البريك", branch: "الفرع", active: "الحالة", off_locked: "تثبيت الإجازة" };
+const SIMP_ST = { create: ["جديد", "ok"], update: ["تعديل", "brand"], same: ["بدون تغيير", "off"], review: ["مراجعة", "warn"], skip: ["متخطّى", "bad"] };
+const SIMP_RS = { similar: "اسم قريب من موظف موجود", other_branch: "الاسم موجود في فرع تاني", ambiguous: "أكتر من موظف بنفس الاسم" };
+S.simp = { b64: "", name: "", plan: null, decisions: {}, filter: "", deact: false, ack: false };
+
+function simpFmt(f, v) { return f === "day_off" ? (WD_AR[v] || v) : f === "employment_type" ? (v === "FT" ? "فول تايم" : "بارت تايم") : v; }
+async function simpRun(apply) {
+  const m = S.simp;
+  return api("/api/schedule/import", { method: "POST", body: { branch: S.sch.branch, filename: m.name, file_b64: m.b64, decisions: m.decisions, deactivate_missing: m.deact, apply } });
+}
+function simpRender() {
+  const m = S.simp, p = m.plan; if (!p) return;
+  const s = p.summary;
+  $("schImpMismatch").classList.toggle("hidden", !p.branch_mismatch);
+  if (p.branch_mismatch) $("schImpMismatch").innerHTML = `الملف باين إنه لفرع <b>${esc(p.branch_hint)}</b> لكن انت واقف على <b>${esc(p.branch)}</b>.<label><input type="checkbox" id="simpAck" ${m.ack ? "checked" : ""}> متأكد، استورد في ${esc(p.branch)}</label>`;
+  const notes = (p.notes || []).map(n => `<div class="imp-note">ℹ️ ${esc(n)}</div>`).join("");
+  const chips = [["", "الكل", p.items.length], ["create", "جديد", s.create], ["update", "تعديل", s.update], ["same", "بدون تغيير", s.same], ["review", "مراجعة", s.review], ["skip", "متخطّى", s.skip]]
+    .filter(([k, , n]) => !k || n);
+  const rows = p.items.filter(i => !m.filter || i.status === m.filter);
+  const tr = rows.slice(0, 500).map(i => {
+    const [lbl, kind] = SIMP_ST[i.status];
+    let det = "";
+    if (i.status === "skip") det = `<div class="chg">${esc(i.reason)}</div>`;
+    if (i.status === "review") {
+      const opts = [["skip", "تخطّى"], ["new", "ضيفه كموظف جديد"], ...i.candidates.map(c => [String(c.id), `هو نفسه: ${c.name}${c.branch !== p.branch ? " (" + c.branch + ")" : ""}${c.score ? " · " + Math.round(c.score * 100) + "%" : ""}`])];
+      det = `<div class="chg">${SIMP_RS[i.reason] || ""}</div><select class="sel" data-dec="${esc(i.key)}">${opts.map(([v, t]) => `<option value="${esc(v)}" ${i.decision === v ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
+    }
+    if (i.changes.length && i.action === "update") det += `<div class="chg">${i.changes.filter(c => c.field !== "off_locked").map(c => `${SIMP_F[c.field]}: ${esc(simpFmt(c.field, c.from) || "—")} ← ${esc(simpFmt(c.field, c.to))}`).join(" · ")}</div>`;
+    if (i.warnings.length && i.status !== "skip") det += `<div class="wn">${i.warnings.map(esc).join(" · ")}</div>`;
+    return `<tr><td class="rn num">${i.row}</td><td><b>${esc(i.name || "—")}</b></td><td>${i.type}</td><td>${i.shift ? `<bdi dir="ltr">${esc(i.shift)}</bdi>${i.shift_new ? ' <span class="tag brand">جديد</span>' : ""}` : "—"}</td><td>${i.break ? `<span class="num">${i.break}</span>` : "—"}</td><td>${i.day_off ? WD_AR[i.day_off] : "—"}</td><td><span class="tag ${kind}">${lbl}</span>${det}</td></tr>`;
+  }).join("");
+  $("schImpBody").innerHTML = `
+    ${notes}<div class="simp-chips">${chips.map(([k, t, n]) => `<button type="button" data-f="${k}" class="${m.filter === k ? "on" : ""}">${t} <b class="num">${n}</b></button>`).join("")}</div>
+    <div class="simp-shifts"><b>الشيفتات:</b> ${p.shifts.map(x => `<span class="tag ${x.new ? "brand" : ""}"><bdi dir="ltr">${esc(x.name)}</bdi> · ${x.count}</span>`).join("")}</div>
+    ${p.missing.length ? `<div class="simp-opt"><label class="check"><input type="checkbox" id="simpDeact" ${m.deact ? "checked" : ""}> أوقف الموظفين اللي موجودين في السيستم ومش في الشيت (${p.missing.length})</label><details><summary>عرض الأسماء</summary>${p.missing.map(x => esc(x.name)).join("، ")}</details></div>` : ""}
+    <div class="simp-tbl"><table><thead><tr><th>سطر</th><th>الاسم</th><th>النوع</th><th>الشيفت</th><th>البريك</th><th>الإجازة</th><th>الحالة</th></tr></thead><tbody>${tr}</tbody></table></div>
+    ${rows.length > 500 ? `<p class="muted" style="margin-top:6px">معروض أول 500 صف فقط (الاستيراد بيشمل الكل).</p>` : ""}`;
+  const todo = s.create + s.update + s.review - p.items.filter(i => i.status === "review" && i.decision === "skip").length;
+  const run = $("schImpRun");
+  run.disabled = !(todo > 0 || m.deact) || (p.branch_mismatch && !m.ack);
+  run.textContent = todo > 0 ? `استورد ${todo} موظف${s.same ? ` (و${s.same} بدون تغيير)` : ""}` : "مفيش حاجة تتغيّر";
+}
+async function simpLoad(file) {
+  const m = S.simp;
+  if (!/\.xlsx$/i.test(file.name)) { toast("الملف لازم يكون Excel بصيغة .xlsx", "err"); return; }
+  if (file.size > 4_000_000) { toast("الملف كبير جدًا", "err"); return; }
+  const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1] || ""); r.onerror = rej; r.readAsDataURL(file); });
+  Object.assign(m, { b64, name: file.name, plan: null, decisions: {}, filter: "", deact: false, ack: false });
+  $("schImpName").textContent = file.name; $("schImpBody").innerHTML = '<p class="muted">جاري القراءة…</p>'; $("schImpRun").disabled = true;
+  try { m.plan = await simpRun(false); simpRender(); }
+  catch (e) { $("schImpBody").innerHTML = `<div class="empty"><b>${esc(e.message)}</b></div>`; }
+}
+on("schImport", "click", () => {
+  if (S.sch.draft.size && !confirm("عندك تغييرات لم تُحفظ في الجدول، والاستيراد هيتجاهلها. تكمّل؟")) return;
+  Object.assign(S.simp, { b64: "", name: "", plan: null, decisions: {}, filter: "", deact: false, ack: false });
+  $("schImpName").textContent = ""; $("schImpFile").value = ""; $("schImpMismatch").classList.add("hidden");
+  $("schImpBody").innerHTML = `<div class="empty"><b>اختار ملف الشيت</b>الأعمدة المتوقعة: FULL TIME / SHIFT / BREAK / DAY OFF ثم PART TIME / SHIFT / DAY OFF. الاستيراد هيكون على فرع <b>${esc(S.sch.branch)}</b>.</div>`;
+  $("schImpRun").disabled = true; $("schImpRun").textContent = "استيراد";
+  $("schImpDialog").showModal();
+});
+on("schImpFile", "change", e => { const f = e.target.files[0]; if (f) simpLoad(f); });
+on("schImpClose", "click", () => $("schImpDialog").close());
+on("schImpCancel", "click", () => $("schImpDialog").close());
+on("schImpBody", "click", e => { const b = e.target.closest("[data-f]"); if (b) { S.simp.filter = b.dataset.f; simpRender(); } });
+on("schImpBody", "change", async e => {
+  const m = S.simp;
+  if (e.target.id === "simpDeact") { m.deact = e.target.checked; simpRender(); return; }
+  if (e.target.dataset.dec) {
+    m.decisions[e.target.dataset.dec] = e.target.value;
+    try { m.plan = await simpRun(false); simpRender(); } catch (er) { toast(er.message, "err"); }
+  }
+});
+on("schImpMismatch", "change", e => { if (e.target.id === "simpAck") { S.simp.ack = e.target.checked; simpRender(); } });
+on("schImpRun", "click", async () => {
+  const m = S.simp, btn = $("schImpRun"); btn.disabled = true; btn.textContent = "جاري الاستيراد…";
+  try {
+    const r = await simpRun(true), a = r.applied;
+    $("schImpDialog").close();
+    toast(`تم الاستيراد: ${a.created} جديد، ${a.updated} تعديل${a.same ? "، " + a.same + " بدون تغيير" : ""}${a.deactivated ? "، " + a.deactivated + " موقوف" : ""} — اتأكدت من ${a.verified} موظف`);
+    await refreshEmployees(); S.sch.draft.clear(); await loadSchedule();
+  } catch (e) { toast(e.message, "err"); simpRender(); }
+});
+
 on("schExport", "click", () => download(`/api/schedule/export.csv?branch=${encodeURIComponent(S.sch.branch)}`, `bankai_schedule_${S.sch.branch.replace(" ", "")}.csv`).catch(e => toast(e.message, "err")));
 on("schPrint", "click", () => window.print());
 
