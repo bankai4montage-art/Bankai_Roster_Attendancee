@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700;800;900&display=swap">
-  <link rel="stylesheet" href="/static/style.css?v=13">
+  <link rel="stylesheet" href="/static/style.css?v=15">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
@@ -47,7 +47,7 @@
     <h1>Bankai</h1>
     <p class="muted">إدارة الروستر والحضور للفرعين من مكان واحد.</p>
     <form id="loginForm">
-      <label class="field">كلمة مرور الأدمن
+      <label class="field">كلمة المرور
         <input id="password" class="inp" type="password" placeholder="اكتب كلمة المرور" autocomplete="current-password" required>
       </label>
       <button class="btn primary" type="submit">تسجيل الدخول</button>
@@ -88,7 +88,7 @@
   <main class="main">
     <header class="topbar">
       <h2 id="pageTitle">نظرة عامة</h2>
-      <div class="topbar-tools"><span class="date-pill" id="todayPill"></span></div>
+      <div class="topbar-tools"><span class="role-pill hidden" id="rolePill">مشرف</span><span class="date-pill" id="todayPill"></span></div>
     </header>
 
     <!-- ============ DASHBOARD ============ -->
@@ -165,14 +165,14 @@
             <button data-branch="QCD 2">QCD 2 <small>0</small></button>
           </div>
           <label class="search"><svg class="i"><use href="#i-search"/></svg><input id="schSearch" class="inp" placeholder="ابحث عن موظف في الجدول" autocomplete="off"></label>
-          <button class="btn primary" id="schAutoBtn"><svg class="i"><use href="#i-refresh"/></svg>وزّع الإجازات والبريك</button>
-          <button class="btn" id="schImport"><svg class="i"><use href="#i-upload"/></svg>استيراد من Excel</button>
+          <button class="btn primary admin-only" id="schAutoBtn"><svg class="i"><use href="#i-refresh"/></svg>وزّع الإجازات والبريك</button>
+          <button class="btn admin-only" id="schImport"><svg class="i"><use href="#i-upload"/></svg>استيراد من Excel</button>
           <button class="btn" id="schExport"><svg class="i"><use href="#i-download"/></svg>تصدير</button>
           <button class="btn" id="schPrint"><svg class="i"><use href="#i-print"/></svg>طباعة</button>
         </div>
       </div>
 
-      <div class="panel auto-panel hidden no-print" id="schAutoPanel">
+      <div class="panel auto-panel hidden no-print admin-only" id="schAutoPanel">
         <div class="panel-h"><div><h3>التوزيع التلقائي</h3><p>النظام بيوزّع الإجازات بالتساوي على أيام الأسبوع جوه كل شيفت، ويوزّع البريك على فترات متدرّجة. هتشوف الاقتراح الأول وبعدين تحفظ.</p></div><button class="btn icon sm" id="schAutoClose" aria-label="إغلاق"><svg class="i"><use href="#i-x"/></svg></button></div>
         <div class="panel-b">
           <div class="auto-grid">
@@ -194,7 +194,7 @@
       <div class="day-totals" id="schTotals"></div>
       <div id="schShifts"></div>
 
-      <div class="panel new-shift no-print" id="schNewShift">
+      <div class="panel new-shift no-print admin-only" id="schNewShift">
         <div class="panel-h"><div><h3>شيفت جديد</h3><p>اختار وقت البداية والنهاية أو اكتب اسم الشيفت بنفسك.</p></div></div>
         <div class="panel-b"><div class="row">
           <label class="field">من<input type="time" id="nsFrom" class="inp" value="08:00"></label>
@@ -216,9 +216,9 @@
       <div class="page-head">
         <div><h3>قاعدة بيانات الموظفين</h3><p id="empSub"></p></div>
         <div class="row">
-          <button class="btn" id="empImport"><svg class="i"><use href="#i-upload"/></svg>استيراد من Excel / CSV</button>
+          <button class="btn admin-only" id="empImport"><svg class="i"><use href="#i-upload"/></svg>استيراد من Excel / CSV</button>
           <button class="btn" id="empExport"><svg class="i"><use href="#i-download"/></svg>تصدير</button>
-          <button class="btn primary" id="empAdd"><svg class="i"><use href="#i-plus"/></svg>إضافة موظف</button>
+          <button class="btn primary admin-only" id="empAdd"><svg class="i"><use href="#i-plus"/></svg>إضافة موظف</button>
         </div>
       </div>
       <div class="filters">
@@ -229,7 +229,7 @@
         <select id="empDay" class="sel" aria-label="يوم الإجازة"><option value="">كل أيام الإجازة</option><option value="Saturday">السبت</option><option value="Sunday">الأحد</option><option value="Monday">الاثنين</option><option value="Tuesday">الثلاثاء</option><option value="Wednesday">الأربعاء</option><option value="Thursday">الخميس</option><option value="Friday">الجمعة</option></select>
         <select id="empStatus" class="sel" aria-label="الحالة"><option value="1">النشطون فقط</option><option value="0">غير النشطين</option><option value="">الكل</option></select>
       </div>
-      <div class="bulk-bar hidden" id="empBulkBar">
+      <div class="bulk-bar hidden admin-only" id="empBulkBar">
         <span class="msg" id="empSelCount"></span>
         <button class="btn" id="empBulkEdit">تعديل جماعي</button>
         <button class="btn" id="empBulkActivate">تفعيل</button>
@@ -313,15 +313,15 @@
               <label class="field">غرامة الغياب (ج.م)<input id="setFineAbsent" class="inp" type="number" min="0" step="1" inputmode="numeric"></label>
             </div>
             <p class="hint">الغياب «بعذر» ما عليه غرامة. لو الغرامة أكبر من صفر لازم تكتب السبب قبل الحفظ.</p>
-            <div><button class="btn primary" id="setSave">حفظ الإعدادات</button></div>
+            <div class="admin-only"><button class="btn primary" id="setSave">حفظ الإعدادات</button></div>
           </div>
         </div>
         <div class="panel">
           <div class="panel-h"><div><h3>البيانات والنسخ الاحتياطي</h3><p>خد نسخة من بياناتك بشكل دوري.</p></div></div>
           <div class="panel-b">
-            <div class="row"><button class="btn" id="setBackup"><svg class="i"><use href="#i-download"/></svg>تنزيل نسخة احتياطية كاملة (.db)</button></div>
+            <div class="row admin-only"><button class="btn" id="setBackup"><svg class="i"><use href="#i-download"/></svg>تنزيل نسخة احتياطية كاملة (.db)</button></div>
             <div class="row"><button class="btn" id="setExportEmp"><svg class="i"><use href="#i-download"/></svg>تصدير قائمة الموظفين CSV</button></div>
-            <p class="hint">كلمة مرور الأدمن بتتغير من متغير <b class="num">ADMIN_PASSWORD</b> في إعدادات الاستضافة. بعد تغييرها سجّل الدخول من جديد.</p>
+            <p class="hint">كلمة المرور بتتغير من متغير <b class="num">ADMIN_PASSWORD</b> في إعدادات الاستضافة. بعد تغييرها سجّل الدخول من جديد.</p>
           </div>
         </div>
       </div>
@@ -416,6 +416,6 @@
 <datalist id="schNames"></datalist>
 <datalist id="reasonList"><option value="بدون إذن"></option><option value="ظرف طارئ"></option><option value="مرض"></option><option value="مواصلات"></option><option value="تأخر في الوصول"></option><option value="لم يُبلّغ"></option></datalist>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<script src="/static/app.js?v=13"></script>
+<script src="/static/app.js?v=15"></script>
 </body>
 </html>
