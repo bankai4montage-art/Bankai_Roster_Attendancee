@@ -677,3 +677,10 @@ dialog.dlg.xwide{width:min(1040px,calc(100% - 20px))}
 }
 @media print{.topnav{display:none!important}.main{padding:0}}
 .tbl a,.who a{color:var(--brand-d);text-decoration:none;font-weight:700}.tbl a:hover{text-decoration:underline}
+
+/* ===== supervisor role: read-only everywhere except daily attendance ===== */
+.supervisor .admin-only{display:none!important}
+.supervisor #page-employees th.c,.supervisor #page-employees td.c{display:none}
+.supervisor .row-actions .btn:not([data-hist]){display:none}
+.role-pill{display:inline-flex;align-items:center;gap:6px;background:var(--brand-bg);color:var(--brand-d);border:1px solid var(--brand-line);border-radius:999px;padding:4px 12px;font-size:12px;font-weight:800}
+.role-pill::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--brand)}
