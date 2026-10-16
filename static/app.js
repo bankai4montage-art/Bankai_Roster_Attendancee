@@ -27,6 +27,7 @@ const CLR = { present: "var(--ok)", late: "#e0a020", absent: "var(--bad)", excus
 
 const S = {
   token: localStorage.getItem("bankai_token") || "",
+  role: localStorage.getItem("bankai_role") || "",
   page: "", shown: false,
   settings: { fine_late: 0, fine_absent: 0 },
   employees: [],
@@ -117,19 +118,22 @@ function markSort(selector, attr, st) {
 }
 
 /* ============================== auth & navigation ============================== */
+const isAdmin = () => S.role !== "supervisor"; // الدور الافتراضي أدمن (بيتحدد من السيرفر بعد الدخول)
 on("loginForm", "submit", async e => {
   e.preventDefault();
   $("loginError").textContent = "";
   try {
     const r = await api("/api/login", { method: "POST", body: { password: $("password").value } });
     S.token = r.token; localStorage.setItem("bankai_token", S.token);
+    S.role = r.role || "admin"; localStorage.setItem("bankai_role", S.role);
     $("password").value = "";
     await init();
   } catch (err) { $("loginError").textContent = err.message; }
 });
 
 function logout(show = true) {
-  S.token = ""; localStorage.removeItem("bankai_token");
+  S.token = ""; S.role = "";
+  localStorage.removeItem("bankai_token"); localStorage.removeItem("bankai_role");
   S.draft.clear(); if (S.sch) S.sch.draft.clear(); S.shown = false; S.page = "";
   $("appView").classList.add("hidden"); $("loginView").classList.remove("hidden");
   if (show) toast("تم تسجيل الخروج");
@@ -153,6 +157,17 @@ qsa(".js-theme").forEach(b => b.addEventListener("click", () =>
 function showApp() {
   $("loginView").classList.add("hidden"); $("appView").classList.remove("hidden");
   $("todayPill").textContent = new Date().toLocaleDateString("ar-EG-u-nu-latn", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
+
+/* إظهار/إخفاء عناصر الأدمن حسب الدور */
+function applyRole() {
+  const sup = !isAdmin();
+  document.body.classList.toggle("supervisor", sup);
+  const av = $("navAva");
+  av.textContent = sup ? "م" : "أ";
+  av.title = sup ? "مشرف — مشاهدة كل حاجة وتعديل الحضور اليومي فقط" : "أدمن — كل الصلاحيات";
+  $("rolePill").classList.toggle("hidden", !sup);
+  $("setFineLate").disabled = $("setFineAbsent").disabled = sup;
 }
 
 const PAGES = { dashboard: "نظرة عامة", attendance: "الحضور اليومي", schedule: "الجدول", employees: "الموظفون", reports: "التقارير", settings: "الإعدادات" };
@@ -208,13 +223,15 @@ on("navSearch", "input", debounce(() => {
 
 async function init() {
   try {
-    await api("/api/me");
+    const me = await api("/api/me");
+    S.role = me.role || "admin"; localStorage.setItem("bankai_role", S.role);
+    applyRole();
     showApp();
     const [emps, settings] = await Promise.all([api("/api/employees"), api("/api/settings")]);
     S.employees = emps; S.settings = settings;
     fillShiftLists();
     S.shown = false;
-    if (!location.hash) location.hash = "dashboard"; else route();
+    if (!location.hash) location.hash = isAdmin() ? "dashboard" : "attendance"; else route();
   } catch (e) { if (S.token) toast(e.message, "err"); }
 }
 
@@ -624,6 +641,7 @@ function renderEmployees() {
   const slice = list.slice((S.emp.page - 1) * S.emp.size, S.emp.page * S.emp.size);
   $("empRows").innerHTML = slice.map(e => {
     const sel = S.emp.selected.has(e.id);
+    const adminActs = isAdmin() ? `<button class="btn sm" data-edit="${e.id}">تعديل</button>${e.active ? `<button class="btn sm danger" data-deact="${e.id}">إيقاف</button>` : `<button class="btn sm" data-act="${e.id}">تفعيل</button>`}` : "";
     return `<tr class="${sel ? "sel" : ""}" data-id="${e.id}"><td class="c"><input type="checkbox" data-sel ${sel ? "checked" : ""} aria-label="تحديد ${esc(e.name)}"></td>
       <td class="who"><button class="link" data-hist="${e.id}">${esc(e.name)}</button><small>${esc(e.employee_code || "بدون كود")}</small></td>
       <td>${esc(e.branch)}</td><td>${sh(e.shift)}</td>
@@ -631,7 +649,7 @@ function renderEmployees() {
       <td>${WD_AR[e.day_off] || e.day_off}</td>
       <td>${e.phone ? `<a class="num" href="tel:${esc(e.phone)}">${esc(e.phone)}</a>` : `<span class="muted">—</span>`}</td>
       <td><span class="tag ${e.active ? "ok" : "off"}">${e.active ? "نشط" : "موقوف"}</span></td>
-      <td><div class="row-actions"><button class="btn sm" data-hist="${e.id}" title="سجل الحضور"><svg class="i"><use href="#i-clock"/></svg>السجل</button><button class="btn sm" data-edit="${e.id}">تعديل</button>${e.active ? `<button class="btn sm danger" data-deact="${e.id}">إيقاف</button>` : `<button class="btn sm" data-act="${e.id}">تفعيل</button>`}</div></td></tr>`;
+      <td><div class="row-actions"><button class="btn sm" data-hist="${e.id}" title="سجل الحضور"><svg class="i"><use href="#i-clock"/></svg>السجل</button>${adminActs}</div></td></tr>`;
   }).join("");
   $("empEmpty").classList.toggle("hidden", total > 0);
   markSort("#page-employees th.sort", "sort", S.emp);
@@ -964,8 +982,16 @@ function schBreakOptions(shift, current) {
 }
 
 function schRow(e, all) {
-  const moves = all.filter(s => s !== e.shift).map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
   const dirty = S.sch.draft.get(e.id) || {};
+  if (!isAdmin()) {
+    return `<tr data-id="${e.id}">
+      <td class="who"><b>${esc(e.name)}</b><small>${esc(e.employee_code || "")}</small></td>
+      <td class="c"><span class="tag ${e.employment_type === "FT" ? "brand" : ""}">${e.employment_type}</span></td>
+      <td>${WD_AR[e.day_off] || e.day_off}${e.off_locked ? ' <span class="tag" title="يوم الإجازة مثبّت">مثبّت</span>' : ""}</td>
+      <td>${e.break_start ? `<span class="num">${fmt12hm(e.break_start)}</span>` : `<span class="muted">—</span>`}</td>
+      <td class="acts no-print"></td></tr>`;
+  }
+  const moves = all.filter(s => s !== e.shift).map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
   return `<tr data-id="${e.id}" class="${S.sch.draft.has(e.id) ? "dirty" : ""}">
     <td class="who"><b>${esc(e.name)}</b><small>${esc(e.employee_code || "")}</small></td>
     <td class="c"><span class="tag ${e.employment_type === "FT" ? "brand" : ""}">${e.employment_type}</span></td>
@@ -977,7 +1003,7 @@ function schHead(name, list) {
   const sp = schSpread(list), c = schCover(list), v = WEEKDAYS.map(d => c[d]), mx = Math.max(...v), mn = Math.min(...v);
   const strip = list.length ? `<div class="week-strip" title="عدد العاملين في كل يوم بعد خصم الإجازات">${WEEKDAYS.map(d => `<span class="ws${c[d] === 0 || (mx - mn > 1 && c[d] === mn) ? " low" : mx - mn > 1 && c[d] === mx ? " high" : ""}"><small>${WD_AR[d]}</small><b class="num">${c[d]}</b></span>`).join("")}</div>` : "";
   return `<div class="shtop"><div><h4><bdi dir="ltr">${esc(name)}</bdi><span class="tag">${list.length} موظف</span>${list.length ? `<span class="tag ${sp <= 1 ? "ok" : "warn"}">${sp <= 1 ? "الإجازات موزّعة بالتساوي" : `فرق ${sp} بين أقل وأكثر يوم`}</span>` : ""}</h4></div>
-    <div class="row no-print"><button class="btn sm" data-sh="paste">لصق أسماء</button><button class="btn sm" data-sh="auto">وزّع هذا الشيفت</button><button class="btn sm" data-sh="rename">تعديل الاسم</button>${list.length ? "" : `<button class="btn sm danger" data-sh="delete">حذف الشيفت</button>`}</div></div>${strip}`;
+    ${isAdmin() ? `<div class="row no-print"><button class="btn sm" data-sh="paste">لصق أسماء</button><button class="btn sm" data-sh="auto">وزّع هذا الشيفت</button><button class="btn sm" data-sh="rename">تعديل الاسم</button>${list.length ? "" : `<button class="btn sm danger" data-sh="delete">حذف الشيفت</button>`}</div>` : ""}</div>${strip}`;
 }
 function schTable(name, list, all) {
   const q = S.sch.q.trim().toLowerCase();
@@ -993,10 +1019,10 @@ function schCard(name, list, all) {
   return `<section class="shcard" data-shift="${esc(name)}"><header class="shhead">${schHead(name, list)}</header>
     <div class="shwrap">${schTable(name, list, all)}</div>
     <div class="pastebox hidden"><textarea class="inp paste-ta" placeholder="اسم في كل سطر. ممكن تلصق عمود من Excel. ولو كتبت PT بعد الاسم (تاب أو فاصلة) بيتسجل بارت تايم."></textarea><div class="row" style="margin-top:8px"><button class="btn primary sm paste-go">إضافة كل الأسماء</button><button class="btn sm paste-cancel">إلغاء</button></div></div>
-    <div class="addrow no-print"><input class="inp add-name" list="schNames" placeholder="اكتب اسم موظف واضغط Enter لإضافته" autocomplete="off" aria-label="اسم موظف جديد">
+    ${isAdmin() ? `<div class="addrow no-print"><input class="inp add-name" list="schNames" placeholder="اكتب اسم موظف واضغط Enter لإضافته" autocomplete="off" aria-label="اسم موظف جديد">
       <select class="sel add-type" aria-label="النوع"><option value="FT" ${def.type === "FT" ? "selected" : ""}>Full Time</option><option value="PT" ${def.type === "PT" ? "selected" : ""}>Part Time</option></select>
       <select class="sel add-day" aria-label="يوم الإجازة"><option value="">إجازة: تلقائي</option>${WEEKDAYS.map(d => `<option value="${d}" ${def.day === d ? "selected" : ""}>${WD_AR[d]}</option>`).join("")}</select>
-      <button class="btn primary add-go"><svg class="i"><use href="#i-plus"/></svg>إضافة</button></div></section>`;
+      <button class="btn primary add-go"><svg class="i"><use href="#i-plus"/></svg>إضافة</button></div>` : ""}</section>`;
 }
 function renderTotals(emps) {
   const total = emps.length, off = {}; WEEKDAYS.forEach(d => off[d] = 0);
