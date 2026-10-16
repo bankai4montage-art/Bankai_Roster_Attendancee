@@ -527,3 +527,87 @@ body{font-size:15px;font-weight:600;line-height:1.6;-webkit-font-smoothing:antia
   .date-pill{display:none}
   body{font-size:15px}
 }
+
+/* ================= v6: declutter — more air, fewer always-on controls ================= */
+:root{--line:#e1e7f1;--line2:#eaeef6;--shadow:0 1px 2px rgba(15,39,71,.04),0 4px 14px rgba(15,39,71,.04)}
+:root[data-theme=dark]{--line:#22344f;--line2:#1b2b45;--shadow:0 1px 2px rgba(0,0,0,.3)}
+body{font-weight:500;line-height:1.65}
+.muted,.panel-h p,.page-head p,.a-sub,.sch td.who small,.who small{font-weight:500}
+.tbl td{font-weight:500}
+.tbl th,.sch th{font-weight:700;font-size:12.5px}
+.tag{font-weight:700}
+.topbar h2{font-size:24px;font-weight:800}
+.page-head h3,.panel-h h3{font-weight:800}
+.main{padding:26px 40px 80px;max-width:1380px}
+.topbar{margin-bottom:22px}
+.page-head{margin-bottom:20px;gap:14px}
+.panel,.shcard,.kpi,.br-card{border-radius:16px}
+.panel-h{padding:18px 22px 0}
+.panel-b{padding:18px 22px 22px}
+.kpis{gap:16px}
+.branch-grid,.two-col{gap:20px}
+.nav-item{margin-bottom:6px;padding:12px 14px}
+.date-pill{display:none}
+
+/* attendance: controls appear only when relevant */
+.arow{padding:13px 18px;gap:14px}
+.a-name{font-weight:700}
+.seg button{height:36px;padding:0 14px;font-weight:600}
+.arow .f-fine,.arow .f-reason{visibility:hidden}
+.arow[data-st=Late] .f-fine,.arow[data-st=Absent] .f-fine,
+.arow[data-st=Late] .f-reason,.arow[data-st=Absent] .f-reason,.arow[data-st=Excused] .f-reason{visibility:visible}
+.arow .note-btn{visibility:hidden}
+.arow:hover .note-btn,.arow .note-btn.has,.arow[data-st=Late] .note-btn,.arow[data-st=Absent] .note-btn,.arow[data-st=Excused] .note-btn{visibility:visible}
+.ghead{padding:13px 18px}
+.att-sticky{padding:10px 0 12px}
+
+/* employees table: secondary actions stay quiet until hover */
+.tbl td,.tbl th{padding-block:14px}
+.row-actions .btn{background:transparent;border-color:transparent;color:var(--ink2)}
+.row-actions .btn.danger{color:var(--bad)}
+.tbl tbody tr:hover .row-actions .btn{background:var(--surface);border-color:var(--line)}
+@media(hover:none){.row-actions .btn{border-color:var(--line);background:var(--surface)}}
+
+/* schedule: row tools quiet until hover */
+.sch td{padding-block:9px}
+.sch td.acts{opacity:.35;transition:opacity .15s}
+.sch tr:hover td.acts,.sch td.acts:focus-within{opacity:1}
+@media(hover:none){.sch td.acts{opacity:1}}
+.shhead{padding:16px 18px}
+.addrow,.pastebox{padding-inline:18px}
+
+/* dashboard */
+.dash-note{margin:14px 2px 18px;font-weight:500}
+.mini-tbl td,.mini-tbl th{padding-block:10px}
+
+@media(max-width:860px){
+  .main{padding:16px 14px 90px}
+  .arow{padding:14px}
+  .arow .f-fine,.arow .f-reason,.arow .note-btn{visibility:visible}
+  .arow:not([data-st=Late]):not([data-st=Absent]):not([data-st=Excused]) .f-fine,
+  .arow:not([data-st=Late]):not([data-st=Absent]):not([data-st=Excused]) .f-reason{display:none}
+}
+
+/* schedule import */
+dialog.dlg.xwide{width:min(1040px,calc(100% - 20px))}
+.imp-warn{border:1px solid var(--bad-line);background:var(--bad-bg);color:var(--bad);border-radius:var(--r);padding:10px 14px;margin-bottom:12px;font-weight:700}
+.imp-warn label{display:flex;gap:8px;align-items:center;margin-top:6px;font-weight:700}
+.simp-chips{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 12px}
+.simp-chips button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 14px;font-weight:700;color:var(--ink2);display:inline-flex;gap:8px;align-items:center}
+.simp-chips button b{font-size:15px;color:var(--head)}
+.simp-chips button.on{background:var(--brand-bg);border-color:var(--brand-line);color:var(--brand-d)}
+.simp-chips button.on b{color:var(--brand-d)}
+.simp-shifts{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;font-size:12.5px;color:var(--ink2)}
+.simp-opt{margin:0 0 12px;padding:10px 14px;border:1px dashed var(--line3);border-radius:var(--r);font-size:13px}
+.simp-opt details{margin-top:6px;color:var(--ink2)}
+.simp-tbl{max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:var(--r)}
+.simp-tbl table{width:100%;border-collapse:collapse;min-width:760px}
+.simp-tbl th{position:sticky;top:0;background:var(--surf2);z-index:1;text-align:start;padding:9px 12px;font-size:12.5px;font-weight:700;color:var(--ink2);border-bottom:1px solid var(--line)}
+.simp-tbl td{padding:8px 12px;border-bottom:1px solid var(--line2);vertical-align:top;font-size:13.5px}
+.simp-tbl tr:last-child td{border-bottom:0}
+.simp-tbl .rn{color:var(--ink3);width:44px}
+.simp-tbl .chg{font-size:12px;color:var(--ink2);margin-top:3px}
+.simp-tbl .wn{font-size:12px;color:var(--warn);margin-top:3px;font-weight:700}
+.simp-tbl .sel{height:34px;font-size:13px;margin-top:6px;max-width:260px}
+.simp-ok{border:1px solid var(--ok-line);background:var(--ok-bg);color:var(--ok);border-radius:var(--r);padding:10px 14px;font-weight:700;margin-top:12px}
+.imp-note{border:1px solid var(--brand-line);background:var(--brand-bg);color:var(--brand-d);border-radius:var(--r);padding:9px 14px;margin-bottom:10px;font-weight:700;font-size:13px}
