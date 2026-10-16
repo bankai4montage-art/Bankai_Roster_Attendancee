@@ -684,3 +684,7 @@ dialog.dlg.xwide{width:min(1040px,calc(100% - 20px))}
 .supervisor .row-actions .btn:not([data-hist]){display:none}
 .role-pill{display:inline-flex;align-items:center;gap:6px;background:var(--brand-bg);color:var(--brand-d);border:1px solid var(--brand-line);border-radius:999px;padding:4px 12px;font-size:12px;font-weight:800}
 .role-pill::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--brand)}
+
+/* ===== danger zone ===== */
+.danger-zone{border-color:var(--bad-line)}
+.danger-zone .panel-h h3{color:var(--bad)}
