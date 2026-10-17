@@ -117,7 +117,7 @@ function renderPager(el, total, st, redraw) {
 }
 
 function sortRows(list, st, getter) {
-  const { key, dir } = st;
+  const { key, dir = 1 } = st.sort || {};
   return list.sort((a, b) => {
     const x = getter(a, key), y = getter(b, key);
     const r = (typeof x === "number" && typeof y === "number") ? x - y : String(x).localeCompare(String(y), "ar");
@@ -164,7 +164,7 @@ qsa(".js-logout").forEach(b => b.addEventListener("click", () => {
 // ---------- theme (light / dark) ----------
 function applyTheme(t, save) {
   document.documentElement.dataset.theme = t;
-  const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = t === "dark" ? "#08111f" : "#0f2747";
+  const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = t === "dark" ? "#0f0b1c" : "#2a0f57";
   qsa(".js-theme").forEach(b => b.setAttribute("aria-checked", t === "dark" ? "true" : "false"));
   if (save) { try { localStorage.setItem("bankai-theme", t); } catch (e) {} }
 }
@@ -236,7 +236,8 @@ document.addEventListener("click", ev => {
 on("navSearch", "input", debounce(() => {
   const q = $("navSearch").value.trim();
   S.emp.q = q; if ($("empSearch")) $("empSearch").value = q;
-  if (S.page !== "employees") showPage("employees"); else empRedraw();
+  if (S.page !== "employees") { if (location.hash !== "#employees") location.hash = "#employees"; else showPage("employees"); }
+  else empRedraw();
 }, 300));
 
 async function init() {
@@ -572,6 +573,7 @@ on("attCollapse", "click", () => {
   const gs = qsa(".agroup", $("attList")); if (!gs.length) return;
   const anyOpen = gs.some(g => !g.classList.contains("collapsed"));
   gs.forEach(g => { g.classList.toggle("collapsed", anyOpen); anyOpen ? S.att.collapsed.add(g.dataset.g) : S.att.collapsed.delete(g.dataset.g); });
+  $("attCollapse").setAttribute("aria-expanded", String(!anyOpen));
 });
 on("attChips", "click", ev => { const c = ev.target.closest(".chip"); if (!c) return; S.att.status = c.dataset.status; renderAttendance(); });
 on("markPresentBtn", "click", () => { if (S.roster) markPresent(S.view.base); });
