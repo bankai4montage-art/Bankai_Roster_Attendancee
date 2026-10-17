@@ -1,0 +1,8 @@
+feat(ui): redesign summary cards as rings (V18 «RINGS»)
+
+- dashboard KPIs: plain surface card + conic-gradient ring showing the
+  value as a share of today's scheduled count, percentage printed inside
+- drop the coloured icon tile, masked icon, left accent bar and the kd
+  status pill; the pill's «N نشط» figure still shows in #dashNote
+- reports row (#repKpis) shares the card and keeps its colour as a dot
+- muted numbers/rings when the value is zero; responsive down to 340px

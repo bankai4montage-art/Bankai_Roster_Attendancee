@@ -274,15 +274,7 @@ function renderDashboard(d) {
     ["بعذر", t.excused, "info", { date, status: "Excused" }], ["لم يُسجل", t.unmarked, "", { date, status: "none" }],
   ];
   const pct = v => t.scheduled ? Math.round(v * 100 / t.scheduled) : 0;
-  const kd = {
-    "مجدولون اليوم": ["flat", `${d.active_total} نشط`],
-    "حاضر": [t.present >= t.scheduled * .8 ? "up" : "flat", pct(t.present) + "%"],
-    "متأخر": [t.late ? "down" : "flat", t.late ? pct(t.late) + "%" : "ممتاز"],
-    "غائب": [t.absent ? "down" : "flat", t.absent ? pct(t.absent) + "%" : "ممتاز"],
-    "بعذر": ["flat", pct(t.excused) + "%"],
-    "لم يُسجل": [t.unmarked ? "down" : "flat", pct(t.unmarked) + "%"],
-  };
-  $("dashKpis").innerHTML = kp.map(([l, v, c, go]) => { const [k, kt] = kd[l] || ["flat", ""]; return `<button class="kpi ${c}" data-go="${esc(JSON.stringify(go))}"><span class="kl">${l}</span><span class="kv num">${v}</span><span class="kd ${k}">${kt}</span></button>`; }).join("");
+  $("dashKpis").innerHTML = kp.map(([l, v, c, go]) => `<button class="kpi ${c}" data-go="${esc(JSON.stringify(go))}" style="--p:${pct(v)}" title="${l}: ${v} من ${t.scheduled} مجدول"><span class="kl">${l}</span><span class="kv num${v ? "" : " is-zero"}">${v}</span><span class="ring${v ? "" : " is-zero"}"><b>${pct(v)}%</b></span></button>`).join("");
   $("dashNote").innerHTML = `<span>غرامات اليوم: <b>${money(t.fines)}</b></span><span>في إجازة اليوم: <b class="num">${d.off_today}</b> موظف</span><span>إجمالي الموظفين النشطين: <b class="num">${d.active_total}</b></span>`;
   $("dashBranches").innerHTML = Object.entries(d.branches).map(([name, b]) => branchPanel(name, b, date)).join("");
   renderTrend(d.trend, date);

@@ -121,6 +121,14 @@ across two branches. Single-tenant, deployed for one company. All user-facing te
   request: with a single shift it repeated the same seven numbers. Its CSS (`.week-strip` / `.ws`,
   layer V17) is kept on purpose so it is cheap to bring back if more shifts are ever added — do not
   "tidy" it away without asking.
+- The summary cards (`.kpi`, layer V18 «RINGS») are a plain surface card holding the label, the big
+  number, and — on the dashboard only — a CSS `conic-gradient` ring whose centre prints the same value
+  as a percentage of **today's scheduled** count (`style="--p:N"` on the card, `--c` supplies the
+  colour). The old coloured icon tile, its `::after` masked icon and the left accent bar are switched
+  off here (`display:none`) rather than deleted; the `.kd` status-pill CSS and the `kd` map in
+  `renderDashboard` were removed with the pill, and the «162 نشط» figure the pill used to carry still
+  lives in `#dashNote`. The reports row (`#repKpis`) shares the card but has no ring — period totals
+  aren't a share of anything — so it keeps the colour as a small dot before the label instead.
 - The «تجاهل» (discard) buttons clear the draft **immediately, with no confirmation dialog** — this
   is deliberate, at the user's request. Do not reintroduce a `confirm()` there. The guards that must
   stay are the ones about *navigating away* with unsaved drafts, the schedule branch switch, and the

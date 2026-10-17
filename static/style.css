@@ -1661,3 +1661,78 @@ svg.i{transition:transform var(--t-med) var(--spring)}
   .week-strip .ws b{font-size:13px}
   .week-strip .ws.now small::before{display:none}
 }
+
+
+/* ============================================================
+   BANKAI V18 — «RINGS» — إعادة تصميم كروت الملخص
+   الرئيسية (#dashKpis) والتقارير (#repKpis) كانوا فيهم مربع أيقونة
+   ملوّن بـ glow + شريط جانبي + pill حالة. اتشالوا كلهم: الكارت بقى
+   نضيف، وفي الرئيسية حلقة بتلف على نسبة اليوم من المجدول والنسبة
+   مكتوبة جوّاها — فبتقارن الحالات من غير ما تقرا الأرقام.
+   كل السيلكتورات هنا مبدوءة بـ .kpis / #dashKpis عشان تكسب قواعد
+   V15 (.kpi و .kpi::before و .kpi::after) بغض النظر عن الترتيب.
+   ============================================================ */
+
+/* 1) شيل مربع الأيقونة والشريط الجانبي */
+.kpis .kpi::before,.kpis .kpi::after{display:none!important}
+
+/* 2) الكارت الأساسي (الرئيسية + التقارير) */
+.kpis .kpi{
+  position:relative;overflow:hidden;box-shadow:var(--shadow);
+  background:var(--surface);border:1px solid var(--line);border-radius:16px;
+  padding:15px 16px;min-height:0;gap:0;
+  display:flex;flex-direction:column;align-items:stretch;
+  transition:transform .25s var(--ease),box-shadow .3s var(--ease),border-color .2s;
+}
+.kpis .kpi:hover{
+  transform:translateY(-3px);border-color:color-mix(in srgb,var(--c,var(--brand)) 42%,var(--line));
+  box-shadow:0 14px 30px color-mix(in srgb,var(--c,var(--brand)) 20%,transparent);
+}
+.kpis .kpi:active{transform:translateY(-1px)}
+.kpis .kpi .kl{font-size:12.5px;font-weight:800;color:var(--ink3);align-self:flex-start;line-height:1.5}
+.kpis .kpi .kv{
+  font-family:'Alexandria','Cairo','Segoe UI',sans-serif;
+  font-size:30px;font-weight:800;letter-spacing:-1px;line-height:1;margin-top:12px;padding-top:0;
+  color:var(--head);font-variant-numeric:tabular-nums;align-self:flex-start;
+}
+.kpis .kpi .kv.is-zero{color:color-mix(in srgb,var(--ink3) 58%,transparent)}
+
+/* 3) الرئيسية: الاسم والرقم على اليمين، والحلقة على الشمال */
+#dashKpis .kpi{
+  display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;
+  align-items:center;gap:0 12px;padding:14px 16px;
+}
+#dashKpis .kpi .kl{grid-area:1/1}
+#dashKpis .kpi .kv{grid-area:2/1;margin-top:7px}
+#dashKpis .kpi .ring{
+  grid-area:1/2/3/3;align-self:center;
+  width:56px;height:56px;border-radius:50%;flex:none;display:grid;place-items:center;
+  background:conic-gradient(var(--c,var(--brand)) calc(var(--p,0) * 1%),color-mix(in srgb,var(--ink3) 15%,transparent) 0);
+}
+#dashKpis .kpi .ring b{
+  width:43px;height:43px;border-radius:50%;background:var(--surface);display:grid;place-items:center;
+  font-family:'Cairo',system-ui,sans-serif;font-size:11px;font-weight:800;letter-spacing:0;line-height:1;
+  color:var(--ink2);font-variant-numeric:tabular-nums;
+}
+#dashKpis .kpi .ring.is-zero b{color:color-mix(in srgb,var(--ink3) 62%,transparent)}
+
+/* 4) التقارير: نقطة لون صغيرة جنب الاسم عشان دلالة الحالة تفضل */
+#repKpis .kpi>span:first-child{font-size:12.5px;font-weight:800;color:var(--ink3)}
+#repKpis .kpi>span:first-child::before{
+  content:"";display:inline-block;width:8px;height:8px;border-radius:50%;
+  background:var(--c,var(--slate));margin-inline-end:7px;vertical-align:middle;
+}
+#repKpis .kpi>strong{margin-top:12px;padding-top:0;color:var(--head);letter-spacing:-.8px}
+
+@media(max-width:600px){
+  .kpis .kpi{padding:13px}
+  #dashKpis .kpi{gap:0 9px;padding:13px}
+  #dashKpis .kpi .kl{line-height:1.35}
+  #dashKpis .kpi .kv{font-size:26px}
+  #dashKpis .kpi .ring{width:44px;height:44px}
+  #dashKpis .kpi .ring b{width:34px;height:34px;font-size:9.5px}
+}
+@media(max-width:380px){
+  #dashKpis .kpi .ring{width:38px;height:38px}
+  #dashKpis .kpi .ring b{width:29px;height:29px;font-size:9px}
+}
