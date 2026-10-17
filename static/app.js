@@ -1439,7 +1439,7 @@ if (S.token) { showApp(); init(); }
     enterT = setTimeout(function () { enter = null; }, 2600);
   }
   function stagger(sel, step, base, max) {
-    if (RM()) return;
+    if (RM() || document.visibilityState !== "visible") return;
     var els = typeof sel === "string" ? qsa(sel) : sel;
     els.slice(0, max || 30).forEach(function (el, i) {
       el.style.animation = "none";
@@ -1448,7 +1448,7 @@ if (S.token) { showApp(); init(); }
     });
   }
   function enterPage(p) {
-    if (RM()) return;
+    if (RM() || document.visibilityState !== "visible") return;
     var root = qs("#page-" + p);
     if (!root) return;
     var kids = qsa(":scope > *", root).filter(function (el) {

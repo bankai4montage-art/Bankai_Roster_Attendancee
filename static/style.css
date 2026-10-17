@@ -2365,3 +2365,24 @@ dialog::backdrop{background:color-mix(in srgb,#1c1633 55%,transparent);backdrop-
   .panel-b,.panel-h{padding-inline:14px}
   .toast{inset-inline:16px;bottom:78px}
 }
+
+/* ============================================================================
+   V19.1 — تباين الوضع الغامق: أسطح «العلامة الصلبة»
+   في الغامق كل توكِنز النص (--ink, --brand, --ok-d, --bad-d ...) فاتحة عن قصد
+   عشان تبان على الخلفية الغامقة. أي سطح كان بيتلوّن بواحد منها وبيكتب عليه
+   أبيض كان بيطلع أبيض على أبيض: شريحة «الكل» في الحضور، شريط التعديل الجماعي،
+   زر الخطر، والتوست. الحل: توكنز مستقلة للسطح الصلب، والغامق بياخد درجة
+   متوسطة يقدر الأبيض يبان عليها.
+   ============================================================================ */
+:root{--solid:#2a0f57;--solid-ok:#0a7f60;--solid-bad:#a8242e;--solid-info:#4b2bb8}
+:root[data-theme=dark]{--solid:#6d3fc4;--solid-ok:#0d7f60;--solid-bad:#a82634;--solid-info:#5b3fd6}
+
+.chip.on{background:var(--solid);color:#fff}
+.chip.on b{background:rgba(255,255,255,.2);color:#fff}
+.bulk-bar{background:var(--solid);color:#fff}
+#attGroup:checked,.switch-row input[type=checkbox]:checked{background:var(--solid)}
+.btn.danger{background:var(--solid-bad);color:#fff}
+.btn.danger:hover:not([disabled]){background:var(--solid-bad);filter:brightness(1.08)}
+.toast.ok{background:var(--solid-ok);color:#fff}
+.toast.err{background:var(--solid-bad);color:#fff}
+
