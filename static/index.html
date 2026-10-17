@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0f2747">
-  <script>try{var t=localStorage.getItem("bankai-theme");if(!t)t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.dataset.theme=t;var m=document.querySelector('meta[name="theme-color"]');if(m)m.content=t==="dark"?"#08111f":"#0f2747"}catch(e){}</script>
+  <meta name="theme-color" content="#2a0f57">
+  <script>try{var t=localStorage.getItem("bankai-theme");if(!t)t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.dataset.theme=t;var m=document.querySelector('meta[name="theme-color"]');if(m)m.content=t==="dark"?"#0f0b1c":"#2a0f57"}catch(e){}</script>
   <title>Bankai — Operations Control Center</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700;800;900&family=Alexandria:wght@500;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Almarai:wght@400;700;800&family=Tajawal:wght@400;500;700&display=swap">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/favicon.svg">
   <link rel="stylesheet" href="/static/style.css?v=__ASSET_V__">
@@ -65,6 +65,7 @@
   <nav class="topnav">
     <div class="brand"><div class="mark">B</div><div>Bankai<small>مركز إدارة العمليات</small></div></div>
     <div class="tabs" role="navigation" aria-label="القائمة الرئيسية">
+      <span class="nav-ind" id="navInd" aria-hidden="true"></span>
       <button class="nav-btn" data-page="dashboard"><span class="nav-ico"><svg class="i"><use href="#i-grid"/></svg></span>نظرة عامة</button>
       <button class="nav-btn" data-page="attendance"><span class="nav-ico"><svg class="i"><use href="#i-check"/></svg></span>الحضور اليومي</button>
       <button class="nav-btn" data-page="schedule"><span class="nav-ico"><svg class="i"><use href="#i-cal"/></svg></span>الجدول</button>

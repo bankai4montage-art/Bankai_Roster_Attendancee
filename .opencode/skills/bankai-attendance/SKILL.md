@@ -121,14 +121,16 @@ across two branches. Single-tenant, deployed for one company. All user-facing te
   request: with a single shift it repeated the same seven numbers. Its CSS (`.week-strip` / `.ws`,
   layer V17) is kept on purpose so it is cheap to bring back if more shifts are ever added — do not
   "tidy" it away without asking.
-- The summary cards (`.kpi`, layer V18 «RINGS») are a plain surface card holding the label, the big
-  number, and — on the dashboard only — a CSS `conic-gradient` ring whose centre prints the same value
-  as a percentage of **today's scheduled** count (`style="--p:N"` on the card, `--c` supplies the
-  colour). The old coloured icon tile, its `::after` masked icon and the left accent bar are switched
-  off here (`display:none`) rather than deleted; the `.kd` status-pill CSS and the `kd` map in
-  `renderDashboard` were removed with the pill, and the «162 نشط» figure the pill used to carry still
-  lives in `#dashNote`. The reports row (`#repKpis`) shares the card but has no ring — period totals
-  aren't a share of anything — so it keeps the colour as a small dot before the label instead.
+- The summary cards (`.kpi`) are a plain surface card: label, big number, and a footer that the
+  V19 «FOODICS» layer adds — a 5px accent strip on the inline-start edge (`.kpi::before`, colour from
+  `--c`) plus, on the dashboard only, a `--p:N` share bar and the percentage next to it (the
+  `.kpi-foot` markup is injected by the motion module in `app.js`). `--p` is a share of **today's
+  scheduled** count. The V18 «RINGS» `conic-gradient` ring is switched off, not deleted
+  (`#dashKpis .kpi .ring{display:none}`), so it is cheap to bring back. V18's `display:none!important`
+  on `.kpi::before` has to be beaten with `!important` — a plain `display:block` loses. The reports
+  row (`#repKpis`) shares the card and the accent strip but has no share bar (period totals aren't a
+  share of anything) and keeps a small colour dot before the label. The «162 نشط» figure the old
+  status pill carried lives in `#dashNote`.
 - The «تجاهل» (discard) buttons clear the draft **immediately, with no confirmation dialog** — this
   is deliberate, at the user's request. Do not reintroduce a `confirm()` there. The guards that must
   stay are the ones about *navigating away* with unsaved drafts, the schedule branch switch, and the
@@ -136,9 +138,9 @@ across two branches. Single-tenant, deployed for one company. All user-facing te
 
 ## CSS layout traps (learned the hard way)
 
-`style.css` grows by **appending numbered layers** (`V15 «REBORN»`, `V16 «POLISH»`, …). The last
-matching rule wins, so override at the end instead of rewriting an earlier layer. Three traps have
-already caused real, user-visible breakage:
+`style.css` grows by **appending numbered layers** (`V15 «REBORN»`, `V16 «POLISH»`, … ,
+`V19 «FOODICS»` last). The last matching rule wins, so override at the end instead of rewriting an
+earlier layer. Four traps have already caused real, user-visible breakage:
 
 - **Never put `transform`, `filter`, `backdrop-filter`, `perspective`, or `will-change` on
   `.page`.** `.save-bar` and `#schSaveBar` are `position: fixed` *inside* `.page`; any of those
@@ -163,6 +165,18 @@ already caused real, user-visible breakage:
 Before shipping any CSS change, confirm on every route that
 `document.documentElement.scrollWidth === document.documentElement.clientWidth`, and that
 `elementFromPoint()` at the centre of `#saveBtn` returns the button (not `null`, not an overlay).
+
+## JS traps
+
+- **Never `classList.add/remove/toggle` from a `MutationObserver` callback without checking the state
+  first.** Chromium records a mutation even when the token is already present, so an observer that
+  re-adds a class on every `class` change re-enters itself forever: the microtask queue never drains,
+  the main thread never yields, and every later `fetch()` waits behind it — the tab looks "dead"
+  (this froze the app on boot while the V19 nav indicator was being written; `/api/me` returned and
+  `/api/employees` never fired). Compare a boolean (`navShown`) before touching `classList`.
+- Page-entrance stagger is applied as an **inline** `style.animation` from `app.js`, and only on the
+  first data render after a route change (`enter` flag), never on filter/search re-renders — otherwise
+  every keystroke replays the entrance.
 
 ## Environment
 

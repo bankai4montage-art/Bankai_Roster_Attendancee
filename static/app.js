@@ -1374,3 +1374,191 @@ on("setExportEmp", "click", () => download("/api/employees/export.csv", "bankai_
 
 /* ============================== boot ============================== */
 if (S.token) { showApp(); init(); }
+
+
+/* ============================== V19 «FOODICS» — motion ==============================
+   طبقة حركة عرضية فقط: بتلف دوال العرض الموجودة عشان تضيف العدّاد
+   ودخول العناصر ومؤشّر التنقّل. مفيش أي تغيير في منطق البيانات أو
+   الـ API أو الـ state — كل الدوال الأصلية بتتنفّذ زي ما هي الأول. */
+(function () {
+  "use strict";
+  var RM = function () { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return false; } };
+  var qs = function (s, r) { return (r || document).querySelector(s); };
+  var qsa = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+
+  /* ---------- 1. مؤشّر التنقّل المنزلق في الشريط الجانبي ---------- */
+  var nav = qs(".topnav .tabs"), ind = qs("#navInd");
+  var navShown = false, navBusy = false;
+  function syncNav() {
+    if (!nav || !ind || navBusy) return;
+    navBusy = true;
+    try {
+      var btn = qs(".nav-btn.active", nav);
+      if (!btn || !btn.offsetParent) {
+        /* ⚠ بنقارن قبل ما نلمس classList: أي كتابة على class — حتى بنفس
+           القيمة — بتطلّع MutationRecord، والمراقب تحت بيستدعي syncNav
+           تاني، فبندخل في حلقة لا نهائية من غير الشرط ده. */
+        if (navShown) { ind.classList.remove("on"); navShown = false; }
+        return;
+      }
+      var nr = nav.getBoundingClientRect(), br = btn.getBoundingClientRect();
+      var y = Math.round(br.top - nr.top) + "px", h = Math.round(br.height) + "px";
+      if (ind.style.getPropertyValue("--nv-y") !== y) ind.style.setProperty("--nv-y", y);
+      if (ind.style.height !== h) ind.style.height = h;
+      if (!navShown) { ind.classList.add("on"); navShown = true; }
+    } finally { navBusy = false; }
+  }
+  if (nav) {
+    try { new MutationObserver(function () { syncNav(); }).observe(nav, { subtree: true, attributes: true, attributeFilter: ["class", "hidden"] }); } catch (e) { }
+    addEventListener("resize", syncNav);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncNav).catch(function () { });
+    syncNav();
+  }
+
+  /* ---------- 2. العدّاد التصاعدي ---------- */
+  function numeric(el) {
+    var t = ((el && el.textContent) || "").trim();
+    return /^\d{1,7}$/.test(t) ? parseInt(t, 10) : NaN;
+  }
+  function countUp(el, to, dur) {
+    if (!el || RM() || !(to > 0)) return;
+    var t0 = performance.now(), d = dur || 780;
+    el.textContent = "0";
+    (function step(now) {
+      var p = Math.min(1, (now - t0) / d), e = 1 - Math.pow(1 - p, 3);
+      el.textContent = String(Math.round(to * e));
+      if (p < 1) requestAnimationFrame(step); else el.textContent = String(to);
+    })(performance.now());
+  }
+
+  /* ---------- 3. دخول العناصر بتتابع ---------- */
+  var enter = null, enterT = 0;
+  function markEnter(p) {
+    enter = p;
+    clearTimeout(enterT);
+    enterT = setTimeout(function () { enter = null; }, 2600);
+  }
+  function stagger(sel, step, base, max) {
+    if (RM()) return;
+    var els = typeof sel === "string" ? qsa(sel) : sel;
+    els.slice(0, max || 30).forEach(function (el, i) {
+      el.style.animation = "none";
+      void el.offsetWidth;
+      el.style.animation = "fdsRise .46s var(--fds-out) both " + ((base || 0) + i * (step || 38)) + "ms";
+    });
+  }
+  function enterPage(p) {
+    if (RM()) return;
+    var root = qs("#page-" + p);
+    if (!root) return;
+    var kids = qsa(":scope > *", root).filter(function (el) {
+      return !el.classList.contains("save-bar") && !el.classList.contains("hidden") && !el.classList.contains("print-only");
+    });
+    kids.forEach(function (el, i) {
+      el.style.animation = "none";
+      void el.offsetWidth;
+      el.style.animation = "fdsRise .5s var(--fds-out) both " + (i * 42) + "ms";
+    });
+  }
+  function growBars(sel) {
+    if (RM()) return;
+    qsa(sel).forEach(function (i) {
+      var w = i.style.width; if (!w || w === "0%") return;
+      i.style.width = "0%";
+      requestAnimationFrame(function () { requestAnimationFrame(function () { i.style.width = w; }); });
+    });
+  }
+
+  /* ---------- 4. لقطة الصفحة عند التبديل ---------- */
+  var _showPage = window.showPage;
+  window.showPage = function (p) {
+    _showPage(p);
+    markEnter(p);
+    requestAnimationFrame(function () { syncNav(); enterPage(p); });
+  };
+
+  /* ---------- 5. كروت الملخص: شريط + نسبة + عدّاد ---------- */
+  var _dash = window.renderDashboard;
+  window.renderDashboard = function (d) {
+    _dash(d);
+    var host = qs("#dashKpis"); if (!host) return;
+    qsa(".kpi", host).forEach(function (card) {
+      var kv = qs(".kv", card); if (!kv) return;
+      var p = (card.style.getPropertyValue("--p") || "").trim() || "0";
+      if (!qs(".kpi-foot", card)) {
+        var f = document.createElement("span");
+        f.className = "kpi-foot";
+        f.innerHTML = '<span class="kpi-bar"><i style="width:' + p + '%"></i></span><span class="kpi-pct">' + p + "%</span>";
+        card.appendChild(f);
+      }
+      countUp(kv, numeric(kv));
+    });
+    if (enter === "dashboard") { enter = null; stagger("#dashKpis .kpi", 55, 40, 6); }
+  };
+
+  /* ---------- 6. التقارير ---------- */
+  var _rep = window.renderReport;
+  window.renderReport = function () {
+    _rep.apply(null, arguments);
+    qsa("#repKpis .kpi > strong").forEach(function (el) { countUp(el, numeric(el), 700); });
+    if (enter === "reports") {
+      enter = null;
+      stagger("#repKpis .kpi", 50, 40, 6);
+      stagger("#repDays tr", 22, 130, 14);
+      stagger("#repRows tr", 24, 220, 30);
+    }
+  };
+
+  /* ---------- 7. الحضور اليومي ---------- */
+  var _att = window.renderAttendance;
+  window.renderAttendance = function () {
+    _att.apply(null, arguments);
+    if (enter === "attendance") {
+      enter = null;
+      stagger("#attList .arow", 26, 90, 40);
+      growBars("#attList .ghead .stack i");
+    }
+  };
+
+  /* ---------- 8. الموظفون ---------- */
+  var _emp = window.renderEmployees;
+  window.renderEmployees = function () {
+    _emp.apply(null, arguments);
+    if (enter === "employees") { enter = null; stagger("#empRows tr", 26, 60, 30); }
+  };
+
+  /* ---------- 9. الجدول ---------- */
+  var _sch = window.renderSchedule;
+  window.renderSchedule = function () {
+    _sch.apply(null, arguments);
+    if (enter === "schedule") {
+      enter = null;
+      stagger("#schTotals .dt", 40, 40, 8);
+      stagger("#schShifts .shcard", 70, 120, 6);
+    }
+  };
+
+  /* ---------- 10. شارة المسودّات على شريط التنقّل ---------- */
+  var attBtn = qs('.topnav .nav-btn[data-page="attendance"]');
+  var schBtn = qs('.topnav .nav-btn[data-page="schedule"]');
+  function badge(btn, n) {
+    if (!btn) return;
+    var b = qs(".nav-badge", btn);
+    if (!b) { b = document.createElement("b"); b.className = "nav-badge"; btn.appendChild(b); }
+    b.textContent = String(n);
+    var want = n > 0;
+    if (b.classList.contains("on") !== want) b.classList.toggle("on", want);
+  }
+  var _usb = window.updateSaveBar;
+  window.updateSaveBar = function () {
+    _usb.apply(null, arguments);
+    badge(attBtn, (typeof S !== "undefined" && S.draft) ? S.draft.size : 0);
+  };
+  var _uss = window.updateSchSaveBar;
+  window.updateSchSaveBar = function () {
+    _uss.apply(null, arguments);
+    badge(schBtn, (typeof S !== "undefined" && S.sch && S.sch.draft) ? S.sch.draft.size : 0);
+  };
+  badge(attBtn, (typeof S !== "undefined" && S.draft) ? S.draft.size : 0);
+  badge(schBtn, (typeof S !== "undefined" && S.sch && S.sch.draft) ? S.sch.draft.size : 0);
+})();
