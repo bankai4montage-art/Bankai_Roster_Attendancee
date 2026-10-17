@@ -37,7 +37,7 @@ across two branches. Single-tenant, deployed for one company. All user-facing te
 | API + models + helpers | `app.py` (~1500 lines) | 35 routes (32 under `/api`), 21 classes, FastAPI 2.1.0 |
 | Single-page UI | `static/index.html` (~37 KB) | served by `GET /` |
 | All client logic | `static/app.js` (~93 KB) | fetch calls to `/api/*` |
-| All styling | `static/style.css` (~114 KB) | no framework |
+| All styling | `static/style.css` (~118 KB) | no framework |
 | Deploy | `Dockerfile`, `railway.json` | `python:3.12-slim`, healthcheck `/api/health` |
 
 ## Domain vocabulary (exact values — these are stored in the DB)
@@ -113,6 +113,9 @@ across two branches. Single-tenant, deployed for one company. All user-facing te
 - UI copy is Arabic and right-to-left friendly; numbers/dates in exports are ISO (`YYYY-MM-DD`)
   and fines formatted with `f"{x:.2f}"`.
 - `.xlsx` files are read in the browser and posted as base64 (`file_b64`), never multipart.
+- Ratio bars are drawn with CSS only: an inline percentage plus a gradient
+  (`.stack i` uses `style="width:N%"`, the week strip `.ws::after` uses `style="--f:N%"`). There is
+  no charting library and none should be added.
 - The «تجاهل» (discard) buttons clear the draft **immediately, with no confirmation dialog** — this
   is deliberate, at the user's request. Do not reintroduce a `confirm()` there. The guards that must
   stay are the ones about *navigating away* with unsaved drafts, the schedule branch switch, and the

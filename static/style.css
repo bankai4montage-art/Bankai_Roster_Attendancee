@@ -1600,3 +1600,64 @@ svg.i{transition:transform var(--t-med) var(--spring)}
 @media print{
   .skip-link,.route-bar{display:none!important}
 }
+
+
+/* ============================================================
+   BANKAI V17 — «WEEK» — إعادة تصميم شريط تغطية الأسبوع (.ws)
+   بدل 7 كروت متطابقة فاضية بعرض الشاشة: شريط واحد بـ 7 أعمدة بفواصل
+   شعرية، وكل يوم فيه اسم اليوم + العدد على سطر، وتحته شريط امتلاء
+   بنسبة تغطية اليوم من أعلى يوم في الأسبوع.
+   طول الشريط هو المعلومة؛ واللون وظيفته التنبيه بس — الأيام العادية
+   هادية، وأقل يوم أحمر وأكثر يوم أخضر، فالعين تروح للفجوة على طول.
+   ملاحظة: كل السيلكتورات هنا مبدوءة بـ .week-strip عشان تكسب
+   القواعد القديمة (سطور 431/433/434/487/1182) بغض النظر عن الترتيب.
+   ============================================================ */
+
+.week-strip{
+  display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:0;
+  background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;
+}
+
+.week-strip .ws{
+  display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:7px 8px;
+  padding:10px 12px 11px;min-width:0;
+  background:transparent;border:0;border-inline-start:1px solid var(--line);border-radius:0;
+  transform:none;font-size:12px;font-weight:600;color:var(--ink3);
+  --wtrk:color-mix(in srgb,var(--ink3) 20%,transparent);
+  --wc:color-mix(in srgb,var(--ink3) 55%,transparent);
+}
+.week-strip .ws:first-child{border-inline-start:0}
+.week-strip .ws small{font-size:12px;font-weight:600;color:inherit;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.week-strip .ws b{font-size:15px;font-weight:900;line-height:1;color:var(--head);font-variant-numeric:tabular-nums}
+
+/* شريط التغطية: الطول = نسبة اليوم من أعلى يوم في الأسبوع */
+.week-strip .ws::after{
+  content:"";grid-column:1/-1;justify-self:stretch;height:4px;border-radius:99px;
+  background-color:var(--wtrk);
+  background-image:linear-gradient(to left,var(--wc) var(--f,0%),transparent 0);
+}
+
+/* أقل يوم في الأسبوع (أو تغطية صفر): ده التنبيه الوحيد اللي بيلوّن الرقم نفسه */
+.week-strip .ws.low{--wtrk:color-mix(in srgb,var(--bad) 20%,transparent);--wc:var(--bad)}
+.week-strip .ws.low b{color:var(--bad)}
+/* أكثر يوم في الأسبوع: اللون على الشريط بس — الرقم بيفضل هادي
+   عشان عمود الأرقام السبعة يتقرأ بسرعة من غير تشتيت */
+.week-strip .ws.high{--wtrk:color-mix(in srgb,var(--ok) 20%,transparent);--wc:var(--ok)}
+
+/* النهاردة — نفس لغة شريط الإجماليات (.dt.today) */
+.week-strip .ws.now{background:color-mix(in srgb,var(--brand) 6%,transparent)}
+.week-strip .ws.now small{color:var(--brand-d)}
+.week-strip .ws.now small::before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--brand-d);margin-inline-end:5px;vertical-align:middle}
+
+/* موبايل: نكدّس الاسم والرقم فوق بعض */
+@media(max-width:860px){
+  .week-strip .ws{grid-template-columns:1fr;justify-items:center;gap:3px;padding:7px 4px 8px}
+  .week-strip .ws small{font-size:10.5px}
+  .week-strip .ws b{font-size:14px}
+}
+@media(max-width:600px){
+  .week-strip .ws{padding:6px 2px 7px}
+  .week-strip .ws small{font-size:9.5px}
+  .week-strip .ws b{font-size:13px}
+  .week-strip .ws.now small::before{display:none}
+}
