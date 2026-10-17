@@ -1018,10 +1018,9 @@ function schRow(e, all) {
     <td class="acts no-print"><button type="button" class="btn sm icon pin${e.off_locked ? " on" : ""}" data-pin title="${e.off_locked ? "يوم الإجازة مثبّت (التوزيع التلقائي مش هيغيّره). اضغط للإلغاء" : "ثبّت يوم الإجازة عشان التوزيع التلقائي ما يغيّروش"}" aria-pressed="${!!e.off_locked}"><svg class="i"><use href="#i-pin"/></svg></button><select class="sel tiny f-mv" aria-label="نقل لشيفت آخر"><option value="">نقل…</option>${moves}</select><button type="button" class="btn sm icon danger" data-del title="إزالة من الجدول" aria-label="إزالة ${esc(e.name)}"><svg class="i"><use href="#i-x"/></svg></button></td></tr>`;
 }
 function schHead(name, list) {
-  const sp = schSpread(list), c = schCover(list), v = WEEKDAYS.map(d => c[d]), mx = Math.max(...v), mn = Math.min(...v), today = schToday();
-  const strip = list.length ? `<div class="week-strip" title="عدد العاملين في كل يوم بعد خصم الإجازات">${WEEKDAYS.map(d => `<span class="ws${c[d] === 0 || (mx - mn > 1 && c[d] === mn) ? " low" : mx - mn > 1 && c[d] === mx ? " high" : ""}${d === today ? " now" : ""}" style="--f:${mx ? (c[d] / mx * 100).toFixed(1) : 0}%" title="${WD_AR[d]}: ${c[d]} موظف"><small>${WD_AR[d]}</small><b class="num">${c[d]}</b></span>`).join("")}</div>` : "";
+  const sp = schSpread(list);
   return `<div class="shtop"><div><h4><bdi dir="ltr">${esc(name)}</bdi><span class="tag">${list.length} موظف</span>${list.length ? `<span class="tag ${sp <= 1 ? "ok" : "warn"}">${sp <= 1 ? "الإجازات موزّعة بالتساوي" : `فرق ${sp} بين أقل وأكثر يوم`}</span>` : ""}</h4></div>
-    ${isAdmin() ? `<div class="row no-print"><button class="btn sm" data-sh="paste">لصق أسماء</button><button class="btn sm" data-sh="auto">وزّع هذا الشيفت</button><button class="btn sm" data-sh="rename">تعديل الاسم</button>${list.length ? "" : `<button class="btn sm danger" data-sh="delete">حذف الشيفت</button>`}</div>` : ""}</div>${strip}`;
+    ${isAdmin() ? `<div class="row no-print"><button class="btn sm" data-sh="paste">لصق أسماء</button><button class="btn sm" data-sh="auto">وزّع هذا الشيفت</button><button class="btn sm" data-sh="rename">تعديل الاسم</button>${list.length ? "" : `<button class="btn sm danger" data-sh="delete">حذف الشيفت</button>`}</div>` : ""}</div>`;
 }
 function schTable(name, list, all) {
   const q = S.sch.q.trim().toLowerCase();

@@ -113,9 +113,14 @@ across two branches. Single-tenant, deployed for one company. All user-facing te
 - UI copy is Arabic and right-to-left friendly; numbers/dates in exports are ISO (`YYYY-MM-DD`)
   and fines formatted with `f"{x:.2f}"`.
 - `.xlsx` files are read in the browser and posted as base64 (`file_b64`), never multipart.
-- Ratio bars are drawn with CSS only: an inline percentage plus a gradient
-  (`.stack i` uses `style="width:N%"`, the week strip `.ws::after` uses `style="--f:N%"`). There is
-  no charting library and none should be added.
+- Ratio bars are drawn with CSS only: an inline percentage plus a gradient (`.stack i` uses
+  `style="width:N%"`, the week strip would use `style="--f:N%"`). There is no charting library and
+  none should be added.
+- The schedule shows **one** week strip — `#schTotals` (rendered by `renderTotals`), above the shift
+  cards. The per-shift strip that used to sit inside each shift card was removed at the user's
+  request: with a single shift it repeated the same seven numbers. Its CSS (`.week-strip` / `.ws`,
+  layer V17) is kept on purpose so it is cheap to bring back if more shifts are ever added — do not
+  "tidy" it away without asking.
 - The «تجاهل» (discard) buttons clear the draft **immediately, with no confirmation dialog** — this
   is deliberate, at the user's request. Do not reintroduce a `confirm()` there. The guards that must
   stay are the ones about *navigating away* with unsaved drafts, the schedule branch switch, and the
