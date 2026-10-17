@@ -584,7 +584,7 @@ on("attCollapse", "click", () => {
 on("attChips", "click", ev => { const c = ev.target.closest(".chip"); if (!c) return; S.att.status = c.dataset.status; renderAttendance(); });
 on("markPresentBtn", "click", () => { if (S.roster) markPresent(S.view.base); });
 on("saveBtn", "click", saveAttendance);
-on("saveDiscard", "click", () => { if (!S.draft.size || !confirm("تجاهل كل التغييرات غير المحفوظة؟")) return; S.draft.clear(); renderAttendance(); updateSaveBar(); });
+on("saveDiscard", "click", () => { if (!S.draft.size) return; S.draft.clear(); renderAttendance(); updateSaveBar(); });
 
 on("attList", "click", ev => {
   const t = ev.target;
@@ -1104,7 +1104,7 @@ async function schSave(silent = false) {
   finally { $("schSave").disabled = false; }
 }
 on("schSave", "click", () => schSave());
-on("schDiscard", "click", () => { if (!S.sch.draft.size || !confirm("تجاهل كل التعديلات غير المحفوظة في الجدول؟")) return; S.sch.draft.clear(); renderSchedule(); updateSchSaveBar(); });
+on("schDiscard", "click", () => { if (!S.sch.draft.size) return; S.sch.draft.clear(); renderSchedule(); updateSchSaveBar(); });
 
 /* toolbar */
 on("schBranchSeg", "click", ev => {

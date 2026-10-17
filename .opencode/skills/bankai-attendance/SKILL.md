@@ -113,6 +113,10 @@ across two branches. Single-tenant, deployed for one company. All user-facing te
 - UI copy is Arabic and right-to-left friendly; numbers/dates in exports are ISO (`YYYY-MM-DD`)
   and fines formatted with `f"{x:.2f}"`.
 - `.xlsx` files are read in the browser and posted as base64 (`file_b64`), never multipart.
+- The «تجاهل» (discard) buttons clear the draft **immediately, with no confirmation dialog** — this
+  is deliberate, at the user's request. Do not reintroduce a `confirm()` there. The guards that must
+  stay are the ones about *navigating away* with unsaved drafts, the schedule branch switch, and the
+  Excel import, because those lose the draft as a side effect of a different action.
 
 ## CSS layout traps (learned the hard way)
 
