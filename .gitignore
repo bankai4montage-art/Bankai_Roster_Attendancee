@@ -1,0 +1,32 @@
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.ty/
+
+# ---------- بيانات التطبيق (ممنوع تتحفظ في Git) ----------
+*.db
+*.sqlite
+*.sqlite3
+bankai.db
+bankai_backup_*.db
+
+# ---------- أسرار / إعدادات محلية ----------
+.env
+.env.*
+*.local
+
+# ---------- محرّرات وأنظمة ----------
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

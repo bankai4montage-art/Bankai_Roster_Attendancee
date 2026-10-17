@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List, Dict
 
 from fastapi import FastAPI, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
@@ -116,9 +116,44 @@ ensure_columns()
 if ADMIN_PASSWORD == "ChangeThisPassword123!":
     print("WARNING: ADMIN_PASSWORD is the default value. Set a strong ADMIN_PASSWORD environment variable.")
 
-app = FastAPI(title=APP_NAME, version="2.0.0")
+app = FastAPI(title=APP_NAME, version="2.1.0")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 security = HTTPBearer(auto_error=False)
+
+# هيدرز أمنية لكل الردود: تطبيق داخلي مش محتاج يتحط في iframe، ومفيش داعي
+# إن المتصفح يخمّن نوع الملف. HSTS بنسيبها للبروكسي بتاع Railway.
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "same-origin",
+    "Permissions-Policy": "geolocation=(), microphone=(), camera=(), payment=()",
+}
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for key, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(key, value)
+    return response
+
+
+# أيقونة التطبيق: SVG صغير مضمّن عشان نبطل 404 على /favicon.ico
+FAVICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+    '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
+    '<stop offset="0" stop-color="#a78bfa"/><stop offset="1" stop-color="#6d28d9"/>'
+    '</linearGradient></defs><rect width="64" height="64" rx="18" fill="url(#g)"/>'
+    '<text x="32" y="45" font-family="Cairo,Segoe UI,Arial,sans-serif" font-size="38" '
+    'font-weight="800" fill="#ffffff" text-anchor="middle">B</text></svg>'
+)
+
+
+@app.get("/favicon.svg", include_in_schema=False)
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return Response(content=FAVICON_SVG, media_type="image/svg+xml",
+                    headers={"Cache-Control": "public, max-age=86400"})
 
 
 def get_db():
@@ -170,13 +205,31 @@ def require_admin(role: str = Depends(require_auth)):
 _login_state: Dict[str, List[float]] = {}  # ip -> [failed_count, locked_until]
 MAX_FAILS = 8
 LOCK_SECONDS = 300
+MAX_TRACKED_IPS = 512
 
 
 def client_ip(request: Request) -> str:
+    """عنوان العميل اللي بنقفل عليه المحاولات الفاشلة.
+
+    بناخد **آخر** عنوان في X-Forwarded-For مش أوله: البروكسي (Railway) هو اللي بيضيف
+    عنوان العميل الحقيقي في آخر السلسلة، وأي قيمة العميل بعتها بنفسه بتفضل في الأول.
+    لو خدنا أول عنصر، أي حد يقدر يبعت هيدر مزيّف ويتخطى قفل تسجيل الدخول تمامًا.
+    """
     fwd = request.headers.get("x-forwarded-for")
     if fwd:
-        return fwd.split(",")[0].strip()
+        hops = [p.strip() for p in fwd.split(",") if p.strip()]
+        if hops:
+            return hops[-1]
     return request.client.host if request.client else "unknown"
+
+
+def _prune_login_state(now: float) -> None:
+    """تنظيف دوري عشان الديكشنري مايكبرش بلا حدود لو حد ضرب بـ IPs كتير."""
+    if len(_login_state) < MAX_TRACKED_IPS:
+        return
+    for ip, (fails, locked_until) in list(_login_state.items()):
+        if not fails and locked_until <= now:
+            _login_state.pop(ip, None)
 
 
 # ---------------------------------------------------------------- schemas
@@ -329,10 +382,29 @@ def get_settings(db: Session) -> dict:
 
 
 # ---------------------------------------------------------------- pages / auth routes
+def _asset_stamp() -> str:
+    """بصمة قصيرة لملفات الواجهة.
+
+    بتتغيّر تلقائيًا مع أي تعديل، فالمتصفح بيحمّل النسخة الجديدة بعد كل نشر
+    ومفيش حاجة تنسى تزوّد رقم `?v=` يدويًا.
+    """
+    h = hashlib.sha256()
+    for rel in ("static/style.css", "static/app.js", "static/ui.js"):
+        try:
+            st = os.stat(rel)
+            h.update(f"{rel}:{st.st_size}:{st.st_mtime_ns}".encode())
+        except OSError:
+            h.update(rel.encode())
+    return h.hexdigest()[:10]
+
+
+ASSET_STAMP = _asset_stamp()
+
+
 @app.get("/", response_class=HTMLResponse)
 def home():
     with open("static/index.html", "r", encoding="utf-8") as f:
-        return f.read()
+        return f.read().replace("__ASSET_V__", ASSET_STAMP)
 
 
 @app.get("/api/health")
@@ -343,8 +415,9 @@ def health():
 @app.post("/api/login")
 def login(data: LoginIn, request: Request):
     ip = client_ip(request)
-    fails, locked_until = _login_state.get(ip, [0, 0.0])
     now = time.time()
+    _prune_login_state(now)
+    fails, locked_until = _login_state.get(ip, [0, 0.0])
     if locked_until > now:
         minutes = int((locked_until - now) // 60) + 1
         raise HTTPException(429, f"محاولات كثيرة خاطئة. حاول مرة أخرى بعد {minutes} دقيقة.")

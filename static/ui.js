@@ -19,7 +19,17 @@
     cell.appendChild(avatar(name)); cell.appendChild(txt); host.appendChild(cell);
   }
   function text(el) { return el ? (el.firstChild && el.firstChild.nodeType === 3 ? el.firstChild.nodeValue : el.textContent) : ""; }
+  /* الأيقونات زخرفية بحتة (جنبها نص، أو الزرار عليه aria-label) — نخفيها عن قارئ الشاشة */
+  function icons() {
+    document.querySelectorAll("svg.i").forEach(function (s) {
+      if (s.getAttribute("aria-hidden") !== "true") {
+        s.setAttribute("aria-hidden", "true");
+        s.setAttribute("focusable", "false");
+      }
+    });
+  }
   function decorate() {
+    icons();
     document.querySelectorAll(".a-who").forEach(function (h) { wrap(h, text(h.querySelector(".a-name"))); });
     document.querySelectorAll("td.who").forEach(function (h) { wrap(h, text(h.querySelector(".link, b"))); });
     document.querySelectorAll(".mini-tbl tr[data-hist] td:first-child").forEach(function (h) { var b = h.querySelector(":scope > b"); if (b) wrap(h, text(b)); });

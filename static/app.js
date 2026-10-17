@@ -39,22 +39,40 @@ const S = {
   hist: { id: null },
 };
 
+/* شريط تقدّم رقيق أعلى الصفحة. بيظهر بس لو الطلب خد أكتر من 220ms عشان مايرمشش
+   مع كل تفاعل سريع، والطلبات الخلفية (تحديث الـ feed كل 30 ثانية) بتبعت silent. */
+let inflight = 0, barTimer;
+function trackStart() {
+  inflight++;
+  if (inflight === 1) barTimer = setTimeout(() => $("routeBar")?.classList.add("on"), 220);
+}
+function trackEnd() {
+  inflight = Math.max(0, inflight - 1);
+  if (!inflight) { clearTimeout(barTimer); $("routeBar")?.classList.remove("on"); }
+}
+
 async function api(path, opt = {}) {
-  const headers = { ...(opt.headers || {}) };
+  const silent = !!opt.silent;
+  const opts = { ...opt };
+  delete opts.silent;
+  const headers = { ...(opts.headers || {}) };
   if (S.token) headers.Authorization = `Bearer ${S.token}`;
-  let body = opt.body;
+  let body = opts.body;
   if (body !== undefined && typeof body !== "string") { body = JSON.stringify(body); headers["Content-Type"] = "application/json"; }
-  let res;
-  try { res = await fetch(path, { ...opt, headers, body }); }
-  catch { throw new Error("تعذر الاتصال بالسيرفر. تأكد من الإنترنت وحاول مرة أخرى."); }
-  if (res.status === 401 && path !== "/api/login") { logout(false); throw new Error("انتهت الجلسة. سجّل الدخول مرة أخرى."); }
-  if (!res.ok) {
-    let msg = "حدث خطأ غير متوقع";
-    try { const e = await res.json(); if (typeof e.detail === "string") msg = e.detail; else if (Array.isArray(e.detail)) msg = "بيانات غير صالحة، راجع الحقول وحاول مرة أخرى."; } catch { /* ignore */ }
-    throw new Error(msg);
-  }
-  if ((res.headers.get("content-type") || "").includes("application/json")) return res.json();
-  return res;
+  if (!silent) trackStart();
+  try {
+    let res;
+    try { res = await fetch(path, { ...opts, headers, body }); }
+    catch { throw new Error("تعذر الاتصال بالسيرفر. تأكد من الإنترنت وحاول مرة أخرى."); }
+    if (res.status === 401 && path !== "/api/login") { logout(false); throw new Error("انتهت الجلسة. سجّل الدخول مرة أخرى."); }
+    if (!res.ok) {
+      let msg = "حدث خطأ غير متوقع";
+      try { const e = await res.json(); if (typeof e.detail === "string") msg = e.detail; else if (Array.isArray(e.detail)) msg = "بيانات غير صالحة، راجع الحقول وحاول مرة أخرى."; } catch { /* ignore */ }
+      throw new Error(msg);
+    }
+    if ((res.headers.get("content-type") || "").includes("application/json")) return res.json();
+    return res;
+  } finally { if (!silent) trackEnd(); }
 }
 
 async function download(path, filename) {
@@ -287,7 +305,7 @@ function relTime(iso) {
 async function loadFeed() {
   const el = $("liveFeed"); if (!el || S.page !== "dashboard") return;
   try {
-    const r = await api(`/api/roster?attendance_date=${S.dash.date}`);
+    const r = await api(`/api/roster?attendance_date=${S.dash.date}`, { silent: true });
     const rows = (r.employees || []).filter(e => e.attendance && e.attendance.status && e.attendance.updated_at)
       .sort((a, b) => new Date(b.attendance.updated_at) - new Date(a.attendance.updated_at)).slice(0, 8);
     const AV = { Present: "linear-gradient(135deg,#0e9f6e,#34d399)", Late: "linear-gradient(135deg,#d97706,#f0b429)", Absent: "linear-gradient(135deg,#e02424,#f87171)", Excused: "linear-gradient(135deg,#0284c7,#38bdf8)" };
