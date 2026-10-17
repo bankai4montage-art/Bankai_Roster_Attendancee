@@ -36,8 +36,8 @@ across two branches. Single-tenant, deployed for one company. All user-facing te
 | --- | --- | --- |
 | API + models + helpers | `app.py` (~1500 lines) | 35 routes (32 under `/api`), 21 classes, FastAPI 2.1.0 |
 | Single-page UI | `static/index.html` (~37 KB) | served by `GET /` |
-| All client logic | `static/app.js` (~94 KB) | fetch calls to `/api/*` |
-| All styling | `static/style.css` (~112 KB) | no framework |
+| All client logic | `static/app.js` (~93 KB) | fetch calls to `/api/*` |
+| All styling | `static/style.css` (~114 KB) | no framework |
 | Deploy | `Dockerfile`, `railway.json` | `python:3.12-slim`, healthcheck `/api/health` |
 
 ## Domain vocabulary (exact values — these are stored in the DB)
@@ -113,6 +113,36 @@ across two branches. Single-tenant, deployed for one company. All user-facing te
 - UI copy is Arabic and right-to-left friendly; numbers/dates in exports are ISO (`YYYY-MM-DD`)
   and fines formatted with `f"{x:.2f}"`.
 - `.xlsx` files are read in the browser and posted as base64 (`file_b64`), never multipart.
+
+## CSS layout traps (learned the hard way)
+
+`style.css` grows by **appending numbered layers** (`V15 «REBORN»`, `V16 «POLISH»`, …). The last
+matching rule wins, so override at the end instead of rewriting an earlier layer. Three traps have
+already caused real, user-visible breakage:
+
+- **Never put `transform`, `filter`, `backdrop-filter`, `perspective`, or `will-change` on
+  `.page`.** `.save-bar` and `#schSaveBar` are `position: fixed` *inside* `.page`; any of those
+  properties makes `.page` their containing block, so `bottom: 16px` resolves against the bottom of
+  the page instead of the viewport and the bar lands off-screen — the user sees "there is no save
+  button at all" even though the element is in the DOM. `@keyframes pageIn` is **opacity-only on
+  purpose**. Regression check:
+
+  ```js
+  [...document.querySelectorAll('.page')].every(p => getComputedStyle(p).transform === 'none')
+  ```
+
+- **`@keyframes` names are global.** Redefining an existing name (`cardIn`) in a new layer silently
+  retargets every animation already using it. Give new keyframes a unique name.
+
+- **The sticky `.topbar` and `.main` must agree on horizontal padding.** `.topbar` uses
+  `margin-inline: -30px; padding-inline: 30px` to bleed across `main`, while
+  `@media(max-width:1180px)` drops `.main` to `padding-inline: 22px`; in the 981–1180 px window the
+  pair disagreed by 8 px, leaked past the viewport edge, and produced a horizontal scrollbar. Keep
+  the two in sync.
+
+Before shipping any CSS change, confirm on every route that
+`document.documentElement.scrollWidth === document.documentElement.clientWidth`, and that
+`elementFromPoint()` at the centre of `#saveBtn` returns the button (not `null`, not an overlay).
 
 ## Environment
 

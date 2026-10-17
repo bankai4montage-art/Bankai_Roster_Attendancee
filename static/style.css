@@ -963,7 +963,11 @@ input[type=checkbox]:disabled{opacity:.5;cursor:not-allowed}
 @keyframes ping{0%{transform:scale(1);opacity:.7}75%,100%{transform:scale(3);opacity:0}}
 
 /* ---- page / overlay motion ---- */
-@keyframes pageIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+/* مهم جدًا: .page جواه عناصر position:fixed (شريط الحفظ .save-bar)، وأي transform على .page
+   بيخلّيه هو الـ containing block بتاعهم — فالشريط بيتحسب بالنسبة لآخر الصفحة مش للشاشة
+   ويروح تحت الشاشة (الباج اللي كان مخلّي زرار الحفظ مش ظاهر خالص). عشان كده الانتقال هنا
+   على الشفافية بس، وممنوع أي transform/translate/filter على .page. */
+@keyframes pageIn{from{opacity:0}to{opacity:1}}
 @keyframes cardIn{from{opacity:0;transform:translateY(18px) scale(.97)}to{opacity:1;transform:none}}
 @keyframes dlgIn{from{opacity:0;transform:translateY(18px) scale(.96)}to{opacity:1;transform:none}}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
@@ -1580,12 +1584,19 @@ svg.i{transition:transform var(--t-med) var(--spring)}
 .page-head h3,.panel-h h3,.dlg-h h3,.empty b,.shhead h4{text-wrap:balance}
 .page-head p,.panel-h p,.dlg-h p,.empty{text-wrap:pretty}
 
-/* ---------- 7. دخول ناعم لكارت تسجيل الدخول ---------- */
-@keyframes cardIn{from{opacity:0;transform:translateY(16px) scale(.985)}to{opacity:1;transform:none}}
-.login-card{animation:cardIn .55s var(--ease) both}
-.login-card .brand-mark{animation:cardIn .7s .08s var(--ease) both}
+/* ---------- 7. دخول كارت تسجيل الدخول ----------
+   بيستخدم @keyframes cardIn الأصلية (فوق في قسم page/overlay motion) — مفيش تعريف تاني هنا،
+   لأن آخر تعريف لنفس الاسم هو اللي بيفوز وبيغيّر أي أنيميشن تاني بيستخدم cardIn. */
 
-/* ---------- 8. طباعة: بدون عناصر واجهة مؤقتة ---------- */
+/* ---------- 8. الهيدر الـ sticky: الهامش السالب لازم يطابق padding .main ----------
+   سطر 1113 بيدي .topbar هامش -30px عشان يمتد على عرض main كامل، وسطر 781 بينزّل
+   padding .main الأفقي لـ 22px في المدى 981–1180px — فكان الهيدر بيخرج 8px بره
+   الشاشة ويعمل سكرول أفقي في المدى ده بالظبط. هنا بنخلي الاتنين متطابقين. */
+@media(min-width:981px) and (max-width:1180px){
+  .topbar{margin-inline:-22px;padding-inline:22px}
+}
+
+/* ---------- 9. طباعة: بدون عناصر واجهة مؤقتة ---------- */
 @media print{
   .skip-link,.route-bar{display:none!important}
 }
