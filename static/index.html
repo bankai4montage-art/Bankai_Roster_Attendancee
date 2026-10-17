@@ -108,7 +108,14 @@
           <button class="btn" id="dashToday">اليوم</button>
         </div>
       </div>
-      <div class="kpis" id="dashKpis"></div>
+      <div class="kpis" id="dashKpis" aria-busy="true">
+        <button type="button" class="kpi brand" style="--p:0"><span class="kl">مجدولون اليوم</span><span class="kv num is-zero">—</span><span class="kpi-foot"><span class="kpi-bar"><i style="width:0%"></i></span><span class="kpi-pct">0%</span></span></button>
+        <button type="button" class="kpi ok" style="--p:0"><span class="kl">حاضر</span><span class="kv num is-zero">—</span><span class="kpi-foot"><span class="kpi-bar"><i style="width:0%"></i></span><span class="kpi-pct">0%</span></span></button>
+        <button type="button" class="kpi warn" style="--p:0"><span class="kl">متأخر</span><span class="kv num is-zero">—</span><span class="kpi-foot"><span class="kpi-bar"><i style="width:0%"></i></span><span class="kpi-pct">0%</span></span></button>
+        <button type="button" class="kpi bad" style="--p:0"><span class="kl">غائب</span><span class="kv num is-zero">—</span><span class="kpi-foot"><span class="kpi-bar"><i style="width:0%"></i></span><span class="kpi-pct">0%</span></span></button>
+        <button type="button" class="kpi info" style="--p:0"><span class="kl">بعذر</span><span class="kv num is-zero">—</span><span class="kpi-foot"><span class="kpi-bar"><i style="width:0%"></i></span><span class="kpi-pct">0%</span></span></button>
+        <button type="button" class="kpi" style="--p:0"><span class="kl">لم يُسجل</span><span class="kv num is-zero">—</span><span class="kpi-foot"><span class="kpi-bar"><i style="width:0%"></i></span><span class="kpi-pct">0%</span></span></button>
+      </div>
       <div class="dash-note" id="dashNote"></div>
       <div class="branch-grid" id="dashBranches"></div>
       <div class="dash-grid">
@@ -282,7 +289,14 @@
           <button class="btn sm" id="repPrint"><svg class="i"><use href="#i-print"/></svg>طباعة</button>
         </div>
       </div>
-      <div class="kpis" id="repKpis"></div>
+      <div class="kpis" id="repKpis" aria-busy="true">
+        <div class="kpi brand"><span>إجمالي التسجيلات</span><strong>—</strong></div>
+        <div class="kpi ok"><span>حضور</span><strong>—</strong></div>
+        <div class="kpi warn"><span>تأخير</span><strong>—</strong></div>
+        <div class="kpi bad"><span>غياب</span><strong>—</strong></div>
+        <div class="kpi info"><span>بعذر</span><strong>—</strong></div>
+        <div class="kpi"><span>إجمالي الغرامات</span><strong>—</strong></div>
+      </div>
       <div class="br-grid" id="repBranches"></div>
       <details class="days-box" id="repDaysBox">
         <summary>التفصيل اليومي</summary>

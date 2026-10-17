@@ -1467,7 +1467,9 @@ if (S.token) { showApp(); init(); }
     qsa(sel).forEach(function (i) {
       var w = i.style.width; if (!w || w === "0%") return;
       i.style.width = "0%";
-      requestAnimationFrame(function () { requestAnimationFrame(function () { i.style.width = w; }); });
+      var restore = function () { i.style.width = w; };
+      requestAnimationFrame(function () { requestAnimationFrame(restore); });
+      setTimeout(restore, 140); /* أمان: rAF مابيشتغلش في تاب مخفي */
     });
   }
 
@@ -1484,28 +1486,27 @@ if (S.token) { showApp(); init(); }
   window.renderDashboard = function (d) {
     _dash(d);
     var host = qs("#dashKpis"); if (!host) return;
+    host.setAttribute("aria-busy", "false");
     qsa(".kpi", host).forEach(function (card) {
       var kv = qs(".kv", card); if (!kv) return;
       var p = (card.style.getPropertyValue("--p") || "").trim() || "0";
-      if (!qs(".kpi-foot", card)) {
-        var f = document.createElement("span");
-        f.className = "kpi-foot";
-        f.innerHTML = '<span class="kpi-bar"><i style="width:' + p + '%"></i></span><span class="kpi-pct">' + p + "%</span>";
-        card.appendChild(f);
-      }
-      countUp(kv, numeric(kv));
+      var f = qs(".kpi-foot", card);
+      if (!f) { f = document.createElement("span"); f.className = "kpi-foot"; card.appendChild(f); }
+      f.innerHTML = '<span class="kpi-bar"><i style="width:' + p + '%"></i></span><span class="kpi-pct">' + p + "%</span>";
+      kv.classList.toggle("is-zero", numeric(kv) === 0 || isNaN(numeric(kv)));
     });
-    if (enter === "dashboard") { enter = null; stagger("#dashKpis .kpi", 55, 40, 6); }
+    if (enter === "dashboard") { enter = null; stagger("#dashKpis .kpi", 40, 0, 6); }
   };
 
   /* ---------- 6. التقارير ---------- */
   var _rep = window.renderReport;
   window.renderReport = function () {
     _rep.apply(null, arguments);
-    qsa("#repKpis .kpi > strong").forEach(function (el) { countUp(el, numeric(el), 700); });
+    var rh = qs("#repKpis"); if (rh) rh.setAttribute("aria-busy", "false");
+    qsa("#repKpis .kpi > strong").forEach(function (el) { countUp(el, numeric(el), 360); });
     if (enter === "reports") {
       enter = null;
-      stagger("#repKpis .kpi", 50, 40, 6);
+      stagger("#repKpis .kpi", 40, 0, 6);
       stagger("#repDays tr", 22, 130, 14);
       stagger("#repRows tr", 24, 220, 30);
     }
