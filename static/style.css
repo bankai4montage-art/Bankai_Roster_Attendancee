@@ -1427,3 +1427,109 @@ dialog::backdrop{background:color-mix(in srgb,#0a1626 55%,transparent);backdrop-
 @media(prefers-reduced-motion:reduce){
   body::before{display:none}
 }
+
+
+/* ============================================================
+   BANKAI V15 — «REBORN» — new identity (presentation only)
+   Violet accent identity + Alexandria display face + violet brand
+   rail + night-glass login + rounder cards. Still no ids, classes,
+   events or API changes — pure cascade layer appended last.
+   ============================================================ */
+
+/* ---- identity tokens ---- */
+:root{
+  --brand:#7c3aed;--brand-d:#6d28d9;--brand-bg:#f4f0ff;--brand-line:#ddd2ff;
+  --focus:#a78bfa;--accent:#7c3aed;--accent-2:#4f46e5;
+  --bar:#221b45;
+  --glow:0 6px 20px -6px rgba(124,58,237,.42);
+  --r:14px;--r-lg:20px;--r-card:20px;
+}
+:root[data-theme=dark]{
+  --brand:#a78bfa;--brand-d:#c4b5fd;--brand-bg:#2c2660;--brand-line:#4a3d85;
+  --focus:#b79dfa;--accent:#8b5cf6;--accent-2:#6d5df6;
+  --bar:#1b1533;
+  --glow:0 6px 22px -6px rgba(139,92,246,.5);
+}
+
+/* ---- accents that were hard-coded blue adopt the new identity ---- */
+.btn.primary{background:linear-gradient(135deg,#7c3aed,#6366f1)}
+.btn.primary:hover:not([disabled]){background:linear-gradient(135deg,#7c3aed,#6366f1);box-shadow:var(--sheen),0 10px 26px -6px rgba(124,58,237,.55)}
+.btn.primary:active:not([disabled]){box-shadow:var(--sheen),var(--glow)}
+.btn.primary:focus-visible{box-shadow:var(--sheen),0 0 0 3px rgba(139,92,246,.5)}
+:root[data-theme=dark] .btn.primary{background:linear-gradient(135deg,#7c3aed,#6366f1)}
+:root[data-theme=dark] .btn.primary:hover:not([disabled]){background:linear-gradient(135deg,#7c3aed,#6366f1)}
+.brand-mark{background:linear-gradient(145deg,#a78bfa,#6d28d9)}
+.theme-sw::before{background:linear-gradient(135deg,#8b5cf6,#6d5df6)}
+
+/* ---- brand rail: violet aurora ---- */
+.topnav{background:linear-gradient(180deg,#1b1438,#241c52 58%,#2b2166);box-shadow:10px 0 30px rgba(88,58,168,.18)}
+:root[data-theme=dark] .topnav{background:linear-gradient(180deg,#151028,#1e1846)}
+.topnav .nav-search input{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14);color:#f4f1ff}
+.topnav .nav-search input::placeholder{color:#a99fd0}
+.topnav .icon-btn{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.15);color:#cfc6ec}
+.topnav .theme-sw{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.15);color:#cfc6ec}
+.topnav .tabs::before{color:#8f82bd}
+.topnav .brand small{color:#a99fd4}
+.topnav .nav-ico{background:rgba(255,255,255,.07);color:#b4a8dc}
+.topnav .tabs .nav-btn.active{background:linear-gradient(270deg,color-mix(in srgb,#8b5cf6 34%,transparent),transparent 76%);box-shadow:inset -3px 0 0 #a78bfa}
+.topnav .tabs .nav-btn.active .nav-ico{background:linear-gradient(145deg,#8b5cf6,#5b21b6);color:#fff}
+.topnav .tabs .nav-btn::before{background:linear-gradient(#c4b5fd,#8b5cf6)}
+.topnav .ava{background:linear-gradient(145deg,#a78bfa,#7c3aed)}
+.topnav .mark{background:linear-gradient(145deg,#a78bfa,#7c3aed)}
+
+/* ---- display face: Alexandria for headings & hero numbers ---- */
+.topbar h2,.page-head h3,.panel-h h3,.dlg-h h3,.shhead h4,.login-card h1,
+.kpi .kv,.kpi>strong,.dt strong,.topnav .brand{font-family:'Alexandria','Cairo','Segoe UI',sans-serif}
+
+/* gradient page title */
+.topbar h2{background:linear-gradient(115deg,var(--head) 16%,#8b5cf6 112%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.topbar h2::before{background:linear-gradient(180deg,#c4b5fd,#7c3aed)}
+
+/* ---- rounder, softer cards ---- */
+.panel,.shcard,.br-card,.table-wrap,.alist,.att-tools,.att-sticky,.days-box,.dt{border-radius:var(--r-lg)}
+dialog.dlg{border-radius:22px}
+.dlg-f{border-radius:0 0 22px 22px}
+.settings-grid .panel-h h3::before{background:var(--brand)}
+
+/* KPI seal: gradient icon chip */
+.kpi::before{background:linear-gradient(140deg,var(--c),color-mix(in srgb,var(--c) 55%,#000))}
+:root[data-theme=dark] .kpi::after{background:#101b30}
+
+/* tables: violet-tinted sticky header */
+.tbl th{background:linear-gradient(180deg,var(--surf2),color-mix(in srgb,var(--brand) 6%,var(--surf2)))}
+
+/* aurora wash recolored violet */
+body::before{background:
+  radial-gradient(52% 34% at 84% -8%,color-mix(in srgb,#a78bfa 15%,transparent),transparent 64%),
+  radial-gradient(46% 30% at 2% -4%,color-mix(in srgb,#4f46e5 13%,transparent),transparent 60%)}
+:root[data-theme=dark] body::before{background:
+  radial-gradient(52% 34% at 84% -8%,color-mix(in srgb,#a78bfa 20%,transparent),transparent 64%),
+  radial-gradient(46% 30% at 2% -4%,color-mix(in srgb,#6d5df6 17%,transparent),transparent 60%)}
+
+/* empty-state icon recolored */
+.empty::before{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237c3aed' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E")}
+
+/* current chart bar glow violet */
+.trend .cur .col{box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 18%,transparent),0 10px 22px -8px rgba(124,58,237,.45)}
+
+/* ---- login: night glass (its own place, in both themes) ---- */
+.login-shell{
+  --ink:#f2eefc;--ink2:#d9d1f2;--ink3:#a99ed8;--head:#ffffff;
+  background:
+    radial-gradient(64% 50% at 18% 6%,rgba(139,92,246,.34),transparent 60%),
+    radial-gradient(52% 44% at 88% 94%,rgba(99,102,241,.30),transparent 62%),
+    linear-gradient(180deg,#150f2e 0%,#1d1650 100%)}
+.login-shell::before{background-image:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px);opacity:.8}
+.login-shell .theme-sw{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.18)}
+.login-card{border:1px solid rgba(255,255,255,.15);background:color-mix(in srgb,#1c1547 55%,transparent);box-shadow:0 30px 90px rgba(5,2,25,.6),var(--sheen)}
+.login-card .brand-mark{width:64px;height:64px;font-size:30px;border-radius:20px;background:linear-gradient(145deg,#a78bfa,#6d28d9);box-shadow:0 16px 34px rgba(124,58,237,.5),var(--sheen)}
+.login-card .btn.primary{height:48px;border-radius:14px;box-shadow:0 12px 26px -6px rgba(124,58,237,.55)}
+.login-card .inp{background:rgba(255,255,255,.09);border-color:transparent;color:#fff}
+.login-card .inp:focus{background:rgba(255,255,255,.13);border-color:var(--focus)}
+.login-card .error{color:#ff9fb0}
+.login-card form{gap:16px}
+
+/* print: plain title (no gradient text/clip) */
+@media print{
+  .topbar h2{background:none;color:#000;-webkit-background-clip:initial;background-clip:initial}
+}
