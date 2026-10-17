@@ -1216,3 +1216,214 @@ button.kpi{cursor:pointer}
   .topbar h2::before{height:22px}
   .trend{height:170px}
 }
+
+
+/* ============================================================
+   BANKAI V14 — «AURORA» design pass
+   Presentation-only layer: no ids, classes, data-attributes,
+   events or API flows were changed. Appended last so it wins
+   ties in the cascade without deleting any V13 behavior.
+   ============================================================ */
+
+/* ---------- 1. tokens: perceptual color + motion + type scale ---------- */
+:root{
+  /* ink: ink3 darkened — small muted text now passes WCAG AA (≥4.5:1 on bg) */
+  --ink:#16233c;--ink2:#32445f;--ink3:#5d6f8a;--head:#12203a;
+  --bg:#f4f6fc;--surface:#ffffff;--surf2:#f6f8fd;
+  --line:#e3e9f4;--line2:#eef1f8;--line3:#d2dcec;
+  --brand:#3267e9;--brand-d:#2753cf;--brand-bg:#edf3ff;--brand-line:#cfddff;
+  --focus:#7ba0ff;--accent:#3267e9;--accent-2:#6e8ff5;
+  /* layered elevation: ambient + key + edge — reads as real depth */
+  --shadow:0 1px 2px rgba(16,33,66,.05),0 10px 32px -12px rgba(16,33,66,.14);
+  --shadow-lg:0 2px 4px rgba(16,33,66,.06),0 24px 60px -20px rgba(16,33,66,.24);
+  --glow:0 6px 20px -6px rgba(50,103,233,.38);
+  --sheen:inset 0 1px 0 rgba(255,255,255,.75);
+  /* motion scale (single source of truth for V14 transitions) */
+  --t-fast:.16s;--t-med:.28s;--t-slow:.45s;
+  --ease:cubic-bezier(.22,1,.36,1);--ease-out:cubic-bezier(0,0,.15,1);
+  --spring:cubic-bezier(.34,1.56,.64,1);
+}
+:root[data-theme=dark]{
+  --ink:#ecf2ff;--ink2:#c6d2e8;--ink3:#93a3c0;--head:#f3f6ff;
+  --bg:#0a1220;--surface:#101b30;--surf2:#16243c;
+  --line:#2b3c59;--line2:#223249;--line3:#3a4f74;
+  --brand:#6d91ff;--brand-d:#a5bcff;--brand-bg:#1b2c50;--brand-line:#32497a;
+  --focus:#91adff;--accent:#4778f0;--accent-2:#7b94fb;
+  --shadow:0 1px 2px rgba(0,0,0,.35),0 12px 36px -14px rgba(0,0,0,.5);
+  --shadow-lg:0 2px 6px rgba(0,0,0,.4),0 28px 70px -24px rgba(0,0,0,.65);
+  --glow:0 6px 20px -6px rgba(70,110,235,.5);
+  --sheen:inset 0 1px 0 rgba(255,255,255,.06);
+}
+:root{--late-row:#fdf7ec;--abs-row:#fdf3f4}
+:root[data-theme=dark]{--late-row:#241d10;--abs-row:#251218}
+
+/* ---------- 2. canvas ambience: quiet aurora behind the app ---------- */
+body::before{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(54% 36% at 82% -8%,color-mix(in srgb,var(--accent-2) 13%,transparent),transparent 62%),
+    radial-gradient(48% 32% at 4% -6%,color-mix(in srgb,var(--brand) 11%,transparent),transparent 60%);
+}
+:root[data-theme=dark] body::before{
+  background:
+    radial-gradient(54% 36% at 82% -8%,color-mix(in srgb,var(--accent-2) 18%,transparent),transparent 62%),
+    radial-gradient(48% 32% at 4% -6%,color-mix(in srgb,var(--brand) 14%,transparent),transparent 60%);
+}
+
+/* scrollbars — roomy thumb, transparent track (webkit + fx token refresh) */
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--line3),transparent);border-radius:99px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:color-mix(in srgb,var(--ink3) 55%,transparent);background-clip:content-box}
+:root[data-theme=dark] ::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--line3) 70%,transparent);background-clip:content-box}
+
+/* ---------- 3. typography: fluid scale, Arabic-aware metrics ---------- */
+body{line-height:1.65}
+h1,h2,h3,h4{text-wrap:balance}
+p{text-wrap:pretty}
+.topbar h2{font-size:clamp(22px,1.1vw + 17px,26px);line-height:1.35}
+.page-head h3,.panel-h h3{font-size:clamp(16px,.6vw + 13.5px,19px);line-height:1.4}
+.kpi .kv,.kpi>strong{font-size:clamp(27px,1.3vw + 20px,34px)}
+.login-card h1{font-size:clamp(26px,1.6vw + 20px,30px)}
+.ghead .g-title,.shhead h4{font-size:clamp(13.5px,.3vw + 12.5px,15px)}
+/* Arabic script connects its letters — negative tracking distorts the joins.
+   Latin brand wordmarks and digits keep theirs. */
+.topbar h2,.page-head h3,.panel-h h3,.dlg-h h3{letter-spacing:0}
+.trend b,.feed-row .who b{font-variant-numeric:tabular-nums}
+
+/* ---------- 4. surfaces: layered cards with hairline top light ---------- */
+.panel,.shcard,.kpi,.br-card,.table-wrap,.alist,.att-tools,.att-sticky,.days-box,.dt{
+  box-shadow:var(--sheen),var(--shadow);
+}
+.panel:hover,.shcard:hover{box-shadow:var(--sheen),var(--shadow-lg)}
+:root[data-theme=dark] .panel,:root[data-theme=dark] .shcard,
+:root[data-theme=dark] .kpi,:root[data-theme=dark] .br-card,
+:root[data-theme=dark] .table-wrap,:root[data-theme=dark] .alist,
+:root[data-theme=dark] .att-tools,:root[data-theme=dark] .att-sticky,
+:root[data-theme=dark] .days-box,:root[data-theme=dark] .dt{
+  box-shadow:none;border-color:var(--line);outline:1px solid color-mix(in srgb,#fff 4%,transparent);outline-offset:-1px}
+.table-wrap,.alist{border-color:color-mix(in srgb,var(--line) 70%,var(--line2))}
+.empty{border:1px dashed var(--line3)}
+
+/* ---------- 5. sidebar: aurora brand rail (desktop rail only) ---------- */
+@media(min-width:981px){
+.topnav{height:100dvh}
+.topnav::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:
+    radial-gradient(90% 26% at 50% -6%,color-mix(in srgb,#6e9bff 22%,transparent),transparent 70%),
+    radial-gradient(60% 18% at 50% 104%,color-mix(in srgb,#5b3fd1 14%,transparent),transparent 70%);
+}
+}
+.topnav>*{position:relative;z-index:1}
+.topnav .mark{background:linear-gradient(145deg,#68a3ff 0%,#2f63e6 62%,#6f4bf2 125%);box-shadow:0 8px 20px rgba(37,73,190,.4),var(--sheen)}
+.topnav .tabs .nav-btn{transition:background var(--t-med) var(--ease),color var(--t-fast)}
+.topnav .tabs .nav-btn.active{
+  background:linear-gradient(270deg,color-mix(in srgb,#4b7cf0 30%,transparent),transparent 78%);
+  box-shadow:inset -3px 0 0 #76a0ff}
+.topnav .tabs .nav-btn.active .nav-ico{background:linear-gradient(145deg,#4a7ef2,#2f63e6);box-shadow:0 6px 16px rgba(45,90,220,.45),var(--sheen)}
+.topnav .tabs .nav-btn::before{transition:height var(--t-slow) var(--spring)}
+.topnav .ava{border-radius:12px;box-shadow:0 4px 14px rgba(45,90,220,.4)}
+.topnav .brand small{color:#93a7c9}
+
+/* ---------- 6. controls: unified focus, calmer defaults ---------- */
+:root{--ring:0 0 0 3px color-mix(in srgb,var(--brand) 22%,transparent)}
+.btn{transition:background var(--t-fast),border-color var(--t-fast),box-shadow var(--t-med) var(--ease),transform var(--t-med) var(--ease),color var(--t-fast)}
+.btn.primary{background:linear-gradient(135deg,#2c5fe8 0%,#4a7bf2 100%);box-shadow:var(--sheen),var(--glow)}
+.btn.primary:hover:not([disabled]){box-shadow:var(--sheen),0 10px 26px -6px rgba(44,95,232,.5)}
+.btn.primary:active:not([disabled]){box-shadow:var(--sheen),var(--glow)}
+:root[data-theme=dark] .btn.primary{background:linear-gradient(135deg,#3a68ec 0%,#5a8af5 100%)}
+.btn:not(.primary):hover:not([disabled]){transform:translateY(-1px)}
+.btn:active:not([disabled]){transform:translateY(0) scale(.97)}
+.imp-file-hint,.filters .search .i{transition:color var(--t-fast)}
+.inp:hover:not(:disabled):not(:focus),.sel:hover:not(:focus){border-color:color-mix(in srgb,var(--brand) 40%,var(--line3))}
+.inp:focus,.sel:focus{box-shadow:var(--ring)}
+input[type=checkbox]:focus-visible{box-shadow:var(--ring)}
+.chip,.presets button,.simp-chips button,.daychecks label{transition:background var(--t-fast),border-color var(--t-fast),color var(--t-fast),transform var(--t-fast) var(--ease),box-shadow var(--t-med) var(--ease)}
+.note-btn,.dc button{transition:background var(--t-fast),border-color var(--t-fast),color var(--t-fast),transform var(--t-fast) var(--ease)}
+
+/* ---------- 7. status system: meaning without glare, AA where it counts ---------- */
+/* Late/amber fills previously used white text at ~2.9:1 — flipped to ink-on-amber (≥7:1) */
+.seg button.on.Late{background:linear-gradient(135deg,#eaa62a,#f4bd4e);color:#3a2600}
+:root[data-theme=dark] .seg button.on.Late{background:linear-gradient(135deg,#e8b13a,#f2c35c);color:#241700}
+.chip.on:has(.dot.warn){background:#eaa62a;color:#3a2600}
+.chip.on:has(.dot.warn) b{background:rgba(0,0,0,.14);color:#3a2600}
+:root[data-theme=dark] .chip.on:has(.dot.warn){background:#e8b13a;color:#241700}
+:root[data-theme=dark] .chip.on:has(.dot.warn) b{background:rgba(0,0,0,.16);color:#241700}
+/* tags get a same-hue inner ring so tint + text obey contrast, dot stays informational */
+.tag{box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 16%,transparent)}
+.tag:hover{transform:none}
+/* stacked bars: glossed, rounded at the edges of the bar */
+.stack i{box-shadow:inset 0 1px 0 rgba(255,255,255,.28)}
+:root[data-theme=dark] .stack i{box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
+.stack i:first-child{border-start-start-radius:99px}
+.stack i:last-child{border-end-end-radius:99px}
+.stack .s-present{background-image:linear-gradient(180deg,color-mix(in srgb,var(--ok) 90%,#fff),var(--ok))}
+.stack .s-late{background-image:linear-gradient(180deg,color-mix(in srgb,var(--amber) 90%,#fff),var(--amber))}
+.stack .s-absent{background-image:linear-gradient(180deg,color-mix(in srgb,var(--bad) 90%,#fff),var(--bad))}
+.stack .s-excused{background-image:linear-gradient(180deg,color-mix(in srgb,var(--slate) 90%,#fff),var(--slate))}
+:root[data-theme=dark] .stack .s-late{background-image:linear-gradient(180deg,color-mix(in srgb,var(--amber) 86%,#000),var(--amber))}
+:root[data-theme=dark] .stack .s-absent{background-image:linear-gradient(180deg,color-mix(in srgb,var(--bad) 86%,#000),var(--bad))}
+:root[data-theme=dark] .stack .s-excused{background-image:linear-gradient(180deg,color-mix(in srgb,var(--slate) 86%,#000),var(--slate))}
+
+/* ---------- 8. tables: glass sticky header, softer hover ---------- */
+.tbl th{background:color-mix(in srgb,var(--surf2) 86%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.tbl tbody tr:hover td{background:color-mix(in srgb,var(--brand) 4.5%,var(--surface))}
+.tbl td.num,.tbl td .num{font-variant-numeric:tabular-nums}
+.rate .stack{border-radius:99px}
+
+/* ---------- 9. dashboard: gradient chart columns, calmer KPI glow ---------- */
+.trend .col{box-shadow:0 4px 12px -4px rgba(16,33,66,.14)}
+.trend .col i{border-radius:2px}
+.trend .col i:first-child{border-radius:0}
+.trend .cur .col{box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 16%,transparent),0 10px 22px -8px rgba(44,95,232,.45)}
+.kpi{border-radius:18px}
+.kpi::after{opacity:.95}
+.kpi:hover{box-shadow:var(--sheen),0 16px 34px -14px color-mix(in srgb,var(--c) 45%,rgba(16,33,66,.35))}
+:root[data-theme=dark] .kpi:hover{box-shadow:none}
+.live-tag{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ok) 30%,transparent)}
+.feed-ava{background-image:linear-gradient(145deg,hsl(var(--h,212) 72% 54%),hsl(calc(var(--h,212) + 24) 70% 42%))}
+
+/* ---------- 10. attendance & schedule polish ---------- */
+.arow{transition:background-color var(--t-fast),box-shadow var(--t-fast)}
+.ghead{transition:background-color var(--t-fast)}
+.dc button{height:34px}
+.dc.off button::after{content:none!important}
+.dt.today{border-color:color-mix(in srgb,var(--brand) 55%,transparent)}
+
+/* ---------- 11. overlays: dialogs, toast, mobile nav glass ---------- */
+dialog.dlg{border-radius:20px}
+dialog::backdrop{background:color-mix(in srgb,#0a1626 55%,transparent);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+@supports (overlay:auto){dialog.dlg[open]{transition:opacity .3s var(--ease-out),transform .3s var(--ease-out),overlay .3s allow-discrete,display .3s allow-discrete;opacity:1;transform:none}
+@starting-style{dialog.dlg[open]{opacity:0;transform:translateY(16px) scale(.97)}}}
+.toast{transition:opacity .25s,transform var(--t-med) var(--spring)}
+.toast.show{transform:none}
+@starting-style{.toast.show{opacity:0;transform:translateY(-14px)}}
+.bnav{background:color-mix(in srgb,var(--surface) 86%,transparent);backdrop-filter:blur(16px) saturate(1.3);-webkit-backdrop-filter:blur(16px) saturate(1.3)}
+.bnav .nav-btn.active{background:color-mix(in srgb,var(--brand-bg) 74%,transparent)}
+.save-bar{box-shadow:var(--shadow-lg)}
+
+/* ---------- 12. reach: touch targets & coarse pointers ---------- */
+@media(pointer:coarse){
+  .note-btn{position:relative}
+  .note-btn::after,.contact a::after{content:"";position:absolute;inset:-8px}
+  .chip{height:42px}
+  .dc button{height:38px}
+  .presets button{height:40px}
+}
+@media(max-width:860px){
+  .att-sticky{position:static}
+  .kpi{min-height:110px}
+  .topbar h2{font-size:clamp(20px,4vw + 8px,22px)}
+}
+
+/* ---------- 13. print & motion guard for the new layer ---------- */
+@media print{
+  body::before{display:none}
+  .bnav{background:var(--surface);backdrop-filter:none}
+  .tbl th{background:var(--surf2);backdrop-filter:none}
+  ::-webkit-scrollbar{width:0;height:0}
+}
+@media(prefers-reduced-motion:reduce){
+  body::before{display:none}
+}
