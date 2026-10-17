@@ -2061,7 +2061,7 @@ textarea.inp{border-radius:14px}
   box-shadow:var(--shadow-lg)}
 .kpis .kpi:active{transform:translateY(-1px) scale(.995)}
 .kpis .kpi::before{
-  display:block!important;content:"";position:absolute;inset-inline-start:0;top:0;bottom:0;width:5px;height:auto;
+  display:block!important;content:"";position:absolute;inset-inline-start:0;inset-inline-end:auto;top:0;bottom:0;width:5px;height:auto;
   border-radius:0;background:var(--c,var(--brand));opacity:.92;
   -webkit-mask:none;mask:none;box-shadow:none;transform:none;
 }
