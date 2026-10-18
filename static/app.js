@@ -72,6 +72,7 @@ const S = {
   att: { date: todayISO(), branch: "", shift: "", type: "", q: "", status: "", group: true, collapsed: new Set() },
   emp: { q: "", branch: "", shift: "", type: "", day: "", active: "1", sort: { key: "name", dir: 1 }, page: 1, size: 50, selected: new Set(), filtered: [] },
   rep: { sum: null, emps: [], sort: { key: "name", dir: 1 }, page: 1, size: 50, preset: "7" },
+  fines: { data: null, sort: { key: "date", dir: -1 }, page: 1, size: 50, preset: "month" },
   hist: { id: null },
 };
 
@@ -228,7 +229,7 @@ function applyRole() {
   if (window.syncNavInd) window.syncNavInd();
 }
 
-const PAGES = { dashboard: "نظرة عامة", attendance: "الحضور اليومي", schedule: "الجدول", employees: "الموظفون", reports: "التقارير", settings: "الإعدادات" };
+const PAGES = { dashboard: "نظرة عامة", attendance: "الحضور اليومي", schedule: "الجدول", employees: "الموظفون", reports: "التقارير", fines: "الغرامات", settings: "الإعدادات" };
 qsa("[data-page]").forEach(b => b.addEventListener("click", () => { location.hash = b.dataset.page; }));
 window.addEventListener("hashchange", route);
 
@@ -292,6 +293,7 @@ function showPage(p) {
   if (p === "schedule") loadSchedulePage();
   if (p === "employees") { renderEmployees(); }
   if (p === "reports") { if (!$("repStart").value) setPreset(S.rep.preset); else runReport(); }
+  if (p === "fines") loadFines();
   if (p === "settings") loadSettings();
 }
 /* طبقة الحركة بتسألها: تشغّل دخول العناصر بعد ما الانتقال يخلص (أو في الفريم الجاي) */
@@ -362,11 +364,11 @@ function renderDashboard(d) {
   ];
   const pct = v => t.scheduled ? Math.round(v * 100 / t.scheduled) : 0;
   $("dashKpis").innerHTML = kp.map(([l, v, c, go]) => `<button class="kpi ${c}" data-go="${esc(JSON.stringify(go))}" style="--p:${pct(v)}" title="${l}: ${v} من ${t.scheduled} مجدول"><span class="kl">${l}</span><span class="kv num${v ? "" : " is-zero"}">${v}</span><span class="ring${v ? "" : " is-zero"}"><b>${pct(v)}%</b></span></button>`).join("");
-  $("dashNote").innerHTML = `<span>غرامات اليوم: <b>${money(t.fines)}</b></span><span>في إجازة اليوم: <b class="num">${d.off_today}</b> موظف</span><span>إجمالي الموظفين النشطين: <b class="num">${d.active_total}</b></span>`;
+  $("dashNote").innerHTML = `<span>في إجازة اليوم: <b class="num">${d.off_today}</b> موظف</span><span>إجمالي الموظفين النشطين: <b class="num">${d.active_total}</b></span>`;
   $("dashBranches").innerHTML = Object.entries(d.branches).map(([name, b]) => branchPanel(name, b, date)).join("");
   renderTrend(d.trend, date);
   $("dashWatch").innerHTML = d.watchlist.length
-    ? `<table class="mini-tbl"><thead><tr><th>الموظف</th><th>غياب</th><th>تأخير</th><th>غرامات</th></tr></thead><tbody>${d.watchlist.map(w => `<tr data-hist="${w.id}" style="cursor:pointer"><td>${whoHTML(w.name, `<b>${esc(w.name)}</b><br><small class="muted">${esc(w.branch)} · ${sh(w.shift)}</small>`)}</td><td class="num">${w.absent}</td><td class="num">${w.late}</td><td class="num">${w.fines ? num(w.fines) : "—"}</td></tr>`).join("")}</tbody></table>`
+    ? `<table class="mini-tbl"><thead><tr><th>الموظف</th><th>غياب</th><th>تأخير</th></tr></thead><tbody>${d.watchlist.map(w => `<tr data-hist="${w.id}" style="cursor:pointer"><td>${whoHTML(w.name, `<b>${esc(w.name)}</b><br><small class="muted">${esc(w.branch)} · ${sh(w.shift)}</small>`)}</td><td class="num">${w.absent}</td><td class="num">${w.late}</td></tr>`).join("")}</tbody></table>`
     : `<p class="muted" style="padding:20px 0">مفيش غياب أو تأخير مسجل في آخر 30 يوم.</p>`;
 }
 
@@ -401,7 +403,7 @@ function branchPanel(name, b, date) {
   const done = b.scheduled - b.unmarked, pct = b.scheduled ? Math.round(done * 100 / b.scheduled) : 0;
   const rows = b.shifts.map(s => `<tr data-go="${esc(JSON.stringify({ branch: name, shift: s.shift, date }))}"><td><b>${sh(s.shift)}</b></td><td class="num">${s.scheduled}</td><td class="num">${s.present}</td><td class="num">${s.late}</td><td class="num">${s.absent}</td><td class="num">${s.excused}</td><td class="num">${s.unmarked}</td><td class="bar">${stackBar(s)}</td></tr>`).join("");
   return `<div class="panel"><div class="panel-h"><div><h3>${esc(name)}</h3><p>${b.scheduled} موظف مجدول اليوم</p></div><button class="btn sm" data-go="${esc(JSON.stringify({ branch: name, date }))}">فتح الحضور</button></div>
-    <div class="panel-b"><div class="bp-top"><div><strong class="num">${pct}%</strong> <span class="muted">اكتمل التسجيل</span></div><span class="bp-fine">غرامات: ${money(b.fines)}</span></div>
+    <div class="panel-b"><div class="bp-top"><div><strong class="num">${pct}%</strong> <span class="muted">اكتمل التسجيل</span></div></div>
     ${stackBar(b, "lg")}<div style="margin-top:10px">${legend(b)}</div>
     ${b.shifts.length ? `<table class="mini-tbl"><thead><tr><th>الشيفت</th><th>مجدول</th><th>حاضر</th><th>متأخر</th><th>غائب</th><th>بعذر</th><th>لم يُسجل</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : `<p class="muted" style="margin-top:14px">لا يوجد موظفون مجدولون في هذا اليوم.</p>`}</div></div>`;
 }
@@ -950,8 +952,8 @@ async function loadHistory() {
     const e = r.employee, s = r.stats;
     $("histTitle").textContent = e.name;
     $("histSub").innerHTML = `${esc(e.branch)} · ${sh(e.shift)} · ${esc(e.employee_code || "بدون كود")} · إجازة ${WD_AR[e.day_off] || e.day_off}${e.active ? "" : " · موقوف"}`;
-    $("histStats").innerHTML = `<span class="tag">تسجيلات: ${s.total}</span><span class="tag ok">حضور: ${s.present}</span><span class="tag warn">تأخير: ${s.late}</span><span class="tag bad">غياب: ${s.absent}</span><span class="tag info">بعذر: ${s.excused}</span><span class="tag brand">غرامات: ${money(s.fine_total)}</span>`;
-    $("histRows").innerHTML = r.records.map(a => `<tr><td>${WD_AR[a.weekday] || ""} ${fmtDay(a.attendance_date, { day: "numeric", month: "short" })}</td><td><span class="tag ${a.status}">${ST[a.status]?.[0] || a.status}</span></td><td class="num">${a.fine ? money(a.fine) : "—"}</td><td>${esc(a.reason) || "—"}</td><td>${esc(a.note) || "—"}</td></tr>`).join("");
+    $("histStats").innerHTML = `<span class="tag">تسجيلات: ${s.total}</span><span class="tag ok">حضور: ${s.present}</span><span class="tag warn">تأخير: ${s.late}</span><span class="tag bad">غياب: ${s.absent}</span><span class="tag info">بعذر: ${s.excused}</span>`;
+    $("histRows").innerHTML = r.records.map(a => `<tr><td>${WD_AR[a.weekday] || ""} ${fmtDay(a.attendance_date, { day: "numeric", month: "short" })}</td><td><span class="tag ${a.status}">${ST[a.status]?.[0] || a.status}</span></td><td>${esc(a.reason) || "—"}</td><td>${esc(a.note) || "—"}</td></tr>`).join("");
     $("histEmpty").classList.toggle("hidden", r.records.length > 0);
   } catch (err) { toast(err.message, "err"); }
 }
@@ -993,14 +995,15 @@ async function runReport() {
 function renderReport() {
   const r = S.rep.sum, branch = $("repBranch").value;
   $("printHeader").textContent = `من ${fmtDay(r.start, { day: "numeric", month: "long", year: "numeric" })} إلى ${fmtDay(r.end, { day: "numeric", month: "long", year: "numeric" })}${branch ? " — " + branch : " — كل الفروع"}`;
-  const k = [["إجمالي التسجيلات", r.total, "brand"], ["حضور", r.present, "ok"], ["تأخير", r.late, "warn"], ["غياب", r.absent, "bad"], ["بعذر", r.excused, "info"], ["إجمالي الغرامات", money(r.fine_total), ""]];
+  const rate = r.total ? Math.round((r.present + r.late) * 100 / r.total) : 0;
+  const k = [["إجمالي التسجيلات", r.total, "brand"], ["حضور", r.present, "ok"], ["تأخير", r.late, "warn"], ["غياب", r.absent, "bad"], ["بعذر", r.excused, "info"], ["نسبة الحضور", rate + "%", "ok"]];
   $("repKpis").innerHTML = k.map(([l, v, c]) => `<div class="kpi ${c}"><span>${l}</span><strong class="${typeof v === "number" ? "num" : ""}" style="${typeof v === "number" ? "" : "font-size:22px"}">${v}</strong></div>`).join("");
   const names = Object.keys(r.by_branch).sort();
   $("repBranches").innerHTML = names.length ? names.map(n => {
     const b = r.by_branch[n], c = { scheduled: b.total, present: b.present, late: b.late, absent: b.absent, excused: b.excused, unmarked: 0 };
-    return `<div class="panel br-card"><h4><span>${esc(n)}</span><span class="muted num">${b.total} تسجيل</span></h4>${stackBar(c, "lg")}<div style="margin:10px 0">${legend({ ...c, unmarked: undefined })}</div><div class="bp-fine">الغرامات: <b>${money(b.fine_total)}</b></div></div>`;
+    return `<div class="panel br-card"><h4><span>${esc(n)}</span><span class="muted num">${b.total} تسجيل</span></h4>${stackBar(c, "lg")}<div style="margin:10px 0">${legend({ ...c, unmarked: undefined })}</div></div>`;
   }).join("") : "";
-  $("repDays").innerHTML = r.by_day.map(d => `<tr data-go="${esc(JSON.stringify({ date: d.date, branch: $("repBranch").value }))}" style="cursor:pointer"><td>${fmtDay(d.date, { weekday: "long", day: "numeric", month: "short" })}</td><td class="num">${d.present}</td><td class="num">${d.late}</td><td class="num">${d.absent}</td><td class="num">${d.excused}</td><td class="num">${d.fine_total ? num(d.fine_total) : "—"}</td><td style="width:140px">${stackBar({ scheduled: d.total, present: d.present, late: d.late, absent: d.absent, excused: d.excused, unmarked: 0 })}</td></tr>`).join("");
+  $("repDays").innerHTML = r.by_day.map(d => `<tr data-go="${esc(JSON.stringify({ date: d.date, branch: $("repBranch").value }))}" style="cursor:pointer"><td>${fmtDay(d.date, { weekday: "long", day: "numeric", month: "short" })}</td><td class="num">${d.present}</td><td class="num">${d.late}</td><td class="num">${d.absent}</td><td class="num">${d.excused}</td><td style="width:140px">${stackBar({ scheduled: d.total, present: d.present, late: d.late, absent: d.absent, excused: d.excused, unmarked: 0 })}</td></tr>`).join("");
   renderReportRows();
 }
 
@@ -1015,10 +1018,107 @@ function renderReportRows() {
   $("repEmpSub").textContent = total ? `${total} موظف لهم تسجيلات في الفترة` : "";
   $("repRows").innerHTML = slice.map(e => {
     const cls = e.rate < 75 ? "low" : e.rate < 90 ? "mid" : "";
-    return `<tr data-hist="${e.id}" style="cursor:pointer"><td class="who">${whoHTML(e.name, `<b>${esc(e.name)}</b><small>${esc(e.employee_code || "بدون كود")} · ${sh(e.shift)}</small>`)}</td><td>${esc(e.branch)}</td><td class="num">${e.present}</td><td class="num">${e.late}</td><td class="num">${e.absent}</td><td class="num">${e.excused}</td><td><span class="rate"><b class="num">${e.rate}%</b><span class="stack"><i class="${cls}" style="width:${e.rate}%"></i></span></span></td><td class="num">${e.fine_total ? num(e.fine_total) : "—"}</td></tr>`;
+    return `<tr data-hist="${e.id}" style="cursor:pointer"><td class="who">${whoHTML(e.name, `<b>${esc(e.name)}</b><small>${esc(e.employee_code || "بدون كود")} · ${sh(e.shift)}</small>`)}</td><td>${esc(e.branch)}</td><td class="num">${e.present}</td><td class="num">${e.late}</td><td class="num">${e.absent}</td><td class="num">${e.excused}</td><td><span class="rate"><b class="num">${e.rate}%</b><span class="stack"><i class="${cls}" style="width:${e.rate}%"></i></span></span></td></tr>`;
   }).join("");
   $("repEmpty").classList.toggle("hidden", total > 0);
   renderPager($("repPager"), total, S.rep, renderReportRows);
+}
+
+
+/* ============================== fines (الغرامات) ==============================
+   مكان واحد لكل الغرامات في الفرعين: التفاصيل الكاملة (الموظف، الفرع، الشيفت،
+   النوع، اليوم، الغرامة، السبب، الملاحظة) + إجماليات الفرعين والتفصيل الشهري.
+   التجميع كله على السيرفر من /api/fines، وهنا الفلترة بالتاريخ/الفرع/النوع وترتيب الجدول. */
+const fineQuery = () => {
+  const s = $("fineStart").value, e = $("fineEnd").value, b = $("fineBranch").value, k = $("fineKind").value;
+  const parts = [];
+  if (s) parts.push("start=" + s);
+  if (e) parts.push("end=" + e);
+  if (b) parts.push("branch=" + encodeURIComponent(b));
+  if (k) parts.push("status=" + k);
+  return { qs: parts.join("&"), tag: `${s || "all"}_${e || "all"}` };
+};
+
+function setFinePreset(p) {
+  const t = todayISO(), d = new Date(); let s = t, e = t;
+  if (p === "lastmonth") { s = isoOf(new Date(d.getFullYear(), d.getMonth() - 1, 1)); e = isoOf(new Date(d.getFullYear(), d.getMonth(), 0)); }
+  else if (p === "30") s = addDays(t, -29);
+  else if (p === "90") s = addDays(t, -89);
+  else if (p === "year") s = isoOf(new Date(d.getFullYear(), 0, 1));
+  else if (p === "all") s = e = "";
+  else s = isoOf(new Date(d.getFullYear(), d.getMonth(), 1)); /* هذا الشهر */
+  S.fines.preset = p; $("fineStart").value = s; $("fineEnd").value = e;
+  qsa("#finePresets button").forEach(b => b.classList.toggle("on", b.dataset.p === p));
+}
+
+on("finePresets", "click", ev => { const b = ev.target.closest("button"); if (b) { setFinePreset(b.dataset.p); loadFines(); } });
+["fineStart", "fineEnd"].forEach(id => on(id, "change", () => { S.fines.preset = ""; qsa("#finePresets button").forEach(b => b.classList.remove("on")); }));
+on("fineRun", "click", loadFines);
+on("fineBranch", "change", loadFines);
+on("fineKind", "change", loadFines);
+on("fineSearch", "input", debounce(() => { S.fines.page = 1; renderFineRows(); }, 150));
+bindSort("#page-fines th.sort", "fsort", S.fines, renderFineRows);
+on("fineExport", "click", () => {
+  const { qs: query, tag } = fineQuery();
+  download(`/api/fines/export.csv${query ? "?" + query : ""}`, `bankai_fines_${tag}.csv`).catch(e => toast(e.message, "err"));
+});
+
+async function loadFines() {
+  /* أول فتح للتاب: نعبّي الفترة الافتراضية (الشهر الحالي) قبل ما نطلب الداتا */
+  if (!$("fineStart").value && !$("fineEnd").value && S.fines.preset && S.fines.preset !== "all") setFinePreset(S.fines.preset);
+  const { qs: query } = fineQuery();
+  try {
+    S.fines.data = await api(`/api/fines${query ? "?" + query : ""}`);
+    S.fines.page = 1;
+    renderFines();
+  } catch (e) { toast(e.message, "err"); }
+}
+
+function finePeriodLabel(d) {
+  if (!d.start && !d.end) return "كل الفترات";
+  const f = s => fmtDay(s, { day: "numeric", month: "short" });
+  return `من ${d.start ? f(d.start) : "البداية"} إلى ${d.end ? f(d.end) : "اليوم"}`;
+}
+
+function renderFines() {
+  const d = S.fines.data; if (!d) return;
+  $("fineSub").textContent = `${finePeriodLabel(d)} · ${d.branch || "كل الفروع"}${d.status ? ` · ${(ST[d.status] || [d.status])[0]} بس` : ""}`;
+  const kp = [
+    ["إجمالي الغرامات", money(d.total), "brand", true], ["عدد الغرامات", num(d.count), "", false],
+    ["غرامات تأخير", money(d.late_total), "warn", true], ["غرامات غياب", money(d.absent_total), "bad", true],
+    ["متوسط الغرامة", money(d.avg), "info", true], ["أكبر غرامة", money(d.max), "ok", true],
+  ];
+  $("fineKpis").innerHTML = kp.map(([l, v, c, big]) =>
+    `<div class="kpi ${c}"><span>${l}</span><strong class="${big ? "" : "num"}" style="font-size:${big ? 20 : 26}px">${v}</strong></div>`).join("");
+  const picked = $("fineBranch").value;
+  $("fineBranches").innerHTML = d.by_branch.filter(b => !picked || b.branch === picked).map(b => {
+    const share = d.total ? Math.round(b.total * 100 / d.total) : 0;
+    const seg = (cls, n, tip) => n ? `<i class="s-${cls}" style="width:${n * 100 / b.count}%" title="${tip}: ${n}"></i>` : "";
+    return `<div class="panel br-card"><h4><span>${esc(b.branch)}</span><span class="muted num">${b.count} غرامة</span></h4>
+      <div class="bp-top"><div><strong class="num">${money(b.total)}</strong> <span class="muted">إجمالي الغرامات</span></div>${picked ? "" : `<span class="muted num">${share}% من الإجمالي</span>`}</div>
+      ${b.count ? `<div class="stack lg">${seg("late", b.late, "تأخير")}${seg("absent", b.absent, "غياب")}</div><div class="legend" style="margin-top:10px"><span><i class="dot warn"></i>تأخير <b class="num">${b.late}</b> — ${money(b.late_total)}</span><span><i class="dot bad"></i>غياب <b class="num">${b.absent}</b> — ${money(b.absent_total)}</span></div>` : `<p class="muted">مفيش غرامات في الفترة دي.</p>`}</div>`;
+  }).join("");
+  $("fineMonths").innerHTML = d.by_month.map(m => `<tr><td>${fmtDay(m.month + "-01", { month: "long", year: "numeric" })}</td><td class="num">${m.count}</td><td class="num">${m.late}</td><td class="num">${m.absent}</td><td class="num">${money(m.total)}</td></tr>`).join("");
+  $("fineMonthsBox").classList.toggle("hidden", !d.by_month.length);
+  renderFineRows();
+}
+
+function renderFineRows() {
+  const d = S.fines.data; if (!d) return;
+  const q = $("fineSearch").value.trim().toLowerCase();
+  const list = d.items.filter(x => !q || `${x.name} ${x.employee_code}`.toLowerCase().includes(q));
+  sortRows(list, S.fines, (x, k) => x[k] ?? "");
+  markSort("#page-fines th.sort", "fsort", S.fines);
+  const total = list.length;
+  $("fineSub2").textContent = d.truncated
+    ? `أحدث ${d.items.length} غرامة من إجمالي ${d.count} — ضيّق الفترة لو محتاج السجل كامل`
+    : (total ? `${total} غرامة بالتفاصيل` : "");
+  $("fineRows").innerHTML = list.slice((S.fines.page - 1) * S.fines.size, S.fines.page * S.fines.size).map(x => {
+    const st = ST[x.status] || [x.status, ""];
+    return `<tr data-hist="${x.employee_id}" style="cursor:pointer"><td class="who">${whoHTML(x.name, `<b>${esc(x.name)}</b><small>${esc(x.employee_code || "بدون كود")} · ${sh(x.shift)} · ${esc(x.employment_type)}</small>`)}</td><td>${esc(x.branch)}</td><td>${WD_AR[x.weekday] || ""} ${fmtDay(x.date, { day: "numeric", month: "short" })}</td><td><span class="tag ${st[1]}">${st[0]}</span></td><td class="num"><b>${money(x.fine)}</b></td><td>${esc(x.reason) || "—"}</td><td>${esc(x.note) || "—"}</td></tr>`;
+  }).join("");
+  $("fineEmpty").classList.toggle("hidden", total > 0);
+  renderPager($("finePager"), total, S.fines, renderFineRows);
 }
 
 
@@ -1453,7 +1553,7 @@ on("setBackup", "click", async () => {
   catch (e) { toast(e.message, "err"); }
 });
 on("setWipeAtt", "click", async () => {
-  if (!confirm("هتمسح سجل الحضور بالكامل (كل التسجيلات والغرامات المسجلة). الموظفين والجدول والإعدادات هيفضلوا زي ما هما. متأكد؟")) return;
+  if (!confirm("هتمسح سجل الحضور بالكامل (كل التسجيلات المسجلة). الموظفين والجدول والإعدادات هيفضلوا زي ما هما. متأكد؟")) return;
   const word = prompt("خطوة أخيرة: اكتب كلمة «مسح» عشان تأكّد المسح النهائي.");
   if (word !== "مسح") { if (word !== null) toast("الكلمة غير مطابقة — ما اتمسحش حاجة.", "err"); return; }
   try {
@@ -1793,4 +1893,21 @@ if (S.token) { showApp(); init(); }
   };
   badge(attBtn, (typeof S !== "undefined" && S.draft) ? S.draft.size : 0);
   badge(schBtn, (typeof S !== "undefined" && S.sch && S.sch.draft) ? S.sch.draft.size : 0);
+
+  /* ---------- 11. الغرامات ---------- */
+  var _fin = window.renderFines;
+  window.renderFines = function () {
+    _fin.apply(null, arguments);
+    decorate("#page-fines");
+    var boot = bootPage === "fines" && revealBoot("fines");
+    var fh = qs("#fineKpis"); if (fh) fh.setAttribute("aria-busy", "false");
+    if (fh) fh.style.animation = "none";
+    noBarGrow(fh);
+    if (!vtRun() && (boot || enter === "fines")) {
+      enter = null;
+      stagger("#fineKpis .kpi", 26, 0, 6, RISE, 130);
+      stagger("#fineRows tr", 9, 40, 26, FADE, 150);
+    }
+    window.bkVtDataReady("fines");
+  };
 })();

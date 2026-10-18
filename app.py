@@ -933,9 +933,9 @@ def export_csv(start: date, end: date, branch: Optional[str] = None,
         q = q.filter(Employee.branch == branch)
     rows = q.order_by(Attendance.attendance_date, Employee.branch, Employee.name).all()
     return csv_response(
-        ["Date", "Branch", "Employee Code", "Name", "Type", "Shift", "Day Off", "Status", "Fine (EGP)", "Reason", "Note"],
+        ["Date", "Branch", "Employee Code", "Name", "Type", "Shift", "Day Off", "Status", "Reason", "Note"],
         [[a.attendance_date.isoformat(), e.branch, e.employee_code or "", e.name, e.employment_type,
-          e.shift, e.day_off, a.status, f"{a.fine:.2f}", a.reason or "", a.note or ""] for a, e in rows],
+          e.shift, e.day_off, a.status, a.reason or "", a.note or ""] for a, e in rows],
         f"bankai_attendance_{start}_{end}.csv")
 
 
@@ -945,10 +945,109 @@ def export_employees_report(start: date, end: date, branch: Optional[str] = None
     data = report_employees(start, end, branch, q, True, db)
     return csv_response(
         ["Branch", "Employee Code", "Name", "Type", "Shift", "Records", "Present", "Late", "Absent", "Excused",
-         "Attendance Rate %", "Fines (EGP)"],
+         "Attendance Rate %"],
         [[r["branch"], r["employee_code"], r["name"], r["employment_type"], r["shift"], r["total"], r["present"],
-          r["late"], r["absent"], r["excused"], r["rate"], f"{r['fine_total']:.2f}"] for r in data["employees"]],
+          r["late"], r["absent"], r["excused"], r["rate"]] for r in data["employees"]],
         f"bankai_employees_summary_{start}_{end}.csv")
+
+
+# ---------------------------------------------------------------- fines (الغرامات)
+FINES_ITEMS_LIMIT = 2000  # سقف صفوف التفاصيل في الرد — الإجماليات بتتحسب على كل الصفوف دايمًا
+
+
+def _fines_rows(db, start=None, end=None, branch=None, status=None, q=None):
+    """كل تسجيلات الغرامات (الغرامة أكبر من صفر) في الفرعين مع بيانات الموظف."""
+    query = (db.query(Attendance, Employee).join(Employee, Attendance.employee_id == Employee.id)
+             .filter(Attendance.fine > 0))
+    if start:
+        query = query.filter(Attendance.attendance_date >= start)
+    if end:
+        query = query.filter(Attendance.attendance_date <= end)
+    if branch in BRANCHES:
+        query = query.filter(Employee.branch == branch)
+    if status in STATUSES:
+        query = query.filter(Attendance.status == status)
+    if q:
+        like = f"%{q.strip()}%"
+        query = query.filter(or_(Employee.name.ilike(like), Employee.employee_code.ilike(like)))
+    return query.order_by(Attendance.attendance_date.desc(), Employee.name).all()
+
+
+def _fines_payload(rows):
+    """تجميع الغرامات: إجماليات الفرعين + تفصيل شهري + إجمالي كل موظف + السجل الكامل بالتفاصيل."""
+    by_branch = {b: {"branch": b, "count": 0, "total": 0.0, "late": 0, "absent": 0,
+                     "late_total": 0.0, "absent_total": 0.0} for b in BRANCHES}
+    by_month, by_employee, items = {}, {}, []
+    total = late_total = absent_total = 0.0
+    for a, e in rows:
+        fine = round(float(a.fine or 0), 2)
+        late = a.status == "Late"
+        kind = "late" if late else "absent"
+        total += fine
+        late_total += fine if late else 0.0
+        absent_total += 0.0 if late else fine
+        b = by_branch.setdefault(e.branch, {"branch": e.branch, "count": 0, "total": 0.0, "late": 0, "absent": 0,
+                                            "late_total": 0.0, "absent_total": 0.0})
+        b["count"] += 1
+        b["total"] = round(b["total"] + fine, 2)
+        b[kind] += 1
+        b[kind + "_total"] = round(b[kind + "_total"] + fine, 2)
+        mkey = a.attendance_date.strftime("%Y-%m")
+        m = by_month.setdefault(mkey, {"month": mkey, "count": 0, "total": 0.0, "late": 0, "absent": 0,
+                                       "late_total": 0.0, "absent_total": 0.0})
+        m["count"] += 1
+        m["total"] = round(m["total"] + fine, 2)
+        m[kind] += 1
+        m[kind + "_total"] = round(m[kind + "_total"] + fine, 2)
+        emp = by_employee.setdefault(e.id, {"id": e.id, "name": e.name, "employee_code": e.employee_code or "",
+                                            "branch": e.branch, "shift": e.shift,
+                                            "employment_type": e.employment_type, "count": 0, "total": 0.0,
+                                            "late": 0, "absent": 0})
+        emp["count"] += 1
+        emp["total"] = round(emp["total"] + fine, 2)
+        emp[kind] += 1
+        items.append({
+            "id": a.id, "employee_id": e.id, "name": e.name, "employee_code": e.employee_code or "",
+            "branch": e.branch, "shift": e.shift, "employment_type": e.employment_type,
+            "date": a.attendance_date.isoformat(), "weekday": a.attendance_date.strftime("%A"),
+            "status": a.status, "fine": fine, "reason": a.reason or "", "note": a.note or "",
+            "updated_at": a.updated_at.isoformat() if a.updated_at else "",
+        })
+    return {
+        "count": len(items), "total": round(total, 2),
+        "late_total": round(late_total, 2), "absent_total": round(absent_total, 2),
+        "avg": round(total / len(items), 2) if items else 0.0,
+        "max": round(max((i["fine"] for i in items), default=0.0), 2),
+        "by_branch": [by_branch[b] for b in BRANCHES],
+        "by_month": sorted(by_month.values(), key=lambda x: x["month"], reverse=True),
+        "by_employee": sorted(by_employee.values(), key=lambda x: x["total"], reverse=True),
+        "items": items[:FINES_ITEMS_LIMIT],
+        "truncated": len(items) > FINES_ITEMS_LIMIT,
+    }
+
+
+@app.get("/api/fines")
+def list_fines(start: Optional[date] = None, end: Optional[date] = None, branch: Optional[str] = None,
+               status: Optional[str] = None, q: Optional[str] = None,
+               _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+    """كل غرامات الفرعين (تأخير وغياب) بكل تفاصيلها: الموظف والفرع والشيفت والنوع واليوم والغرامة والسبب والملاحظة."""
+    if start and end and end < start:
+        raise HTTPException(400, "تاريخ النهاية يجب ألا يسبق تاريخ البداية")
+    payload = _fines_payload(_fines_rows(db, start, end, branch, status, q))
+    return {"start": start.isoformat() if start else "", "end": end.isoformat() if end else "",
+            "branch": branch if branch in BRANCHES else "", "status": status if status in STATUSES else "", **payload}
+
+
+@app.get("/api/fines/export.csv")
+def export_fines(start: Optional[date] = None, end: Optional[date] = None, branch: Optional[str] = None,
+                 status: Optional[str] = None, q: Optional[str] = None,
+                 _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+    rows = _fines_rows(db, start, end, branch, status, q)
+    return csv_response(
+        ["Date", "Branch", "Employee Code", "Name", "Type", "Shift", "Status", "Fine (EGP)", "Reason", "Note"],
+        [[a.attendance_date.isoformat(), e.branch, e.employee_code or "", e.name, e.employment_type,
+          e.shift, a.status, f"{float(a.fine or 0):.2f}", a.reason or "", a.note or ""] for a, e in rows],
+        f"bankai_fines_{start or 'all'}_{end or 'all'}.csv")
 
 
 # ---------------------------------------------------------------- schedule (جدول الشيفتات)
