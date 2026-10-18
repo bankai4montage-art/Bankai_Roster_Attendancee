@@ -19,6 +19,42 @@ const anyDrafts = () => S.draft.size + (S.sch ? S.sch.draft.size : 0);
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 const on = (id, ev, fn) => $(id).addEventListener(ev, fn);
 
+/* -------- initial-avatars --------
+   كانت في ui.js وبتتولّد بعد الرسم عن طريق MutationObserver على الـ body كله،
+   يعني أي تغيير في أي حاجة في الصفحة كان بيعيد المسح. بقت دلوقتي جزء من التمبليت
+   نفسه (توليد مباشر وقت الرسم) وui.js بقى بيستخدم نفس الدالة دي كـ fallback
+   بس للماركب اللي مابيتمرّش من هنا (زي دايلوج السجل). */
+const AV_HUES = [212, 262, 158, 24, 340, 190, 40, 290];
+function avHue(name) {
+  const s = String(name ?? "");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return AV_HUES[h % AV_HUES.length];
+}
+function avHTML(name) {
+  const s = String(name ?? "").trim();
+  return `<span class="av" aria-hidden="true" style="--h:${avHue(name)}">${esc(s[0] || "؟")}</span>`;
+}
+/* نفس ترتيب ui.js: .wcell > .av + .wtxt(المحتوى الأصلي) */
+function whoHTML(name, inner) { return `<div class="wcell">${avHTML(name)}<div class="wtxt">${inner}</div></div>`; }
+window.BankaiUI = Object.assign(window.BankaiUI || {}, { avHTML, avHue, whoHTML });
+
+/* -------- micro-interactions --------
+   نبضة قصيرة على عنصر/مجموعة عناصر بعد تفاعل (تسجيل حضور، ظهور شريط الحفظ).
+   بنشيل الكلاس الأول وبعدين نقرا layout مرة واحدة بس (قراءة واحدة لكل مجموعة،
+   مش لكل عنصر) عشان الأنيميشن تبدأ من أول وجديد من غير forced reflow متكرر.
+   ولا أي حاجة هنا بتلمس الداتا. */
+const reducedMotion = () => { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return false; } };
+function pulseAll(els, cls, ms = 640) {
+  const list = Array.from(els || []).filter(Boolean);
+  if (!list.length || reducedMotion()) return;
+  list.forEach(el => { el.classList.remove(cls); el.style.animation = ""; });
+  void list[0].offsetWidth;
+  list.forEach(el => el.classList.add(cls));
+  setTimeout(() => list.forEach(el => el.classList.remove(cls)), ms);
+}
+const pulse = (el, cls, ms) => pulseAll(el ? [el] : [], cls, ms);
+
 const WEEKDAYS = ["Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const WD_AR = { Saturday: "السبت", Sunday: "الأحد", Monday: "الاثنين", Tuesday: "الثلاثاء", Wednesday: "الأربعاء", Thursday: "الخميس", Friday: "الجمعة" };
 const ST = { Present: ["حاضر", "ok"], Late: ["متأخر", "warn"], Absent: ["غائب", "bad"], Excused: ["بعذر", "info"] };
@@ -177,6 +213,7 @@ qsa(".js-theme").forEach(b => b.addEventListener("click", () =>
 function showApp() {
   $("loginView").classList.add("hidden"); $("appView").classList.remove("hidden");
   $("todayPill").textContent = new Date().toLocaleDateString("ar-EG-u-nu-latn", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  if (window.syncNavInd) window.syncNavInd();
 }
 
 /* إظهار/إخفاء عناصر الأدمن حسب الدور */
@@ -188,6 +225,7 @@ function applyRole() {
   av.title = sup ? "مشرف — مشاهدة كل حاجة وتعديل الحضور اليومي فقط" : "أدمن — كل الصلاحيات";
   $("rolePill").classList.toggle("hidden", !sup);
   $("setFineLate").disabled = $("setFineAbsent").disabled = sup;
+  if (window.syncNavInd) window.syncNavInd();
 }
 
 const PAGES = { dashboard: "نظرة عامة", attendance: "الحضور اليومي", schedule: "الجدول", employees: "الموظفون", reports: "التقارير", settings: "الإعدادات" };
@@ -206,14 +244,42 @@ function route() {
   showPage(target);
 }
 
+/* ===== انتقالات الصفحات: View Transitions =====
+   لو المتصفح بيدعم startViewTransition بنلف تبديل الصفحة جواه، فيبقى في انتقال
+   ناعم بين الصفحتين بدل القطعة الجافة. بنتخطاها:
+     • وقت هيكل التحميل الأول (الصفحة بتفضل مخفية وراء الهيكل لحد الداتا توصل)،
+     • لأي حد طالب prefers-reduced-motion.
+   وبنعلّم .vt-skip على الصفحة الجديدة عشان أنيميشن pageIn مايبدأش قبل ما لقطة
+   الانتقال تتّاخد (لو بدأ، اللقطة هتبقى صفحة شبه فاضية والانتقال هيبان كأنه فلاش).
+   وطبقة الحركة بتقرا window.bkVtActive عشان تأجّل دخول العناصر لحد ما يخلص. */
+let vtPending = null, vtToken = 0;
 function showPage(p) {
   S.page = p; S.shown = true;
-  qsa(".page").forEach(x => x.classList.add("hidden"));
-  $("page-" + p).classList.remove("hidden");
-  qsa("[data-page]").forEach(b => b.classList.toggle("active", b.dataset.page === p));
-  $("pageTitle").textContent = PAGES[p];
-  document.title = `${PAGES[p]} — Bankai`;
-  window.scrollTo(0, 0);
+  const swap = () => {
+    const pg = $("page-" + p);
+    qsa(".page").forEach(x => { if (x !== pg) x.classList.add("hidden"); });
+    if (window.bkVtActive) pg.classList.add("vt-skip");
+    pg.classList.remove("hidden");
+    qsa("[data-page]").forEach(b => b.classList.toggle("active", b.dataset.page === p));
+    $("pageTitle").textContent = PAGES[p];
+    document.title = `${PAGES[p]} — Bankai`;
+    window.scrollTo(0, 0);
+  };
+  if (document.startViewTransition && !reducedMotion() && !$("bootSkel")) {
+    window.bkVtActive = true;
+    const my = ++vtToken;
+    const off = () => { if (vtToken === my) window.bkVtActive = false; };
+    try {
+      const t = document.startViewTransition(swap);
+      /* كل وعود الانتقال (ready/updateCallbackDone/finished) ممنوع تسيبها
+         من غير معالج: لو الانتقال اتلغى (تبديل سريع ورا بعض، أو تاب اتخفي)
+         الرفض بيطلع في الكونسول كـ unhandled rejection. */
+      if (t.ready && t.ready.catch) t.ready.catch(() => { });
+      if (t.updateCallbackDone && t.updateCallbackDone.catch) t.updateCallbackDone.catch(() => { });
+      vtPending = t.finished.then(off, off);
+    }
+    catch (e) { window.bkVtActive = false; vtPending = null; swap(); }
+  } else { window.bkVtActive = false; vtPending = null; swap(); }
   if (p === "dashboard") { loadDashboard(); restartFeedTimer(); } else stopFeedTimer();
   if (p === "attendance") { syncAttControls(); loadRoster(); }
   if (p === "schedule") loadSchedulePage();
@@ -221,6 +287,12 @@ function showPage(p) {
   if (p === "reports") { if (!$("repStart").value) setPreset(S.rep.preset); else runReport(); }
   if (p === "settings") loadSettings();
 }
+/* طبقة الحركة بتسألها: تشغّل دخول العناصر بعد ما الانتقال يخلص (أو في الفريم الجاي) */
+function afterSwap(fn) {
+  const pr = vtPending; vtPending = null;
+  if (pr && pr.then) pr.then(fn, fn); else requestAnimationFrame(fn);
+}
+window.bankaiAfterSwap = afterSwap;
 
 function goAttendance(o = {}) {
   S.att.branch = o.branch || ""; S.att.shift = o.shift || ""; S.att.status = o.status || ""; S.att.q = "";
@@ -287,7 +359,7 @@ function renderDashboard(d) {
   $("dashBranches").innerHTML = Object.entries(d.branches).map(([name, b]) => branchPanel(name, b, date)).join("");
   renderTrend(d.trend, date);
   $("dashWatch").innerHTML = d.watchlist.length
-    ? `<table class="mini-tbl"><thead><tr><th>الموظف</th><th>غياب</th><th>تأخير</th><th>غرامات</th></tr></thead><tbody>${d.watchlist.map(w => `<tr data-hist="${w.id}" style="cursor:pointer"><td><b>${esc(w.name)}</b><br><small class="muted">${esc(w.branch)} · ${sh(w.shift)}</small></td><td class="num">${w.absent}</td><td class="num">${w.late}</td><td class="num">${w.fines ? num(w.fines) : "—"}</td></tr>`).join("")}</tbody></table>`
+    ? `<table class="mini-tbl"><thead><tr><th>الموظف</th><th>غياب</th><th>تأخير</th><th>غرامات</th></tr></thead><tbody>${d.watchlist.map(w => `<tr data-hist="${w.id}" style="cursor:pointer"><td>${whoHTML(w.name, `<b>${esc(w.name)}</b><br><small class="muted">${esc(w.branch)} · ${sh(w.shift)}</small>`)}</td><td class="num">${w.absent}</td><td class="num">${w.late}</td><td class="num">${w.fines ? num(w.fines) : "—"}</td></tr>`).join("")}</tbody></table>`
     : `<p class="muted" style="padding:20px 0">مفيش غياب أو تأخير مسجل في آخر 30 يوم.</p>`;
 }
 
@@ -425,7 +497,7 @@ function rowHTML(e) {
   if (e.break_start) sub.push(`بريك <span class="num">${esc(e.break_start)}</span>`);
   if (!S.att.group) sub.push(esc(e.branch), sh(e.shift));
   return `<div class="arow${S.draft.has(e.id) ? " dirty" : ""}" data-id="${e.id}" data-st="${st}">
-    <div class="a-who"><div class="a-name">${esc(e.name)}${contactHTML(e)}</div><div class="a-sub">${sub.join(" · ")}</div></div>
+    <div class="a-who">${whoHTML(e.name, `<div class="a-name">${esc(e.name)}${contactHTML(e)}</div><div class="a-sub">${sub.join(" · ")}</div>`)}</div>
     <div class="seg" role="group" aria-label="حالة ${esc(e.name)}">${STK.map(k => `<button type="button" class="${k}${st === k ? " on" : ""}" data-set="${k}" aria-pressed="${st === k}">${ST[k][0]}</button>`).join("")}</div>
     <input class="inp f-fine" type="number" min="0" step="1" inputmode="numeric" value="${fineOn && d.fine ? d.fine : ""}" placeholder="غرامة" aria-label="الغرامة" ${fineOn ? "" : "disabled"}>
     <input class="inp f-reason" list="reasonList" maxlength="500" value="${esc(d.reason || "")}" placeholder="السبب" aria-label="السبب" ${st && st !== "Present" ? "" : "disabled"}>
@@ -513,6 +585,8 @@ function setStatus(e, st) {
   else if (st === "Late" || st === "Absent") { if (!d.fineTouched) d.fine = S.settings[st === "Late" ? "fine_late" : "fine_absent"] || 0; }
   else { d.fine = 0; d.reason = ""; d.note = ""; }
   maybeClean(e); updateRowUI(e); updateAttSummary(); updateSaveBar();
+  /* نبضة على الصف نفسه: تأكيد بصري إن التسجيل وقع (الزرار نفسه بينبض بـ fdsPop) */
+  pulse(qs(`.arow[data-id="${e.id}"]`, $("attList")), "just-set");
 }
 
 function markPresent(arr) {
@@ -523,6 +597,8 @@ function markPresent(arr) {
   });
   if (!n) { toast("كل الموظفين في العرض الحالي ليهم حالة بالفعل."); return; }
   renderAttendance(); updateSaveBar();
+  /* نبضة جماعية على الصفوف اللي اتسجلت (قراءة layout واحدة للمجموعة كلها) */
+  pulseAll(qsa("#attList .arow.dirty"), "just-set");
   toast(`تم تحديد ${n} موظف كحاضر. اضغط «حفظ الكل» للتأكيد.`, "ok");
 }
 
@@ -530,6 +606,8 @@ function updateSaveBar() {
   const n = S.draft.size;
   $("saveBar").classList.toggle("hidden", n === 0);
   $("saveMsg").textContent = `${n} تسجيل لم يُحفظ بعد`;
+  /* bump خفيف على العدّاد كل مرة العدد يتغيّر (الشريط نفسه ليه حركة دخول أصلًا) */
+  if (n) pulse($("saveMsg"), "bump");
 }
 
 async function saveAttendance() {
@@ -662,7 +740,7 @@ function renderEmployees() {
     const sel = S.emp.selected.has(e.id);
     const adminActs = isAdmin() ? `<button class="btn sm" data-edit="${e.id}">تعديل</button>${e.active ? `<button class="btn sm danger" data-deact="${e.id}">إيقاف</button>` : `<button class="btn sm" data-act="${e.id}">تفعيل</button>`}` : "";
     return `<tr class="${sel ? "sel" : ""}" data-id="${e.id}"><td class="c"><input type="checkbox" data-sel ${sel ? "checked" : ""} aria-label="تحديد ${esc(e.name)}"></td>
-      <td class="who"><button class="link" data-hist="${e.id}">${esc(e.name)}</button><small>${esc(e.employee_code || "بدون كود")}</small></td>
+      <td class="who">${whoHTML(e.name, `<button class="link" data-hist="${e.id}">${esc(e.name)}</button><small>${esc(e.employee_code || "بدون كود")}</small>`)}</td>
       <td>${esc(e.branch)}</td><td>${sh(e.shift)}</td>
       <td><span class="tag ${e.employment_type === "FT" ? "brand" : ""}">${e.employment_type === "FT" ? "Full Time" : "Part Time"}</span></td>
       <td>${WD_AR[e.day_off] || e.day_off}</td>
@@ -930,7 +1008,7 @@ function renderReportRows() {
   $("repEmpSub").textContent = total ? `${total} موظف لهم تسجيلات في الفترة` : "";
   $("repRows").innerHTML = slice.map(e => {
     const cls = e.rate < 75 ? "low" : e.rate < 90 ? "mid" : "";
-    return `<tr data-hist="${e.id}" style="cursor:pointer"><td class="who"><b>${esc(e.name)}</b><small>${esc(e.employee_code || "بدون كود")} · ${sh(e.shift)}</small></td><td>${esc(e.branch)}</td><td class="num">${e.present}</td><td class="num">${e.late}</td><td class="num">${e.absent}</td><td class="num">${e.excused}</td><td><span class="rate"><b class="num">${e.rate}%</b><span class="stack"><i class="${cls}" style="width:${e.rate}%"></i></span></span></td><td class="num">${e.fine_total ? num(e.fine_total) : "—"}</td></tr>`;
+    return `<tr data-hist="${e.id}" style="cursor:pointer"><td class="who">${whoHTML(e.name, `<b>${esc(e.name)}</b><small>${esc(e.employee_code || "بدون كود")} · ${sh(e.shift)}</small>`)}</td><td>${esc(e.branch)}</td><td class="num">${e.present}</td><td class="num">${e.late}</td><td class="num">${e.absent}</td><td class="num">${e.excused}</td><td><span class="rate"><b class="num">${e.rate}%</b><span class="stack"><i class="${cls}" style="width:${e.rate}%"></i></span></span></td><td class="num">${e.fine_total ? num(e.fine_total) : "—"}</td></tr>`;
   }).join("");
   $("repEmpty").classList.toggle("hidden", total > 0);
   renderPager($("repPager"), total, S.rep, renderReportRows);
@@ -1004,7 +1082,7 @@ function schRow(e, all) {
   const dirty = S.sch.draft.get(e.id) || {};
   if (!isAdmin()) {
     return `<tr data-id="${e.id}">
-      <td class="who"><b>${esc(e.name)}</b><small>${esc(e.employee_code || "")}</small></td>
+      <td class="who">${whoHTML(e.name, `<b>${esc(e.name)}</b><small>${esc(e.employee_code || "")}</small>`)}</td>
       <td class="c"><span class="tag ${e.employment_type === "FT" ? "brand" : ""}">${e.employment_type}</span></td>
       <td>${WD_AR[e.day_off] || e.day_off}${e.off_locked ? ' <span class="tag" title="يوم الإجازة مثبّت">مثبّت</span>' : ""}</td>
       <td>${e.break_start ? `<span class="num">${fmt12hm(e.break_start)}</span>` : `<span class="muted">—</span>`}</td>
@@ -1012,7 +1090,7 @@ function schRow(e, all) {
   }
   const moves = all.filter(s => s !== e.shift).map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
   return `<tr data-id="${e.id}" class="${S.sch.draft.has(e.id) ? "dirty" : ""}">
-    <td class="who"><b>${esc(e.name)}</b><small>${esc(e.employee_code || "")}</small></td>
+    <td class="who">${whoHTML(e.name, `<b>${esc(e.name)}</b><small>${esc(e.employee_code || "")}</small>`)}</td>
     <td class="c"><span class="tag ${e.employment_type === "FT" ? "brand" : ""}">${e.employment_type}</span></td>
     <td><select class="sel f-off${dirty.day_off ? " chg" : ""}" aria-label="يوم الإجازة">${WEEKDAYS.map(d => `<option value="${d}" ${d === e.day_off ? "selected" : ""}>${WD_AR[d]}</option>`).join("")}</select></td>
     <td><select class="sel f-bs${"break_start" in dirty ? " chg" : ""}" aria-label="ساعة البريك">${schBreakOptions(e.shift, e.break_start || "")}</select></td>
@@ -1395,6 +1473,21 @@ if (S.token) { showApp(); init(); }
   var qs = function (s, r) { return (r || document).querySelector(s); };
   var qsa = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
 
+  /* ---------- 0. الزخرفة البصرية (أيقونات + أفاتار احتياطي) ----------
+     بديل الـ MutationObserver الشامل اللي كان في ui.js: بدل ما نراقب الـ body
+     كله ونعيد المسح مع كل تغيير، بننده ui.js على الحاوية اللي اتغيّرت بس.
+     الأفاتار الأساسي بيتولّد جوه تمبليتس app.js نفسها؛ النداء هنا بيمشّط
+     العناصر الاحتياطية والأيقونات الجديدة بس. */
+  function decorate(sel) {
+    var UI = window.BankaiUI;
+    if (!UI || !UI.decorate) return;
+    try { UI.decorate(typeof sel === "string" ? qs(sel) : (sel || document)); } catch (e) { }
+  }
+  /* انتقال صفحات (View Transition) شغال دلوقتي؟ الداتا اللي بتوصل في نصّه
+     مش محتاجة stagger — لقطة الانتقال نفسها هي الحركة، ولو حرّكنا الصفوف
+     وهي تحت اللقطة الحركة بتتحرق وما حدش بيشوفها. */
+  function vtRun() { return !!window.bkVtActive; }
+
   /* ---------- 1. مؤشّر التنقّل المنزلق في الشريط الجانبي ---------- */
   var nav = qs(".topnav .tabs"), ind = qs("#navInd");
   var navShown = false, navBusy = false;
@@ -1417,9 +1510,14 @@ if (S.token) { showApp(); init(); }
       if (!navShown) { ind.classList.add("on"); navShown = true; }
     } finally { navBusy = false; }
   }
+  window.syncNavInd = syncNav;
   if (nav) {
-    try { new MutationObserver(function () { syncNav(); }).observe(nav, { subtree: true, attributes: true, attributeFilter: ["class", "hidden"] }); } catch (e) { }
+    /* ⚠ اتشال MutationObserver اللي كان مراقب الـ .tabs: كان بيصحى مع كل كتابة
+       على class على أي زرار جوه الشريط — بما فيها الكتابة اللي إحنا نفسنا بنعملها
+       في syncNav — وكان محتاج boolean guard عشان مايدخلش في حلقة لا نهائية.
+       دلوقتي في نداءات مباشرة من المسارات اللي بتغيّر الاختيار فعلاً. */
     addEventListener("resize", syncNav);
+    document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") syncNav(); });
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncNav).catch(function () { });
     syncNav();
   }
@@ -1524,13 +1622,17 @@ if (S.token) { showApp(); init(); }
       }
       /* صفحة بتترندر فورًا (employees/settings) — الهيكل اتشال من جوه _showPage على طول */
     } else { _showPage(p); markEnter(p); }
-    requestAnimationFrame(function () { if (!bootPage) enterPage(p); syncNav(); });
+    /* لو فيه انتقال صفحات (View Transition) شغال، بنأجّل دخول العناصر لحد ما
+       يخلص بدل ما يتحرق تحت لقطة الانتقال ويتشال بدون ما حد يشوفه. */
+    var done = function () { if (!bootPage) enterPage(p); syncNav(); };
+    if (window.bankaiAfterSwap) window.bankaiAfterSwap(done); else requestAnimationFrame(done);
   };
 
   /* ---------- 5. كروت الملخص: شريط + نسبة + عدّاد ---------- */
   var _dash = window.renderDashboard;
   window.renderDashboard = function (d) {
     _dash(d);
+    decorate("#page-dashboard");
     var boot = bootPage === "dashboard" && revealBoot("dashboard"); /* أول داتا وصلت — نبدّل الهيكل بالصفحة الحقيقية */
     var host = qs("#dashKpis"); if (!host) return;
     host.setAttribute("aria-busy", "false");
@@ -1543,17 +1645,18 @@ if (S.token) { showApp(); init(); }
       f.innerHTML = '<span class="kpi-bar"><i style="width:' + p + '%"></i></span><span class="kpi-pct">' + p + "%</span>";
       kv.classList.toggle("is-zero", numeric(kv) === 0 || isNaN(numeric(kv)));
     });
-    if (boot || enter === "dashboard") { enter = null; stagger("#dashKpis .kpi", 26, 0, 6, RISE, 130); }
+    if (!vtRun() && (boot || enter === "dashboard")) { enter = null; stagger("#dashKpis .kpi", 26, 0, 6, RISE, 130); }
   };
 
   /* ---------- 6. التقارير ---------- */
   var _rep = window.renderReport;
   window.renderReport = function () {
     _rep.apply(null, arguments);
+    decorate("#page-reports");
     var boot = bootPage === "reports" && revealBoot("reports");
     var rh = qs("#repKpis"); if (rh) rh.setAttribute("aria-busy", "false");
     if (rh) rh.style.animation = "none";
-    if (boot || enter === "reports") {
+    if (!vtRun() && (boot || enter === "reports")) {
       enter = null;
       stagger("#repKpis .kpi", 26, 0, 6, RISE, 130);
       stagger("#repDays tr", 10, 30, 14, FADE, 90);
@@ -1565,8 +1668,9 @@ if (S.token) { showApp(); init(); }
   var _att = window.renderAttendance;
   window.renderAttendance = function () {
     _att.apply(null, arguments);
+    decorate("#page-attendance");
     var boot = bootPage === "attendance" && revealBoot("attendance");
-    if (boot || enter === "attendance") {
+    if (!vtRun() && (boot || enter === "attendance")) {
       enter = null;
       stagger("#attList .arow", 9, 30, 30, FADE, 150);
       growBars("#attList .ghead .stack i");
@@ -1577,16 +1681,18 @@ if (S.token) { showApp(); init(); }
   var _emp = window.renderEmployees;
   window.renderEmployees = function () {
     _emp.apply(null, arguments);
-    if (bootPage === "employees" && revealBoot("employees")) { enter = null; stagger("#empRows tr", 9, 20, 26, FADE, 140); }
-    else if (enter === "employees") { enter = null; stagger("#empRows tr", 9, 20, 26, FADE, 140); }
+    decorate("#page-employees");
+    if (bootPage === "employees" && revealBoot("employees")) { enter = null; if (!vtRun()) stagger("#empRows tr", 9, 20, 26, FADE, 140); }
+    else if (enter === "employees") { enter = null; if (!vtRun()) stagger("#empRows tr", 9, 20, 26, FADE, 140); }
   };
 
   /* ---------- 9. الجدول ---------- */
   var _sch = window.renderSchedule;
   window.renderSchedule = function () {
     _sch.apply(null, arguments);
+    decorate("#page-schedule");
     var boot = bootPage === "schedule" && revealBoot("schedule");
-    if (boot || enter === "schedule") {
+    if (!vtRun() && (boot || enter === "schedule")) {
       enter = null;
       stagger("#schTotals .dt", 22, 20, 8, RISE, 90);
       stagger("#schShifts .shcard", 40, 40, 6, RISE, 140);
@@ -1596,7 +1702,10 @@ if (S.token) { showApp(); init(); }
   var _ls = window.loadSettings;
   window.loadSettings = function () {
     var pr = _ls.apply(null, arguments);
-    if (bootPage === "settings") pr.then(function () { revealBoot("settings"); }).catch(function () { });
+    if (pr && pr.then) pr.then(function () {
+      decorate("#page-settings");
+      if (bootPage === "settings") revealBoot("settings");
+    }).catch(function () { });
     return pr;
   };
 
