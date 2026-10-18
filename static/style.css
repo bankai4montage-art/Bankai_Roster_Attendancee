@@ -30,7 +30,11 @@ h1,h2,h3,h4,p{margin:0}
 .hidden{display:none!important}
 .muted{color:var(--ink3)}
 .num{display:inline-block;direction:ltr;unicode-bidi:isolate}
-td.num,th.num{display:table-cell;text-align:start}
+/* ملاحظة: خلايا الأرقام لازم تتكتب على نفس جهة رؤوس الأعمدة.
+   الرأس اتجاهه rtl و text-align:start معناها "يمين"، لكن الخلية الرقمية
+   عليها direction:ltr و start معناها "شمال" — فالأرقام كانت بتطلع بعيد عن
+   رؤوس أعمدةها. لذلك بنثبّت المحاذاة على right صريحة. */
+td.num,th.num{display:table-cell;text-align:right}
 .i{flex:none;vertical-align:middle}
 :focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
@@ -277,9 +281,10 @@ textarea.inp{height:130px;padding:10px 12px;resize:vertical;font-family:ui-monos
 .sch th{background:var(--surf2);padding:8px 6px;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap}
 .sch th:first-child{text-align:start;padding-inline-start:14px}
 .sch th.today{background:var(--brand-bg);color:var(--brand-d)}
-.sch td{border-top:1px solid var(--line2);vertical-align:middle}
+/* خلايا جدول الشيفتات تتوسّط زي رؤوس أعمدةها (ما عدا عمود الاسم اللي رأسه على اليمين) */
+.sch td{border-top:1px solid var(--line2);vertical-align:middle;text-align:center}
 .sch tbody tr:first-child td{border-top:0}
-.sch td.who{padding-inline-start:14px;position:sticky;inset-inline-start:0;background:var(--surface);z-index:1}
+.sch td.who{padding-inline-start:14px;position:sticky;inset-inline-start:0;background:var(--surface);z-index:1;text-align:start}
 .sch td.who b{display:block;font-weight:700;color:var(--ink);line-height:1.3}
 .sch td.who small{color:var(--ink3);font-size:11.5px}
 .sch tr.dirty td.who{box-shadow:inset 3px 0 var(--brand)}
