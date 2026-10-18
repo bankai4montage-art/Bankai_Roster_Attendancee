@@ -409,14 +409,14 @@ body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;transi
 .tbl tbody td{border-bottom-color:var(--line2)}
 .nav-item.active{background:rgba(255,255,255,.16);font-weight:800}
 :root[data-theme=dark] .btn.primary{border-color:var(--brand)}
-:root[data-theme=dark] .btn.primary:hover{border-color:#7aa3f5}
+:root[data-theme=dark] .btn.primary:hover{border-color:var(--brand-d)}
 :root[data-theme=dark] .btn:hover{background:var(--surf2);border-color:var(--line3)}
 :root[data-theme=dark] .inp::-webkit-calendar-picker-indicator{filter:invert(.85)}
-:root[data-theme=dark] .sidebar{border-inline-end:1px solid #14223b}
+:root[data-theme=dark] .sidebar{border-inline-end:1px solid var(--line)}
 :root[data-theme=dark] .login-card,:root[data-theme=dark] dialog.dlg{border:1px solid var(--line)}
 :root[data-theme=dark] .att-sticky{box-shadow:0 6px 8px -8px rgba(0,0,0,.6)}
 :root[data-theme=dark] .seg button:hover{background:var(--surf2)}
-:root[data-theme=dark] select option{background:#111e35;color:#eef3fc}
+:root[data-theme=dark] select option{background:var(--surf2);color:var(--ink)}
 /* theme switch */
 .theme-sw{position:relative;display:inline-flex;align-items:center;gap:0;width:68px;height:38px;padding:3px;cursor:pointer;flex:none}
 .theme-sw::before{content:"";position:absolute;inset-block:3px;inset-inline-start:3px;width:30px;border-radius:50%}
@@ -425,7 +425,7 @@ body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;transi
 .theme-sw svg{position:relative;z-index:1;width:30px;height:30px;padding:6px;flex:none;color:var(--ink3)}
 .theme-sw .sun{color:#fff}
 :root[data-theme=dark] .theme-sw .sun{color:var(--ink3)}
-:root[data-theme=dark] .theme-sw .moon{color:#06142e}
+:root[data-theme=dark] .theme-sw .moon{color:#150f2c}
 .theme-sw:hover{border-color:var(--brand)}
 .topbar-tools{display:flex;align-items:center}
 @media(max-width:860px){
@@ -692,8 +692,8 @@ html{-webkit-tap-highlight-color:transparent}
   transition:transform .7s var(--ease);
 }
 .btn.primary:hover:not([disabled])::after{transform:translateX(130%)}
-:root[data-theme=dark] .btn.primary{box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 6px 18px rgba(20,60,170,.45)}
-:root[data-theme=dark] .btn.primary:hover:not([disabled]){box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 10px 24px rgba(20,60,170,.55)}
+:root[data-theme=dark] .btn.primary{box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 6px 18px rgba(109,63,196,.5)}
+:root[data-theme=dark] .btn.primary:hover:not([disabled]){box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 10px 24px rgba(109,63,196,.6)}
 .btn.danger:hover:not([disabled]){border-color:var(--bad-line);color:var(--bad);box-shadow:0 6px 16px rgba(184,40,60,.14)}
 .link{transition:color .15s}
 .link:hover{text-decoration:none;color:var(--brand);background:linear-gradient(currentColor,currentColor) 0 100%/100% 1.5px no-repeat}
@@ -747,7 +747,7 @@ input[type=checkbox]:checked::before{transform:translateY(-1px) rotate(45deg) sc
 input[type=checkbox]:indeterminate::before{width:8px;height:0;border-width:0 0 2px 0;transform:scale(1)}
 input[type=checkbox]:focus-visible{outline:none}
 input[type=checkbox]:disabled{opacity:.5;cursor:not-allowed}
-:root[data-theme=dark] input[type=checkbox]:checked::before{border-color:#06142e}
+:root[data-theme=dark] input[type=checkbox]:checked::before{border-color:#150f2c}
 /* ---- segmented controls, chips, presets ---- */
 .seg-filter{height:44px;padding:3px;gap:2px;border-radius:13px;background:var(--surf2);border:1px solid var(--line);overflow:visible}
 .seg-filter button{height:100%;border:0!important;border-radius:10px;padding:0 15px;color:var(--ink3);transition:background .22s var(--ease),color .2s,box-shadow .25s var(--ease),transform .12s}
@@ -977,8 +977,10 @@ button.kpi{cursor:pointer}
 .chip .dot{width:9px;height:9px;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 0%,transparent)}
 .chip:hover{border-color:var(--line3)}
 .chip.on b{box-shadow:none}
-:root[data-theme=dark] .chip.on:has(.dot.bad){color:#2a0610}
-:root[data-theme=dark] .chip.on:has(.dot.info){color:#0c1a36}
+/* الشيب المفعّل في الغامق بياخد خلفية متشبّعة، فالنص لازم أبيض زي شيب «حاضر» */
+:root[data-theme=dark] .chip.on:has(.dot.bad){color:#fff}
+:root[data-theme=dark] .chip.on:has(.dot.info){color:#fff}
+:root[data-theme=dark] .att-sticky .seg-filter button.on small{color:rgba(255,255,255,.85)}
 :root[data-theme=dark] .chip.on:has(.dot) b{color:inherit}
 :root[data-theme=dark] .chip.on .dot{background:currentColor}
 /* date toolbar */
@@ -1200,7 +1202,8 @@ input[type=checkbox]:focus-visible{box-shadow:var(--ring)}
 .theme-sw::before{background:linear-gradient(135deg,#8b5cf6,#6d5df6)}
 /* ---- brand rail: violet aurora ---- */
 .topnav{background:linear-gradient(180deg,#1b1438,#241c52 58%,#2b2166);box-shadow:10px 0 30px rgba(88,58,168,.18)}
-:root[data-theme=dark] .topnav{background:linear-gradient(180deg,#151028,#1e1846)}
+/* الوضع الغامق: نفس هوية القضيب البنفسجي بتاع الفاتح، بس بدرجات أغمق */
+:root[data-theme=dark] .topnav{background:linear-gradient(180deg,#191036,#2a1a5e 56%,#3d2489)}
 .topnav .nav-search input{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14);color:#f4f1ff}
 .topnav .nav-search input::placeholder{color:#a99fd0}
 .topnav .tabs .nav-btn::before{background:linear-gradient(#c4b5fd,#8b5cf6)}
@@ -1211,7 +1214,7 @@ input[type=checkbox]:focus-visible{box-shadow:var(--ring)}
 .panel,.shcard,.br-card,.table-wrap,.alist,.att-tools,.att-sticky,.days-box,.dt{border-radius:var(--r-lg)}
 /* KPI seal: gradient icon chip */
 .kpi::before{background:linear-gradient(140deg,var(--c),color-mix(in srgb,var(--c) 55%,#000))}
-:root[data-theme=dark] .kpi::after{background:#101b30}
+:root[data-theme=dark] .kpi::after{background:#1b1338}
 /* tables: violet-tinted sticky header */
 /* aurora wash recolored violet */
 /* empty-state icon recolored */
@@ -1483,22 +1486,22 @@ svg.i{transition:transform var(--t-med) var(--spring)}
   --ink3:#9189ab;
   --head:#f6f3fd;
   --bg:#0f0b1c;
-  --surface:#191231;
-  --surf2:#211939;
-  --line:#2e2449;
-  --line2:#261e3d;
-  --line3:#3d3060;
+  --surface:#1a1338;
+  --surf2:#231c4a;
+  --line:#372c66;
+  --line2:#2d2456;
+  --line3:#4b3c88;
   --brand:#a78bfa;
   --brand-d:#c4b5fd;
-  --brand-bg:#2a1f4d;
-  --brand-line:#463578;
+  --brand-bg:#2c2159;
+  --brand-line:#52408f;
   --focus:#b79dfa;
   --accent:#8b5cf6;
   --accent-2:#a78bfa;
-  --nav-bg:#160f2c;
-  --side:#150e2b;
-  --side2:#241750;
-  --bar:#2a1f4d;
+  --nav-bg:#1a1038;
+  --side:#191036;
+  --side2:#2a1a5e;
+  --bar:#2c2159;
   --ok:#2fd6a4;
   --ok-d:#5ee9c0;
   --ok-bg:#0f3229;
@@ -1515,8 +1518,8 @@ svg.i{transition:transform var(--t-med) var(--spring)}
   --info-d:#c4b5fd;
   --info-bg:#291f4d;
   --slate:#8b83a6;
-  --none:#2e2449;
-  --off-bg:#221a3a;
+  --none:#372c66;
+  --off-bg:#241c4c;
   --off-fg:#a89fc4;
   --late-row:#241d10;
   --abs-row:#251218;
@@ -2294,3 +2297,62 @@ dialog::backdrop{background:color-mix(in srgb,#1c1633 55%,transparent);backdrop-
   }
   .arow.just-set::after{display:none}
 }
+/* ============================================================================
+   V21 — تنقية الوضع الغامق
+   ─────────────────────────────────────────────────────────────────────────
+   الوضع الغامق كان جواه بقايا هوية «أزرق-كحلي» من نسخة قديمة، وبعضها كان
+   بيغلب توكِنز V20 البنفسجية: القضيب الجانبي، لمعة كروت الملخص، وشيب الحالة
+   المفعّل. وكمان الفاتح بيعتمد على الظل الأبيض/الأسود عشان يفصل الكارت عن
+   الخلفية والزر عن الكارت — والظل الأسود مش بيبان على خلفية غامقة، فالعناصر
+   كانت بتختفي حدودها (زر «تصدير CSV» = نفس لون الكارت بالظبط).
+   اللي هنا:
+   1) الأسطح: لمعة علوية رفيعة (--sheen) + حدود أوضح = الكارت يبان كارت.
+   2) الأزرار والحبّات: سطح أفتح شوي + حد رفيع بدل الظل.
+   3) رأس الجدول: شريط أغمق عشان يبان إنه هيدر.
+   4) المرشّح المقسّم: بلوك أغمق من الكارت (مجرى) والزر المختار بنفسجي.
+   كل القواعد هنا متقيّدة بـ data-theme=dark — الوضع الفاتح مالمسناهوش.
+   ============================================================================ */
+/* ---------- 1. الأسطح: لمعة علوية بدل الظل الأسود ---------- */
+:root[data-theme=dark] .panel,
+:root[data-theme=dark] .shcard,
+:root[data-theme=dark] .br-card,
+:root[data-theme=dark] .table-wrap,
+:root[data-theme=dark] .alist,
+:root[data-theme=dark] .att-tools,
+:root[data-theme=dark] .att-sticky,
+:root[data-theme=dark] .days-box,
+:root[data-theme=dark] .dt,
+:root[data-theme=dark] .filters,
+:root[data-theme=dark] .off-box,
+:root[data-theme=dark] .empty,
+:root[data-theme=dark] .kpi{
+  box-shadow:var(--shadow),var(--sheen);
+}
+/* ---------- 2. الأزرار والحبّات: حد رفيع + سطح أفتح شوي ---------- */
+:root[data-theme=dark] .btn{background:var(--surf2);border:1.5px solid var(--line3)}
+:root[data-theme=dark] .btn.primary{border-color:var(--brand-line)}
+:root[data-theme=dark] .btn.ghost{background:var(--surface);border-color:transparent}
+:root[data-theme=dark] .chip{background:var(--surf2);border-color:var(--line3)}
+/* أزرار جوّه الجداول (إجراءات الصف) بتظهر عند الهوفر بس */
+:root[data-theme=dark] .row-actions .btn{background:transparent;border-color:transparent}
+:root[data-theme=dark] .tbl tbody tr:hover .row-actions .btn{background:var(--surface);border-color:var(--line3)}
+/* أزرار الأشرطة (الحفظ/التعديل الجماعي) خلفيتها بنفسجية غامقة أصلًا */
+:root[data-theme=dark] .save-bar .btn.primary{background:#fff;border-color:transparent}
+:root[data-theme=dark] .save-bar .btn.ghost,
+:root[data-theme=dark] .bulk-bar .btn{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.22)}
+/* ---------- 3. رأس الجدول: شريط أغمق من الصفوف ---------- */
+:root[data-theme=dark] .tbl th,
+:root[data-theme=dark] .mini-tbl th,
+:root[data-theme=dark] .simp-tbl th{
+  background:var(--surf2);
+  color:var(--ink2);
+  border-bottom-color:var(--line);
+}
+/* ---------- 4. المرشّح المقسّم: مجرى أغمق والزر المختار بنفسجي ---------- */
+:root[data-theme=dark] .seg-filter,
+:root[data-theme=dark] .att-sticky .seg-filter{background:color-mix(in srgb,var(--bg) 62%,var(--surface))}
+/* ---------- 5. هوفر صفوف الجداول: أفتح شوي عشان يبان ---------- */
+:root[data-theme=dark] .tbl tbody tr:hover td{background:color-mix(in srgb,var(--brand) 9%,var(--surface))}
+:root[data-theme=dark] .tbl tr.sel td{background:color-mix(in srgb,var(--brand) 15%,var(--surface))}
+:root[data-theme=dark] .mini-tbl tr[data-go]:hover td,
+:root[data-theme=dark] .mini-tbl tr[data-hist]:hover td{background:color-mix(in srgb,var(--brand) 9%,var(--surface))}

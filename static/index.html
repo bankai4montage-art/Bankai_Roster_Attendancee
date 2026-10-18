@@ -368,7 +368,14 @@
         <summary>التفصيل الشهري</summary>
         <div class="table-wrap"><table class="tbl"><thead><tr><th>الشهر</th><th>عدد الغرامات</th><th>تأخير</th><th>غياب</th><th>الإجمالي</th></tr></thead><tbody id="fineMonths"></tbody></table></div>
       </details>
-      <div class="page-head" style="margin-top:18px"><div><h3>سجل الغرامات</h3><p id="fineSub2"></p></div></div>
+      <div class="page-head" style="margin-top:18px">
+        <div><h3>سجل الغرامات</h3><p id="fineSub2"></p></div>
+        <div class="seg-filter" id="fineBranchSeg">
+          <button data-branch="" class="on">الكل <small>0</small></button>
+          <button data-branch="QCD 1">QCD 1 <small>0</small></button>
+          <button data-branch="QCD 2">QCD 2 <small>0</small></button>
+        </div>
+      </div>
       <div class="table-wrap">
         <table class="tbl">
           <thead><tr>

@@ -973,10 +973,23 @@ def _fines_rows(db, start=None, end=None, branch=None, status=None, q=None):
     return query.order_by(Attendance.attendance_date.desc(), Employee.name).all()
 
 
-def _fines_payload(rows):
-    """تجميع الغرامات: إجماليات الفرعين + تفصيل شهري + إجمالي كل موظف + السجل الكامل بالتفاصيل."""
+def _fines_payload(rows, branch_rows=None):
+    """تجميع الغرامات: إجماليات الفرعين + تفصيل شهري + إجمالي كل موظف + السجل الكامل بالتفاصيل.
+
+    branch_rows: صفوف إجماليات الفرعين لوحدها. لما الفلتر يكون على فرع واحد بنمرّر
+    هنا كل الصفوف بتاعة الفترة (من غير فلتر الفرع) عشان عدّادات مفتاح الفروع تفضل
+    شايفة الفرعين، بينما الباقي (الشهور/الموظفين/السجل/الإجماليات) بيفضل مخصوص بالفلتر."""
     by_branch = {b: {"branch": b, "count": 0, "total": 0.0, "late": 0, "absent": 0,
                      "late_total": 0.0, "absent_total": 0.0} for b in BRANCHES}
+    for a, e in (branch_rows if branch_rows is not None else rows):
+        fine = round(float(a.fine or 0), 2)
+        kind = "late" if a.status == "Late" else "absent"
+        b = by_branch.setdefault(e.branch, {"branch": e.branch, "count": 0, "total": 0.0, "late": 0, "absent": 0,
+                                            "late_total": 0.0, "absent_total": 0.0})
+        b["count"] += 1
+        b["total"] = round(b["total"] + fine, 2)
+        b[kind] += 1
+        b[kind + "_total"] = round(b[kind + "_total"] + fine, 2)
     by_month, by_employee, items = {}, {}, []
     total = late_total = absent_total = 0.0
     for a, e in rows:
@@ -986,12 +999,6 @@ def _fines_payload(rows):
         total += fine
         late_total += fine if late else 0.0
         absent_total += 0.0 if late else fine
-        b = by_branch.setdefault(e.branch, {"branch": e.branch, "count": 0, "total": 0.0, "late": 0, "absent": 0,
-                                            "late_total": 0.0, "absent_total": 0.0})
-        b["count"] += 1
-        b["total"] = round(b["total"] + fine, 2)
-        b[kind] += 1
-        b[kind + "_total"] = round(b[kind + "_total"] + fine, 2)
         mkey = a.attendance_date.strftime("%Y-%m")
         m = by_month.setdefault(mkey, {"month": mkey, "count": 0, "total": 0.0, "late": 0, "absent": 0,
                                        "late_total": 0.0, "absent_total": 0.0})
@@ -1033,7 +1040,11 @@ def list_fines(start: Optional[date] = None, end: Optional[date] = None, branch:
     """كل غرامات الفرعين (تأخير وغياب) بكل تفاصيلها: الموظف والفرع والشيفت والنوع واليوم والغرامة والسبب والملاحظة."""
     if start and end and end < start:
         raise HTTPException(400, "تاريخ النهاية يجب ألا يسبق تاريخ البداية")
-    payload = _fines_payload(_fines_rows(db, start, end, branch, status, q))
+    rows = _fines_rows(db, start, end, branch, status, q)
+    # عدّادات الفروع بتتحسب من غير فلتر الفرع، عشان مفتاح الفروع في الصفحة يفضل
+    # شايف الفرعين الاتنين وإنت واقف على فرع واحد
+    branch_rows = rows if branch not in BRANCHES else _fines_rows(db, start, end, None, status, q)
+    payload = _fines_payload(rows, branch_rows)
     return {"start": start.isoformat() if start else "", "end": end.isoformat() if end else "",
             "branch": branch if branch in BRANCHES else "", "status": status if status in STATUSES else "", **payload}
 

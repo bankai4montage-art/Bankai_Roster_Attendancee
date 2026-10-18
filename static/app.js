@@ -1055,6 +1055,11 @@ on("finePresets", "click", ev => { const b = ev.target.closest("button"); if (b)
 ["fineStart", "fineEnd"].forEach(id => on(id, "change", () => { S.fines.preset = ""; qsa("#finePresets button").forEach(b => b.classList.remove("on")); }));
 on("fineRun", "click", loadFines);
 on("fineBranch", "change", loadFines);
+on("fineBranchSeg", "click", ev => {
+  const b = ev.target.closest("button"); if (!b) return;
+  $("fineBranch").value = b.dataset.branch; /* المفتاح بيكتب على نفس الفلتر الأصلي عشان الاتنين يفضلوا متزامنين */
+  loadFines();
+});
 on("fineKind", "change", loadFines);
 on("fineSearch", "input", debounce(() => { S.fines.page = 1; renderFineRows(); }, 150));
 bindSort("#page-fines th.sort", "fsort", S.fines, renderFineRows);
@@ -1091,6 +1096,12 @@ function renderFines() {
   $("fineKpis").innerHTML = kp.map(([l, v, c, big]) =>
     `<div class="kpi ${c}"><span>${l}</span><strong class="${big ? "" : "num"}" style="font-size:${big ? 20 : 26}px">${v}</strong></div>`).join("");
   const picked = $("fineBranch").value;
+  /* مفتاح الفروع: نفس فلتر قائمة «الفرع» بالظبط، والعدّاد لكل فرع من by_branch */
+  const brCount = b => (d.by_branch.find(x => x.branch === b) || {}).count || 0;
+  qsa("#fineBranchSeg button").forEach(b => {
+    b.classList.toggle("on", b.dataset.branch === picked);
+    qs("small", b).textContent = b.dataset.branch ? brCount(b.dataset.branch) : d.by_branch.reduce((s, x) => s + x.count, 0);
+  });
   $("fineBranches").innerHTML = d.by_branch.filter(b => !picked || b.branch === picked).map(b => {
     const share = d.total ? Math.round(b.total * 100 / d.total) : 0;
     const seg = (cls, n, tip) => n ? `<i class="s-${cls}" style="width:${n * 100 / b.count}%" title="${tip}: ${n}"></i>` : "";
