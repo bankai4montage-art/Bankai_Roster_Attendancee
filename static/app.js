@@ -1417,50 +1417,55 @@ if (S.token) { showApp(); init(); }
     syncNav();
   }
 
-  /* ---------- 2. العدّاد التصاعدي ---------- */
+  /* ---------- 2. قراءة الأرقام ----------
+     العدّاد التصاعدي (countUp) اتشال: كان بيعمل reset للأرقام على صفر وبياخد
+     700ms لحد ما توصل للقيمة الحقيقية، ودي كانت أكبر حاجة بتخلّي الصفحة
+     حاسّة إنها «لسه بتتحمّل» حتى بعد ما الداتا تكون وصلت. الأرقام بقت تظهر
+     بقيمتها النهائية فورًا، والحركة بقت في دخول الكارت نفسه. */
   function numeric(el) {
     var t = ((el && el.textContent) || "").trim();
     return /^\d{1,7}$/.test(t) ? parseInt(t, 10) : NaN;
   }
-  function countUp(el, to, dur) {
-    if (!el || RM() || !(to > 0)) return;
-    var t0 = performance.now(), d = dur || 780;
-    el.textContent = "0";
-    (function step(now) {
-      var p = Math.min(1, (now - t0) / d), e = 1 - Math.pow(1 - p, 3);
-      el.textContent = String(Math.round(to * e));
-      if (p < 1) requestAnimationFrame(step); else el.textContent = String(to);
-    })(performance.now());
-  }
 
   /* ---------- 3. دخول العناصر بتتابع ---------- */
+  var RISE = "fdsRise .38s var(--fds-out) both";   /* حركة + شفافية (للكروت والحاويات) */
+  var FADE = "fdsFade .26s var(--fds-out) both";   /* شفافية بس (لصفوف الجداول) */
   var enter = null, enterT = 0;
   function markEnter(p) {
     enter = p;
     clearTimeout(enterT);
-    enterT = setTimeout(function () { enter = null; }, 2600);
+    enterT = setTimeout(function () { enter = null; }, 1600);
   }
-  function stagger(sel, step, base, max) {
+  /* الأداء: بنكتب animation:none على كل العناصر وبعدين بنقرأ offsetWidth مرة
+     واحدة بس، عشان المتصفح يعمل layout واحد. قبل كده كان في قراءة جوه اللوب
+     (forced reflow لكل عنصر) — 40 صف = 40 layout ورا بعض على الـ main thread.
+     وكمان فيه «سقف» للـ delay (cap) عشان الأعمدة الطويلة متبقاش بتاخد ثواني:
+     الصف الـ100 مش بيستنى 100 خطوة. */
+  function stagger(sel, step, base, max, anim, cap) {
     if (RM() || document.visibilityState !== "visible") return;
     var els = typeof sel === "string" ? qsa(sel) : sel;
-    els.slice(0, max || 30).forEach(function (el, i) {
-      el.style.animation = "none";
-      void el.offsetWidth;
-      el.style.animation = "fdsRise .46s var(--fds-out) both " + ((base || 0) + i * (step || 38)) + "ms";
+    if (max && els.length > max) els = els.slice(0, max);
+    if (!els.length) return;
+    var a = anim || RISE, lim = cap || 200;
+    els.forEach(function (el) { el.style.animation = "none"; });
+    void els[0].offsetWidth;
+    els.forEach(function (el, i) {
+      var d = Math.min(lim, (base || 0) + i * (step || 22));
+      el.style.animation = a + " " + d + "ms";
     });
   }
   function enterPage(p) {
     if (RM() || document.visibilityState !== "visible") return;
     var root = qs("#page-" + p);
     if (!root) return;
+    /* الحاويات الفاضية بتتسيب من غير حركة: هي دي اللي هتتملي بالداتا بعد شوية،
+       فلو حرّكناها هنا بيبقى في حركتين فوق بعض (الحاوية بتطلع والصفوف جواها
+       بتتحرك في نفس اللحظة) — وده اللي كان شكله مش نضيف. الصفوف بتتحرك لوحدها. */
     var kids = qsa(":scope > *", root).filter(function (el) {
-      return !el.classList.contains("save-bar") && !el.classList.contains("hidden") && !el.classList.contains("print-only");
+      if (el.classList.contains("save-bar") || el.classList.contains("hidden") || el.classList.contains("print-only")) return false;
+      return el.textContent.trim().length > 0;
     });
-    kids.forEach(function (el, i) {
-      el.style.animation = "none";
-      void el.offsetWidth;
-      el.style.animation = "fdsRise .5s var(--fds-out) both " + (i * 42) + "ms";
-    });
+    stagger(kids, 20, 0, 8, RISE, 110);
   }
   function growBars(sel) {
     if (RM()) return;
@@ -1475,7 +1480,11 @@ if (S.token) { showApp(); init(); }
 
   /* ---------- 4. لقطة الصفحة عند التبديل ---------- */
   var _showPage = window.showPage;
+  var bootSkel = qs("#bootSkel");
   window.showPage = function (p) {
+    /* أول صفحة حقيقية بتتشال معاها شاشة التحميل — قبلها المستخدم كان بيقعد
+       قدام منطقة فاضية لحد ما /api/me و/api/employees يرجعوا. */
+    if (bootSkel && bootSkel.parentNode) { bootSkel.parentNode.removeChild(bootSkel); bootSkel = null; }
     _showPage(p);
     markEnter(p);
     requestAnimationFrame(function () { syncNav(); enterPage(p); });
@@ -1487,6 +1496,7 @@ if (S.token) { showApp(); init(); }
     _dash(d);
     var host = qs("#dashKpis"); if (!host) return;
     host.setAttribute("aria-busy", "false");
+    host.style.animation = "none"; /* نشيل حركة الحاوية عشان حركة الكروت لوحدها تبان */
     qsa(".kpi", host).forEach(function (card) {
       var kv = qs(".kv", card); if (!kv) return;
       var p = (card.style.getPropertyValue("--p") || "").trim() || "0";
@@ -1495,7 +1505,7 @@ if (S.token) { showApp(); init(); }
       f.innerHTML = '<span class="kpi-bar"><i style="width:' + p + '%"></i></span><span class="kpi-pct">' + p + "%</span>";
       kv.classList.toggle("is-zero", numeric(kv) === 0 || isNaN(numeric(kv)));
     });
-    if (enter === "dashboard") { enter = null; stagger("#dashKpis .kpi", 40, 0, 6); }
+    if (enter === "dashboard") { enter = null; stagger("#dashKpis .kpi", 26, 0, 6, RISE, 130); }
   };
 
   /* ---------- 6. التقارير ---------- */
@@ -1503,12 +1513,12 @@ if (S.token) { showApp(); init(); }
   window.renderReport = function () {
     _rep.apply(null, arguments);
     var rh = qs("#repKpis"); if (rh) rh.setAttribute("aria-busy", "false");
-    qsa("#repKpis .kpi > strong").forEach(function (el) { countUp(el, numeric(el), 360); });
+    if (rh) rh.style.animation = "none";
     if (enter === "reports") {
       enter = null;
-      stagger("#repKpis .kpi", 40, 0, 6);
-      stagger("#repDays tr", 22, 130, 14);
-      stagger("#repRows tr", 24, 220, 30);
+      stagger("#repKpis .kpi", 26, 0, 6, RISE, 130);
+      stagger("#repDays tr", 10, 30, 14, FADE, 90);
+      stagger("#repRows tr", 9, 40, 26, FADE, 150);
     }
   };
 
@@ -1518,7 +1528,7 @@ if (S.token) { showApp(); init(); }
     _att.apply(null, arguments);
     if (enter === "attendance") {
       enter = null;
-      stagger("#attList .arow", 26, 90, 40);
+      stagger("#attList .arow", 9, 30, 30, FADE, 150);
       growBars("#attList .ghead .stack i");
     }
   };
@@ -1527,7 +1537,7 @@ if (S.token) { showApp(); init(); }
   var _emp = window.renderEmployees;
   window.renderEmployees = function () {
     _emp.apply(null, arguments);
-    if (enter === "employees") { enter = null; stagger("#empRows tr", 26, 60, 30); }
+    if (enter === "employees") { enter = null; stagger("#empRows tr", 9, 20, 26, FADE, 140); }
   };
 
   /* ---------- 9. الجدول ---------- */
@@ -1536,8 +1546,8 @@ if (S.token) { showApp(); init(); }
     _sch.apply(null, arguments);
     if (enter === "schedule") {
       enter = null;
-      stagger("#schTotals .dt", 40, 40, 8);
-      stagger("#schShifts .shcard", 70, 120, 6);
+      stagger("#schTotals .dt", 22, 20, 8, RISE, 90);
+      stagger("#schShifts .shcard", 40, 40, 6, RISE, 140);
     }
   };
 

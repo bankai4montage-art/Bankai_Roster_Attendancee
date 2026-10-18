@@ -2113,7 +2113,7 @@ textarea.inp{border-radius:14px}
 .trend .cur small{background:var(--brand-bg);color:var(--brand);border-radius:999px;padding:2px 9px;font-weight:800}
 .trend .cur .col{box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 14%,transparent),0 10px 22px -10px rgba(75,29,143,.5)}
 .live-tag{background:var(--ok-bg);color:var(--ok-d);border-radius:999px;font-weight:800;box-shadow:none}
-.live-tag i{background:var(--ok);animation:fdsFloat 1.7s ease-in-out infinite}
+.live-tag i{background:var(--ok)}
 .feed-row{border-radius:14px;padding:11px 12px;margin:0 -12px;border-bottom:0;transition:background-color .17s}
 .feed-row:hover{background:var(--brand-bg)}
 .feed-row .who b{font-size:13.5px;color:var(--head)}
@@ -2435,4 +2435,53 @@ dialog::backdrop{background:color-mix(in srgb,#1c1633 55%,transparent);backdrop-
   .kpis .kpi .kv{font-size:26px}
   .kpi-pct{font-size:10.5px;padding:2px 7px}
 }
+
+
+/* ============================================================================
+   V19.3 — إصلاح الحركة وتحميل الصفحة
+   أربع مشاكل كانت بتخلي الإحساس بالتحميل تقيل:
+
+   1) .route-bar كان عليه animation شغّال «infinite» من أول ما الصفحة تفتح،
+      حتى وهو مخفي (opacity:0). أنيميشن على background-position معناها
+      المتصفح بيعيد الرسم للأبد — يعني استهلاك مستمر على الفاضي.
+      الحل: مفيش أنيميشن وهو مقفول، وبيشتغل بس وقت التحميل (.on).
+
+   2) دخول الصفحة كان فيه موجتين مش متزامنتين: موجة للحاويات من enterPage
+      وموجة تانية للصفوف من دوال العرض، وكل موجة ليها delay كبير — فوصلنا
+      لـ 1.7 ثانية لحد ما كل حاجة تستقر. دلوقتي فيه سقف للـ delay
+      (cap) ومدد أقصر وإيقاع واحد.
+
+   3) صفحة التحميل الأولى (لحد ما /api/me + /api/employees يرجعوا) كانت
+      فراغ أبيض. بقى فيه هيكل تحميل (skeleton) بشكل الصفحة نفسها.
+   ============================================================================ */
+
+/* ---------- 1. شريط التحميل العلوي: حركة بس وقت التحميل ---------- */
+.route-bar{animation:none}
+.route-bar.on{animation:routeRun 1.1s linear infinite}
+
+/* ---------- 2. فتح الصفحة: أسرع (كان .45s) ---------- */
+.page:not(.hidden){animation:pageIn .26s var(--fds-out) both}
+
+/* ---------- 3. شريط النسبة في الملخص: أقصر (كان .9s) ---------- */
+.kpi-bar i{animation:fdsBar .55s var(--fds-out) both}
+
+/* ---------- 4. هيكل التحميل الأول ---------- */
+.boot-skel{padding-top:2px}
+.boot-skel .bs-line,.boot-skel .bs-card,.boot-skel .bs-panel{
+  position:relative;overflow:hidden;border:1px solid var(--line);
+  background:var(--surface);border-radius:18px;
+}
+.boot-skel .bs-line{height:15px;width:170px;border-radius:8px;margin-bottom:20px}
+.boot-skel .bs-row{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-bottom:18px}
+.boot-skel .bs-card{height:104px}
+.boot-skel .bs-panel{height:236px;margin-bottom:16px}
+.boot-skel .bs-line::after,.boot-skel .bs-card::after,.boot-skel .bs-panel::after{
+  content:"";position:absolute;inset:0;border-radius:inherit;
+  background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--brand) 9%,transparent),transparent);
+  animation:skelSweep 1.25s ease-in-out infinite;
+}
+@keyframes skelSweep{0%{transform:translateX(70%);opacity:0}35%{opacity:.9}100%{transform:translateX(-70%);opacity:0}}
+@media(max-width:1180px){ .boot-skel .bs-row{grid-template-columns:repeat(3,minmax(0,1fr))} }
+@media(max-width:600px){ .boot-skel .bs-row{grid-template-columns:repeat(2,minmax(0,1fr))} .boot-skel .bs-card{height:86px} .boot-skel .bs-panel{height:190px} }
+@media(prefers-reduced-motion:reduce){ .boot-skel .bs-line::after,.boot-skel .bs-card::after,.boot-skel .bs-panel::after{animation:none} }
 
