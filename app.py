@@ -270,6 +270,10 @@ class AttendanceBulkIn(BaseModel):
     items: List[AttendanceItem]
 
 
+class MoveBranchIn(BaseModel):
+    branch: str
+
+
 class BulkEmployeesIn(BaseModel):
     ids: List[int]
     action: str  # activate | deactivate | update
@@ -506,6 +510,26 @@ def update_employee(employee_id: int, data: EmployeeIn, _: bool = Depends(requir
     db.commit()
     db.refresh(e)
     return employee_dict(e)
+
+
+@app.post("/api/employees/{employee_id}/move")
+def move_employee_branch(employee_id: int, data: MoveBranchIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+    """نقل موظف لفرع آخر مع الحفاظ على كل بياناته: الشيفت، يوم الإجازة، البريك،
+    نوع التعاقد، والبريك المثبّت. الفرع هو الحاجة الوحيدة اللي بتتغيّر، وسجل الحضور
+    والغرامات بيفضل محفوظ زي ما هو."""
+    e = db.query(Employee).filter(Employee.id == employee_id).first()
+    if not e:
+        raise HTTPException(404, "الموظف غير موجود")
+    if data.branch not in BRANCHES:
+        raise HTTPException(400, "الفرع غير صحيح")
+    old_branch = e.branch
+    if data.branch == old_branch:
+        raise HTTPException(400, "الموظف في الفرع ده بالفعل")
+    e.branch = data.branch
+    db.commit()
+    db.refresh(e)
+    return {"employee": employee_dict(e), "from": old_branch,
+            "message": f"تم نقل {e.name} من {old_branch} إلى {e.branch} بنفس الشيفت والإجازة"}
 
 
 @app.delete("/api/employees/{employee_id}")

@@ -750,7 +750,7 @@ function renderEmployees() {
     const adminActs = isAdmin() ? `<button class="btn sm" data-edit="${e.id}">تعديل</button>${e.active ? `<button class="btn sm danger" data-deact="${e.id}">إيقاف</button>` : `<button class="btn sm" data-act="${e.id}">تفعيل</button>`}` : "";
     return `<tr class="${sel ? "sel" : ""}" data-id="${e.id}"><td class="c"><input type="checkbox" data-sel ${sel ? "checked" : ""} aria-label="تحديد ${esc(e.name)}"></td>
       <td class="who">${whoHTML(e.name, `<button class="link" data-hist="${e.id}">${esc(e.name)}</button><small>${esc(e.employee_code || "بدون كود")}</small>`)}</td>
-      <td>${esc(e.branch)}</td><td>${sh(e.shift)}</td>
+      <td class="br">${esc(e.branch)}${isAdmin() ? ` <button class="link br-mv" data-move="${e.id}" title="نقل لفرع ${esc(otherBranchOf(e.branch))} — بنفس الشيفت ويوم الإجازة والبريك" aria-label="نقل ${esc(e.name)} لفرع ${esc(otherBranchOf(e.branch))}">نقل</button>` : ""}</td><td>${sh(e.shift)}</td>
       <td><span class="tag ${e.employment_type === "FT" ? "brand" : ""}">${e.employment_type === "FT" ? "Full Time" : "Part Time"}</span></td>
       <td>${WD_AR[e.day_off] || e.day_off}</td>
       <td>${e.phone ? `<a class="num" href="tel:${esc(e.phone)}">${esc(e.phone)}</a>` : `<span class="muted">—</span>`}</td>
@@ -788,6 +788,8 @@ on("empCheckAll", "change", ev => {
 });
 on("empRows", "click", async ev => {
   const ed = ev.target.closest("[data-edit]"); if (ed) { openEmpDialog(+ed.dataset.edit); return; }
+  const mv = ev.target.closest("[data-move]");
+  if (mv) { const e = S.employees.find(x => x.id === +mv.dataset.move); if (e) await moveEmployeeBranch(e.id, otherBranchOf(e.branch)); return; }
   const de = ev.target.closest("[data-deact]");
   if (de) { if (confirm("سيتم إيقاف الموظف مع الاحتفاظ بسجل حضوره السابق. هل تريد المتابعة؟")) bulkAction([+de.dataset.deact], "deactivate"); return; }
   const ac = ev.target.closest("[data-act]"); if (ac) bulkAction([+ac.dataset.act], "activate");
@@ -801,6 +803,26 @@ async function bulkAction(ids, action, extra = {}) {
     return true;
   } catch (e) { toast(e.message, "err"); return false; }
 }
+
+/* ========================== نقل موظف لفرع آخر ==========================
+   الفرع هو الحاجة الوحيدة اللي بتتغيّر: الشيفت، يوم الإجازة، البريك، نوع التعاقد،
+   والبريك المثبّت كلهم بيفضلوا زي ما هما، وسجل الحضور والغرامات بيفضل محفوظ. */
+const otherBranchOf = b => (b === "QCD 1" ? "QCD 2" : "QCD 1");
+
+async function moveEmployeeBranch(id, to) {
+  const e = S.employees.find(x => x.id === id) || S.sch.base.get(id) || null;
+  const name = e ? e.name : "الموظف";
+  if (S.sch.draft && S.sch.draft.size) { toast("فيه تعديلات في الجدول لسه مش محفوظة — احفظها الأول وبعدين انقل الموظف.", "err"); return false; }
+  if (!confirm(`نقل «${name}» من ${e ? e.branch : ""} إلى ${to}؟\n\nهيتنقل بنفس الشيفت ويوم الإجازة والبريك ونوع التعاقد، وسجل الحضور والغرامات بتاعه هيفضل محفوظ.`)) return false;
+  try {
+    await api(`/api/employees/${id}/move`, { method: "POST", body: { branch: to } });
+    toast(`تم نقل ${name} إلى ${to} بنفس الشيفت والإجازة.`, "ok");
+    await refreshEmployees();
+    if (S.sch.data && S.page === "schedule") await loadSchedule(true);
+    return true;
+  } catch (err) { toast(err.message, "err"); return false; }
+}
+
 on("empBulkClear", "click", () => { S.emp.selected.clear(); renderEmployees(); });
 on("empBulkActivate", "click", () => bulkAction([...S.emp.selected], "activate"));
 on("empBulkDeactivate", "click", () => { if (confirm(`إيقاف ${S.emp.selected.size} موظف؟ سجل حضورهم السابق هيفضل محفوظ.`)) bulkAction([...S.emp.selected], "deactivate"); });
@@ -1206,13 +1228,15 @@ function schRow(e, all) {
       <td>${e.break_start ? `<span class="num">${fmt12hm(e.break_start)}</span>` : `<span class="muted">—</span>`}</td>
       <td class="acts no-print"></td></tr>`;
   }
-  const moves = all.filter(s => s !== e.shift).map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+  const movedTo = otherBranchOf(e.branch);
+  const moves = all.filter(s => s !== e.shift).map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("")
+    + `<option value="branch:${esc(movedTo)}">نقل لفرع ${esc(movedTo)}</option>`;
   return `<tr data-id="${e.id}" class="${S.sch.draft.has(e.id) ? "dirty" : ""}">
     <td class="who">${whoHTML(e.name, `<b>${esc(e.name)}</b><small>${esc(e.employee_code || "")}</small>`)}</td>
     <td class="c"><span class="tag ${e.employment_type === "FT" ? "brand" : ""}">${e.employment_type}</span></td>
     <td><select class="sel f-off${dirty.day_off ? " chg" : ""}" aria-label="يوم الإجازة">${WEEKDAYS.map(d => `<option value="${d}" ${d === e.day_off ? "selected" : ""}>${WD_AR[d]}</option>`).join("")}</select></td>
     <td><select class="sel f-bs${"break_start" in dirty ? " chg" : ""}" aria-label="ساعة البريك">${schBreakOptions(e.shift, e.break_start || "")}</select></td>
-    <td class="acts no-print"><button type="button" class="btn sm icon pin${e.off_locked ? " on" : ""}" data-pin title="${e.off_locked ? "يوم الإجازة مثبّت (التوزيع التلقائي مش هيغيّره). اضغط للإلغاء" : "ثبّت يوم الإجازة عشان التوزيع التلقائي ما يغيّروش"}" aria-pressed="${!!e.off_locked}"><svg class="i"><use href="#i-pin"/></svg></button><select class="sel tiny f-mv" aria-label="نقل لشيفت آخر"><option value="">نقل…</option>${moves}</select><button type="button" class="btn sm icon danger" data-del title="إزالة من الجدول" aria-label="إزالة ${esc(e.name)}"><svg class="i"><use href="#i-x"/></svg></button></td></tr>`;
+    <td class="acts no-print"><button type="button" class="btn sm icon pin${e.off_locked ? " on" : ""}" data-pin title="${e.off_locked ? "يوم الإجازة مثبّت (التوزيع التلقائي مش هيغيّره). اضغط للإلغاء" : "ثبّت يوم الإجازة عشان التوزيع التلقائي ما يغيّروش"}" aria-pressed="${!!e.off_locked}"><svg class="i"><use href="#i-pin"/></svg></button><select class="sel tiny f-mv" aria-label="نقل لشيفت آخر أو لفرع تاني"><option value="">نقل…</option>${moves}</select><button type="button" class="btn sm icon danger" data-del title="إزالة من الجدول" aria-label="إزالة ${esc(e.name)}"><svg class="i"><use href="#i-x"/></svg></button></td></tr>`;
 }
 function schHead(name, list) {
   const sp = schSpread(list);
@@ -1433,7 +1457,10 @@ on("schShifts", "change", ev => {
   if (t.classList.contains("f-off")) { schSet(id, { day_off: t.value, off_locked: true }); schRefreshShift(name); }
   else if (t.classList.contains("f-bs")) { schSet(id, { break_start: t.value, break_min: Number(S.sch.base.get(id).break_min) || 60 }); schRefreshShift(name); }
   else if (t.classList.contains("f-bm")) { schSet(id, { break_min: Number(t.value) }); schRefreshShift(name); }
-  else if (t.classList.contains("f-mv") && t.value) { schSet(id, { shift: t.value }); renderSchedule(); }
+  else if (t.classList.contains("f-mv") && t.value) {
+    if (t.value.startsWith("branch:")) { const to = t.value.slice(7); t.value = ""; moveEmployeeBranch(id, to); }
+    else { schSet(id, { shift: t.value }); renderSchedule(); }
+  }
   updateSchSaveBar();
 });
 on("schShifts", "keydown", ev => {
