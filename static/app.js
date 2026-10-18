@@ -269,8 +269,15 @@ function showPage(p) {
     window.bkVtActive = true;
     const my = ++vtToken;
     const off = () => { if (vtToken === my) window.bkVtActive = false; };
+    /* لقطة الصفحة الجديدة بتتاخد لحظة ما الـ update callback يخلص. لو ده حصل
+       قبل ما الداتا توصل، المستخدم بيشوف إطار الصفحة فاضي وبعدين الداتا تنطّ
+       عليه — إحساس إن الصفحة حمّلت مرتين. هنا بنستنى أول رندر للصفحة (بسقف
+       زمني قصير من طبقة الحركة) وبعدها بس نبدأ الانتقال، فالصفحة تظهر مكمّلة
+       في حركة واحدة. */
+    const wait = window.bkVtWait ? window.bkVtWait(p) : null;
+    const upd = wait ? async () => { swap(); await wait; } : swap;
     try {
-      const t = document.startViewTransition(swap);
+      const t = document.startViewTransition(upd);
       /* كل وعود الانتقال (ready/updateCallbackDone/finished) ممنوع تسيبها
          من غير معالج: لو الانتقال اتلغى (تبديل سريع ورا بعض، أو تاب اتخفي)
          الرفض بيطلع في الكونسول كـ unhandled rejection. */
@@ -1488,6 +1495,34 @@ if (S.token) { showApp(); init(); }
      وهي تحت اللقطة الحركة بتتحرق وما حدش بيشوفها. */
   function vtRun() { return !!window.bkVtActive; }
 
+  /* ---------- استنى أول رندر للصفحة قبل ما نبدأ الانتقال ----------
+     الانتقال بيصوّر الصفحة الجديدة لحظة بدايته؛ لو الداتا لسه جاية بعده،
+     المستخدم بيشوف إطار فاضي وبعدين الصفوف تنطّ — وده اللي بيدّي إحساس إن
+     الصفحة بتحمّل مرتين. الطريقة هنا: showPage بتنده bkVtWait *قبل* ما تبدأ
+     طلب الداتا، وwrapper العرض بتاع الصفحة بينده bkVtDataReady لما أول رندر
+     يخلص، وساعتها بس الانتقال بيتصوّر. فيه سقف زمني بسيط عشان لو الشبكة
+     اتأخرت نبدأ الانتقال زي الأول وما نعلّقش التبديل. */
+  var vtWait = null, vtWaitPage = "";
+  function vtRelease() {
+    if (!vtWait) return;
+    clearTimeout(vtWait.t);
+    var r = vtWait.res;
+    vtWait = null; vtWaitPage = "";
+    r();
+  }
+  window.bkVtWait = function (p) {
+    if (vtWait) vtRelease(); /* تبديل سريع ورا بعض: حرّر الانتقال اللي قبله */
+    var o = { t: 0, res: null };
+    var pr = new Promise(function (res) { o.res = res; });
+    vtWait = o; vtWaitPage = p;
+    o.t = setTimeout(function () { if (vtWait === o) vtRelease(); }, 380);
+    return pr;
+  };
+  window.bkVtDataReady = function (p) {
+    if (!vtWait || (p && vtWaitPage && p !== vtWaitPage)) return;
+    vtRelease();
+  };
+
   /* ---------- 1. مؤشّر التنقّل المنزلق في الشريط الجانبي ---------- */
   var nav = qs(".topnav .tabs"), ind = qs("#navInd");
   var navShown = false, navBusy = false;
@@ -1586,6 +1621,13 @@ if (S.token) { showApp(); init(); }
       setTimeout(restore, 140); /* أمان: rAF مابيشتغلش في تاب مخفي */
     });
   }
+  /* بارات النسبة في كروت الملخص عندها أنيميشن نمو من الـ CSS. وقت انتقال الصفحات
+     الداتا بتوصل قبل لقطة الانتقال، فالنمو بيكمل بعد ما الانتقال يخلص ويبان
+     كأن الصفحة بتحمّل تاني — بنقفله والبارات تظهر مليانة على طول. */
+  function noBarGrow(host) {
+    if (!vtRun() || !host) return;
+    qsa(".kpi-bar i", host).forEach(function (b) { b.style.animation = "none"; });
+  }
 
   /* ---------- 4. هيكل التحميل الأول + لقطة الصفحة عند التبديل ----------
      الهيكل مابيتشالش أول ما صفحة البوت تفتح — بيفضل شغال لحد ما أول داتا
@@ -1609,6 +1651,7 @@ if (S.token) { showApp(); init(); }
   }
   function syncNavNow() { requestAnimationFrame(syncNav); }
   window.showPage = function (p) {
+    var ranVt = false;
     if (bootSkel && bootSkel.parentNode) {
       bootPage = p;
       bootT = setTimeout(function () { revealBoot(bootPage); }, 2500); /* أمان: كشف الصفحة لو الداتا اتأخرت جدًا */
@@ -1621,10 +1664,19 @@ if (S.token) { showApp(); init(); }
         return;
       }
       /* صفحة بتترندر فورًا (employees/settings) — الهيكل اتشال من جوه _showPage على طول */
-    } else { _showPage(p); markEnter(p); }
-    /* لو فيه انتقال صفحات (View Transition) شغال، بنأجّل دخول العناصر لحد ما
-       يخلص بدل ما يتحرق تحت لقطة الانتقال ويتشال بدون ما حد يشوفه. */
-    var done = function () { if (!bootPage) enterPage(p); syncNav(); };
+    } else {
+      _showPage(p);
+      /* لو فيه انتقال صفحات (View Transition) بدأ في النداء ده، لقطة الانتقال
+         نفسها هي حركة الدخول: الصفحة وصلت وهي بتتبدّل. فلو حرّكنا كمان الصفحة
+         وصفوفها بعد ما الانتقال يخلص، المستخدم بيشوف حركتين ورا بعض على نفس
+         المحتوى — وده اللي بيحسّ إن الصفحة بتحمّل مرتين. عشان كده بنقفل دخول
+         العناصر خالص ساعتها، والصفوف بتظهر جاهزة مع اللقطة (المحتوى وصل، خلاص
+         مافيش داعي ندوّر عليه تاني). */
+      ranVt = !!window.bkVtActive;
+      if (ranVt) enter = null; else markEnter(p);
+    }
+    /* لو فيه انتقال صفحات شغال، بنأجّل دخول العناصر لحد ما يخلص بدل ما يتحرق تحت لقطة الانتقال ويتشال بدون ما حد يشوفه. */
+    var done = function () { if (!bootPage && !ranVt) enterPage(p); syncNav(); };
     if (window.bankaiAfterSwap) window.bankaiAfterSwap(done); else requestAnimationFrame(done);
   };
 
@@ -1634,7 +1686,8 @@ if (S.token) { showApp(); init(); }
     _dash(d);
     decorate("#page-dashboard");
     var boot = bootPage === "dashboard" && revealBoot("dashboard"); /* أول داتا وصلت — نبدّل الهيكل بالصفحة الحقيقية */
-    var host = qs("#dashKpis"); if (!host) return;
+    var host = qs("#dashKpis");
+    if (!host) { window.bkVtDataReady("dashboard"); return; }
     host.setAttribute("aria-busy", "false");
     host.style.animation = "none"; /* نشيل حركة الحاوية عشان حركة الكروت لوحدها تبان */
     qsa(".kpi", host).forEach(function (card) {
@@ -1645,7 +1698,9 @@ if (S.token) { showApp(); init(); }
       f.innerHTML = '<span class="kpi-bar"><i style="width:' + p + '%"></i></span><span class="kpi-pct">' + p + "%</span>";
       kv.classList.toggle("is-zero", numeric(kv) === 0 || isNaN(numeric(kv)));
     });
+    noBarGrow(host);
     if (!vtRun() && (boot || enter === "dashboard")) { enter = null; stagger("#dashKpis .kpi", 26, 0, 6, RISE, 130); }
+    window.bkVtDataReady("dashboard"); /* لو فيه انتقال مستني الداتا، ابدأه دلوقتي */
   };
 
   /* ---------- 6. التقارير ---------- */
@@ -1656,12 +1711,14 @@ if (S.token) { showApp(); init(); }
     var boot = bootPage === "reports" && revealBoot("reports");
     var rh = qs("#repKpis"); if (rh) rh.setAttribute("aria-busy", "false");
     if (rh) rh.style.animation = "none";
+    noBarGrow(rh);
     if (!vtRun() && (boot || enter === "reports")) {
       enter = null;
       stagger("#repKpis .kpi", 26, 0, 6, RISE, 130);
       stagger("#repDays tr", 10, 30, 14, FADE, 90);
       stagger("#repRows tr", 9, 40, 26, FADE, 150);
     }
+    window.bkVtDataReady("reports");
   };
 
   /* ---------- 7. الحضور اليومي ---------- */
@@ -1675,6 +1732,7 @@ if (S.token) { showApp(); init(); }
       stagger("#attList .arow", 9, 30, 30, FADE, 150);
       growBars("#attList .ghead .stack i");
     }
+    window.bkVtDataReady("attendance");
   };
 
   /* ---------- 8. الموظفون ---------- */
@@ -1684,6 +1742,7 @@ if (S.token) { showApp(); init(); }
     decorate("#page-employees");
     if (bootPage === "employees" && revealBoot("employees")) { enter = null; if (!vtRun()) stagger("#empRows tr", 9, 20, 26, FADE, 140); }
     else if (enter === "employees") { enter = null; if (!vtRun()) stagger("#empRows tr", 9, 20, 26, FADE, 140); }
+    window.bkVtDataReady("employees");
   };
 
   /* ---------- 9. الجدول ---------- */
@@ -1697,6 +1756,7 @@ if (S.token) { showApp(); init(); }
       stagger("#schTotals .dt", 22, 20, 8, RISE, 90);
       stagger("#schShifts .shcard", 40, 40, 6, RISE, 140);
     }
+    window.bkVtDataReady("schedule");
   };
   /* صفحة الإعدادات مالهاش render wrapper — أول رد من /api/settings بيكمّل هيكل التحميل */
   var _ls = window.loadSettings;
@@ -1705,7 +1765,8 @@ if (S.token) { showApp(); init(); }
     if (pr && pr.then) pr.then(function () {
       decorate("#page-settings");
       if (bootPage === "settings") revealBoot("settings");
-    }).catch(function () { });
+      window.bkVtDataReady("settings");
+    }).catch(function () { window.bkVtDataReady("settings"); });
     return pr;
   };
 

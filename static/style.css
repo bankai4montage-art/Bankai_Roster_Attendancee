@@ -2253,6 +2253,10 @@ dialog::backdrop{background:color-mix(in srgb,#1c1633 55%,transparent);backdrop-
       فالانتقال بقى كروس-فيد ناعم بإزاحة خفيفة بدل القطعة الجافة. الشل الثابت
       (شريط التنقّل + عنوان الصفحة) بيتجمّد مكانه عشان مايترعشش مع كل تبديل —
       المحتوى هو اللي بيتغيّر، والهيكل بيفضل ثابت.
+      حركة الصفحة بقت «حركة واحدة»: الانتقال نفسه هو حركة الدخول، وطبقة الحركة
+      بتقفل دخول العناصر (enterPage + staggers) وقت الانتقال، فمفيش حركتين ورا
+      بعض على نفس المحتوى. وكمان الانتقال بيستنى أول رندر للصفحة (bkVtWait /
+      bkVtDataReady) عشان اللقطة تبقى صفحة كاملة بالداتا مش إطار فاضي.
       .vt-skip: الصفحة الجديدة بتتاخد في لقطة الانتقال، فلازم أنيميشن pageIn
       مايبدأش قبل اللقطة (لو بدأ، اللقطة بتبقى صفحة شبه فاضية والانتقال هيبان
       كأنه فلاش).
@@ -2264,15 +2268,19 @@ dialog::backdrop{background:color-mix(in srgb,#1c1633 55%,transparent);backdrop-
       (الطبقات دي مابتمسّهاش القاعدة العامة).
    ============================================================================ */
 /* ---------- 1. View Transitions ---------- */
-:root{--vt-dur:340ms;--vt-ease:cubic-bezier(.32,.72,0,1)}
+/* مدة قصيرة + إزاحة صغيرة: الانتقال إحساسه إنه «قطعة واحدة» مش حركة طويلة.
+   مافيش scale() هنا — تكبير/تصغير لقطة الصفحة كاملة بخلّي المتصفح يعيد
+   ترتيب صورة الشاشة كل فريم (شغل رندر تقيل = لاج)، بينما الشفافية + الإزاحة
+   بيتنفّذوا على الـ compositor لوحدهم. */
+:root{--vt-dur:240ms;--vt-ease:cubic-bezier(.32,.72,0,1)}
 .page.vt-skip:not(.hidden){animation:none}
 .topnav{view-transition-name:bkm-shell}
 #pageTitle{view-transition-name:bkm-title}
 ::view-transition-old(bkm-shell),::view-transition-new(bkm-shell), ::view-transition-old(bkm-title),::view-transition-new(bkm-title){animation:none}
 ::view-transition-old(root){animation:bkVtOut var(--vt-dur) var(--vt-ease) both}
 ::view-transition-new(root){animation:bkVtIn var(--vt-dur) var(--vt-ease) both}
-@keyframes bkVtOut{to{opacity:0;transform:translateY(-6px) scale(.996)}}
-@keyframes bkVtIn{from{opacity:0;transform:translateY(10px) scale(.998)}}
+@keyframes bkVtOut{to{opacity:0;transform:translateY(-6px)}}
+@keyframes bkVtIn{from{opacity:0;transform:translateY(8px)}}
 /* ---------- 2. نبضة تسجيل الحضور ---------- */
 .arow.just-set::after{content:"";position:absolute;inset:0;pointer-events:none;border-radius:inherit;background:color-mix(in srgb,var(--brand) 18%,transparent);animation:bkFlash .62s var(--fds-out) both}
 @keyframes bkFlash{0%{opacity:1}100%{opacity:0}}
