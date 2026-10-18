@@ -7,6 +7,7 @@ import hashlib
 import secrets
 import sqlite3
 import tempfile
+import threading
 import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List, Dict
@@ -17,7 +18,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlalchemy import (create_engine, Column, Integer, String, Boolean, Date, DateTime, Float,
-                        ForeignKey, UniqueConstraint, func, case, or_, inspect, text)
+                        ForeignKey, UniqueConstraint, func, case, or_, inspect, text,
+                        bindparam, select)
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
 from starlette.background import BackgroundTask
 
@@ -36,6 +39,11 @@ EMP_TYPES = ("FT", "PT")
 WEEKDAYS = ("Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday")
 STATUSES = ("Present", "Late", "Absent", "Excused")
 NO_FINE_STATUSES = ("Present", "Excused")
+# أسماء الوسائط المسموح بها في جمل تحديث الحضور المجمّعة
+_PARAM_KEYS = ("row_id", "status", "fine", "reason", "note", "updated_at", "expected")
+# لو العميل بعت القيمة دي في expected_updated_at يبقى هو شاف اليوم من غير أي تسجيل
+# للموظف ده — فلو حد تاني سجّله في اللحظة دي بنقول تعارض بدل ما نكتب فوقه.
+NEW_STAMP = "-"
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=True)
@@ -254,6 +262,9 @@ class AttendanceItem(BaseModel):
     fine: float = Field(default=0, ge=0, le=1000000)
     reason: str = Field(default="", max_length=500)
     note: str = Field(default="", max_length=500)
+    # الـstamp اللي العميل شافه وقت تحميل الصفحة. لو السجل اتعدّل بعده بنرفض الحفظ
+    # بدل ما نكتب فوق شغل حد تاني (قفل متفائل).
+    expected_updated_at: str = Field(default="", max_length=40)
 
 
 class AttendanceIn(BaseModel):
@@ -263,6 +274,7 @@ class AttendanceIn(BaseModel):
     fine: float = Field(default=0, ge=0, le=1000000)
     reason: str = Field(default="", max_length=500)
     note: str = Field(default="", max_length=500)
+    expected_updated_at: str = Field(default="", max_length=40)
 
 
 class AttendanceBulkIn(BaseModel):
@@ -385,6 +397,68 @@ def get_settings(db: Session) -> dict:
     return out
 
 
+# ---------------------------------------------------------------- live updates
+class EventBus:
+    """باص أحداث في الذاكرة للتحديث المباشر بين كل التابات والمستخدمين.
+
+    أي عملية كتابة بتنشر حدث هنا، والتابات المتصلة بتستنى على `/api/events`
+    (long-poll) فتوصلها التغييرات في نفس اللحظة من غير أي refresh من المستخدم.
+    الأحداث في الذاكرة بس: بعد إعادة تشغيل السيرفر بتبدأ من جديد، والتاب اللي
+    كان متصل بياخد `reset` ويعمل تحديث كامل مرة واحدة.
+    """
+
+    def __init__(self, keep: int = 150):
+        self._cv = threading.Condition()
+        self._rev = 0
+        self._events: List[dict] = []
+        self._keep = keep
+
+    def publish(self, kind: str, **data) -> dict:
+        with self._cv:
+            self._rev += 1
+            event = {"rev": self._rev, "kind": kind, "at": utcnow().isoformat(), **data}
+            self._events.append(event)
+            if len(self._events) > self._keep:
+                self._events = self._events[-self._keep:]
+            self._cv.notify_all()
+            return event
+
+    def _payload(self, since: int) -> dict:
+        """أحداث بعد `since` + تنبيه لو العميل فوّت أحداث (السيرفر اتعمله restart
+        أو الطابور اتمسح من كتر الأحداث)."""
+        missed = since > self._rev or (since > 0 and bool(self._events) and since < self._events[0]["rev"] - 1)
+        return {"rev": self._rev, "events": [e for e in self._events if e["rev"] > since],
+                "reset": bool(missed)}
+
+    def snapshot(self, since: int) -> dict:
+        with self._cv:
+            return self._payload(since)
+
+    def wait(self, since: int, timeout: float) -> dict:
+        """بيستنى لحد ما يحصل أي تغيير أو الوقت يخلص (نبضة كل فترة عشان الاتصال ما يقفلش)."""
+        with self._cv:
+            if self._rev <= since:
+                self._cv.wait(timeout)
+            return self._payload(since)
+
+
+EVENTS = EventBus()
+
+
+def who_role(role: str) -> str:
+    return "أدمن" if role == "admin" else "مشرف"
+
+
+def client_tag(request: Request) -> str:
+    """معرّف التاب اللي بعت الطلب — التاب بتتجاهل الأحداث اللي هي مصدرها."""
+    return (request.headers.get("x-client-id") or "")[:40]
+
+
+def publish_event(kind: str, **data) -> None:
+    """بينشر تغيير لكل التابات المتصلة. بيتنده بعد نجاح الكتابة (بعد الـcommit)."""
+    EVENTS.publish(kind, **data)
+
+
 # ---------------------------------------------------------------- pages / auth routes
 def _asset_stamp() -> str:
     """بصمة قصيرة لملفات الواجهة.
@@ -445,6 +519,17 @@ def me(role: str = Depends(require_auth)):
     return {"app": APP_NAME, "authenticated": True, "role": role}
 
 
+@app.get("/api/events")
+def live_events(since: int = Query(0, ge=0), wait: float = Query(20, ge=0, le=30),
+                _: bool = Depends(require_auth)):
+    """التحديث المباشر: long-poll بترجع فورًا لو في تغيير، أو بعد `wait` ثانية كحد أقصى.
+
+    الواجهة بتناديها في حلقة مستمرة بـ`since` = آخر rev وصلها، فأي تسجيل من أي
+    مستخدم تاني بيظهر عندها في نفس اللحظة بدون refresh.
+    """
+    return EVENTS.wait(since, wait) if wait else EVENTS.snapshot(since)
+
+
 # ---------------------------------------------------------------- settings
 @app.get("/api/settings")
 def read_settings(_: bool = Depends(require_auth), db: Session = Depends(get_db)):
@@ -452,7 +537,8 @@ def read_settings(_: bool = Depends(require_auth), db: Session = Depends(get_db)
 
 
 @app.put("/api/settings")
-def update_settings(data: SettingsIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def update_settings(data: SettingsIn, request: Request, role: str = Depends(require_admin),
+                    db: Session = Depends(get_db)):
     for key, value in (("fine_late", data.fine_late), ("fine_absent", data.fine_absent)):
         row = db.query(Setting).filter(Setting.key == key).first()
         if row:
@@ -460,6 +546,7 @@ def update_settings(data: SettingsIn, _: bool = Depends(require_admin), db: Sess
         else:
             db.add(Setting(key=key, value=str(value)))
     db.commit()
+    publish_event("settings", by=who_role(role), client=client_tag(request))
     return get_settings(db)
 
 
@@ -476,7 +563,8 @@ def list_employees(branch: Optional[str] = None, active_only: bool = False,
 
 
 @app.post("/api/employees")
-def create_employee(data: EmployeeIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def create_employee(data: EmployeeIn, request: Request, role: str = Depends(require_admin),
+                    db: Session = Depends(get_db)):
     check_employee_values(data.branch, data.employment_type, data.day_off)
     code = (data.employee_code or "").strip() or None
     if code and db.query(Employee).filter(Employee.employee_code == code).first():
@@ -487,11 +575,14 @@ def create_employee(data: EmployeeIn, _: bool = Depends(require_admin), db: Sess
     db.add(e)
     db.commit()
     db.refresh(e)
+    publish_event("employees", action="create", names=[e.name], by=who_role(role),
+                  client=client_tag(request))
     return employee_dict(e)
 
 
 @app.put("/api/employees/{employee_id}")
-def update_employee(employee_id: int, data: EmployeeIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def update_employee(employee_id: int, data: EmployeeIn, request: Request,
+                    role: str = Depends(require_admin), db: Session = Depends(get_db)):
     e = db.query(Employee).filter(Employee.id == employee_id).first()
     if not e:
         raise HTTPException(404, "الموظف غير موجود")
@@ -509,11 +600,14 @@ def update_employee(employee_id: int, data: EmployeeIn, _: bool = Depends(requir
     e.phone = (data.phone or "").strip() or None
     db.commit()
     db.refresh(e)
+    publish_event("employees", action="update", names=[e.name], by=who_role(role),
+                  client=client_tag(request))
     return employee_dict(e)
 
 
 @app.post("/api/employees/{employee_id}/move")
-def move_employee_branch(employee_id: int, data: MoveBranchIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def move_employee_branch(employee_id: int, data: MoveBranchIn, request: Request,
+                         role: str = Depends(require_admin), db: Session = Depends(get_db)):
     """نقل موظف لفرع آخر مع الحفاظ على كل بياناته: الشيفت، يوم الإجازة، البريك،
     نوع التعاقد، والبريك المثبّت. الفرع هو الحاجة الوحيدة اللي بتتغيّر، وسجل الحضور
     والغرامات بيفضل محفوظ زي ما هو."""
@@ -528,23 +622,29 @@ def move_employee_branch(employee_id: int, data: MoveBranchIn, _: bool = Depends
     e.branch = data.branch
     db.commit()
     db.refresh(e)
+    publish_event("employees", action="move", names=[e.name], branch=e.branch,
+                  by=who_role(role), client=client_tag(request))
     return {"employee": employee_dict(e), "from": old_branch,
             "message": f"تم نقل {e.name} من {old_branch} إلى {e.branch} بنفس الشيفت والإجازة"}
 
 
 @app.delete("/api/employees/{employee_id}")
-def delete_employee(employee_id: int, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def delete_employee(employee_id: int, request: Request, role: str = Depends(require_admin),
+                    db: Session = Depends(get_db)):
     e = db.query(Employee).filter(Employee.id == employee_id).first()
     if not e:
         raise HTTPException(404, "الموظف غير موجود")
     # نحافظ على سجل الحضور القديم: إيقاف بدل الحذف النهائي.
     e.active = False
     db.commit()
+    publish_event("employees", action="deactivate", names=[e.name], by=who_role(role),
+                  client=client_tag(request))
     return {"message": "تم إيقاف الموظف مع الاحتفاظ بسجل حضوره السابق"}
 
 
 @app.post("/api/employees/bulk")
-def bulk_employees(data: BulkEmployeesIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def bulk_employees(data: BulkEmployeesIn, request: Request, role: str = Depends(require_admin),
+                   db: Session = Depends(get_db)):
     if not data.ids:
         raise HTTPException(400, "لم يتم تحديد أي موظف")
     if len(data.ids) > 2000:
@@ -577,11 +677,14 @@ def bulk_employees(data: BulkEmployeesIn, _: bool = Depends(require_admin), db: 
             if data.day_off is not None:
                 e.day_off = data.day_off
     db.commit()
+    publish_event("employees", action=data.action, names=[e.name for e in emps[:3]],
+                  count=len(emps), by=who_role(role), client=client_tag(request))
     return {"updated": len(emps)}
 
 
 @app.post("/api/employees/import")
-def import_employees(data: ImportIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def import_employees(data: ImportIn, request: Request, role: str = Depends(require_admin),
+                     db: Session = Depends(get_db)):
     if not data.rows:
         raise HTTPException(400, "الملف فاضي")
     if len(data.rows) > 5000:
@@ -667,6 +770,9 @@ def import_employees(data: ImportIn, _: bool = Depends(require_admin), db: Sessi
         db.rollback()
     else:
         db.commit()
+        if created or updated:
+            publish_event("employees", action="import", count=created + updated,
+                          names=[], by=who_role(role), client=client_tag(request))
     return {"created": created, "updated": updated, "skipped": skipped,
             "errors": errors, "dry_run": data.dry_run}
 
@@ -706,73 +812,178 @@ def roster(attendance_date: date = Query(...), branch: Optional[str] = None,
             "off_employees": [employee_dict(e) for e in off]}
 
 
-def _save_items(db: Session, day: date, items: List[AttendanceItem]):
+def _parse_stamp(value: str) -> Optional[datetime]:
+    """يحوّل الـstamp اللي جاي من الواجهة (نص ISO) لتاريخ. أي قيمة غير مفهومة بتتجاهَل."""
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        stamp = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return stamp.replace(tzinfo=None) if stamp.tzinfo else stamp
+
+
+def _save_items(db: Session, day: date, items: List[AttendanceItem], _retry: bool = False):
+    """حفظ/تعديل/مسح تسجيلات يوم واحد.
+
+    كل صف بيتكتب بأعمدته الأربعة كاملة (status/fine/reason/note) في جملة UPDATE
+    واحدة، ومعاها شرط على updated_at اللي السيرفر قراه — فلو حد تاني عدّل نفس الصف
+    في اللحظة دي، التعديل القديم بيترفض بتعارض واضح بدل ما يخلط قيم من مصدرين.
+    الجمل بتتنفّذ مجمّعة (executemany) عشان الحفظ الجماعي يبقى جملة واحدة مش جملة لكل موظف.
+    """
     weekday = day.strftime("%A")
-    ids = list({i.employee_id for i in items})
+    wanted: Dict[int, AttendanceItem] = {}
+    for it in items:                       # آخر تسجيل لنفس الموظف في الطلب هو اللي يمشي
+        wanted[it.employee_id] = it
+    ids = list(wanted.keys())
     emps = {e.id: e for e in db.query(Employee).filter(Employee.id.in_(ids)).all()}
-    existing = {a.employee_id: a for a in db.query(Attendance).filter(
-        Attendance.attendance_date == day, Attendance.employee_id.in_(ids)).all()}
+    # بنقرا المفاتيح والـstamps بس (مش كائنات ORM) عشان مفيش أي كائن قديم يتكتب بعد الكتابة
+    rows = db.execute(select(Attendance.id, Attendance.employee_id, Attendance.updated_at).where(
+        Attendance.attendance_date == day, Attendance.employee_id.in_(ids))).all()
+    row_ids = {r.employee_id: r.id for r in rows}
+    stamps = {r.employee_id: r.updated_at for r in rows}
     saved = cleared = 0
-    errors, touched = [], []
-    for it in items:
-        e = emps.get(it.employee_id)
+    errors, touched, names = [], [], []
+    inserts: Dict[int, dict] = {}
+    updates: Dict[int, dict] = {}
+    updates_no_stamp: Dict[int, dict] = {}
+    clear_ids: List[int] = []
+    for eid, it in wanted.items():
+        e = emps.get(eid)
         if not e:
-            errors.append({"employee_id": it.employee_id, "detail": "الموظف غير موجود"}); continue
+            errors.append({"employee_id": eid, "detail": "الموظف غير موجود"}); continue
         if not e.active:
             errors.append({"employee_id": e.id, "name": e.name, "detail": "الموظف غير نشط"}); continue
         if e.day_off == weekday:
             errors.append({"employee_id": e.id, "name": e.name, "detail": "هذا الموظف في إجازة في هذا اليوم"}); continue
         status = (it.status or "").strip()
-        row = existing.get(e.id)
-        if status == "":
-            if row:
-                db.delete(row)
-                existing.pop(e.id, None)
-                cleared += 1
-            touched.append(e.id)
-            continue
-        if status not in STATUSES:
+        row_id = row_ids.get(eid)
+        touched.append(eid)
+        if status not in STATUSES and status != "":
             errors.append({"employee_id": e.id, "name": e.name, "detail": "حالة الحضور غير صحيحة"}); continue
+        if status == "":
+            if row_id is not None:
+                clear_ids.append(eid)
+                cleared += 1
+                names.append(e.name)
+            continue
         fine = 0.0 if status in NO_FINE_STATUSES else float(it.fine or 0)
         reason = "" if status == "Present" else (it.reason or "").strip()
         note = (it.note or "").strip()
-        if row:
-            row.status, row.fine, row.reason, row.note = status, fine, reason, note
-            row.updated_at = utcnow()
+        if row_id is not None:
+            current = stamps.get(eid)
+            raw = (it.expected_updated_at or "").strip()
+            expected = _parse_stamp(raw)
+            if raw == NEW_STAMP or (expected is not None and current is not None and expected != current):
+                errors.append({"employee_id": e.id, "name": e.name, "conflict": True,
+                               "detail": "الموظف ده اتعدّل من مستخدم تاني بعد ما فتحت الصفحة. "
+                                         "اضغط تحديث وشوف التسجيل الحالي وبعدين احفظ تاني."})
+                touched.pop()
+                continue
+            values = {"row_id": row_id, "employee_id": eid, "status": status, "fine": fine,
+                      "reason": reason, "note": note, "updated_at": utcnow(), "name": e.name}
+            if current is None:            # سجل قديم من غير stamp: بنكتبه من غير شرط
+                updates_no_stamp[eid] = values
+            else:
+                # الشرط على الـstamp اللي السيرفر قراه دلوقتي: لو حد عدّل الصف في
+                # اللحظة دي، الجملة مش هتلاقي صف والسيرفر يقول تعارض بدل ما يخلط القيم
+                values["expected"] = expected if expected is not None else current
+                updates[eid] = values
         else:
-            row = Attendance(employee_id=e.id, attendance_date=day, status=status,
-                             fine=fine, reason=reason, note=note)
-            db.add(row)
-            existing[e.id] = row
+            inserts[eid] = {"employee_id": eid, "attendance_date": day, "status": status,
+                            "fine": fine, "reason": reason, "note": note, "updated_at": utcnow()}
         saved += 1
-        touched.append(e.id)
-    db.flush()
-    records = {eid: (attendance_dict(existing[eid]) if eid in existing else None) for eid in touched}
-    db.commit()
-    return saved, cleared, errors, records
+        names.append(e.name)
+
+    def _apply():
+        tbl = Attendance.__table__
+        if clear_ids:
+            db.execute(tbl.delete().where(tbl.c.attendance_date == day,
+                                          tbl.c.employee_id.in_(clear_ids)))
+        if inserts:
+            db.execute(Attendance.__table__.insert(), list(inserts.values()))
+        for batch, guarded in ((updates, True), (updates_no_stamp, False)):
+            if not batch:
+                continue
+            stmt = tbl.update().where(tbl.c.id == bindparam("row_id"))
+            if guarded:
+                stmt = stmt.where(tbl.c.updated_at == bindparam("expected"))
+            stmt = stmt.values(status=bindparam("status"), fine=bindparam("fine"),
+                               reason=bindparam("reason"), note=bindparam("note"),
+                               updated_at=bindparam("updated_at"))
+            batch = list(batch.values())
+            args = [{k: v for k, v in values.items() if k in _PARAM_KEYS} for values in batch]
+            # synchronize_session=None: إحنا مش محتاجين SQLAlchemy تزامن أي كائن في الجلسة
+            result = db.execute(stmt, args, execution_options={"synchronize_session": None})
+            if guarded and result.rowcount is not None and result.rowcount < len(batch):
+                # حد تاني عدّل صف في نفس اللحظة: بنكررهم واحد واحد عشان نعرف مين بالظبط
+                for values, params in zip(batch, args):
+                    one = db.execute(stmt, [params], execution_options={"synchronize_session": None})
+                    if one.rowcount:
+                        continue
+                    errors.append({"employee_id": values["employee_id"], "name": values["name"],
+                                   "conflict": True,
+                                   "detail": "اتعدّل من مستخدم تاني في نفس اللحظة. اضغط تحديث "
+                                             "وشوف التسجيل الحالي وبعدين احفظ تاني."})
+        db.commit()
+
+    try:
+        _apply()
+    except IntegrityError:
+        db.rollback()
+        if _retry:
+            raise
+        # حالة نادرة: نفس السجل اتحفظ من مكان تاني في نفس اللحظة. بنعيد المحاولة مرة
+        # واحدة — المرة دي الصف بقى موجود فبيمشي في مسار التحديث بدل الإضافة.
+        return _save_items(db, day, list(wanted.values()), _retry=True)
+
+    # بنقرا التسجيلات المتأثرة مرة واحدة بعد الحفظ عشان نبني الرد
+    records = {eid: None for eid in touched}
+    if touched:
+        for r in db.execute(
+                select(Attendance.id, Attendance.employee_id, Attendance.attendance_date,
+                       Attendance.status, Attendance.fine, Attendance.reason,
+                       Attendance.note, Attendance.updated_at).where(
+                    Attendance.attendance_date == day, Attendance.employee_id.in_(touched))).all():
+            records[r.employee_id] = attendance_dict(r)
+    return {"saved": saved, "cleared": cleared, "errors": errors, "records": records,
+            "names": names[:4], "ids": touched}
 
 
 @app.post("/api/attendance")
-def save_attendance(data: AttendanceIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def save_attendance(data: AttendanceIn, request: Request, role: str = Depends(require_auth),
+                    db: Session = Depends(get_db)):
     if data.status not in STATUSES:
         raise HTTPException(400, "حالة الحضور غير صحيحة")
     item = AttendanceItem(employee_id=data.employee_id, status=data.status, fine=data.fine,
-                          reason=data.reason, note=data.note)
-    _, _, errors, records = _save_items(db, data.attendance_date, [item])
-    if errors:
-        code = 404 if errors[0]["detail"] == "الموظف غير موجود" else 400
-        raise HTTPException(code, errors[0]["detail"])
-    return records[data.employee_id]
+                          reason=data.reason, note=data.note,
+                          expected_updated_at=data.expected_updated_at)
+    res = _save_items(db, data.attendance_date, [item])
+    if res["errors"]:
+        first = res["errors"][0]
+        code = 409 if first.get("conflict") else (404 if first["detail"] == "الموظف غير موجود" else 400)
+        raise HTTPException(code, first["detail"])
+    publish_event("attendance", date=data.attendance_date.isoformat(), ids=[data.employee_id],
+                  names=res["names"], count=res["saved"], by=who_role(role),
+                  client=client_tag(request))
+    return res["records"][data.employee_id]
 
 
 @app.post("/api/attendance/bulk")
-def save_attendance_bulk(data: AttendanceBulkIn, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def save_attendance_bulk(data: AttendanceBulkIn, request: Request, role: str = Depends(require_auth),
+                         db: Session = Depends(get_db)):
     if not data.items:
         raise HTTPException(400, "لا توجد تغييرات للحفظ")
     if len(data.items) > 2000:
         raise HTTPException(400, "عدد التسجيلات كبير جدًا في طلب واحد")
-    saved, cleared, errors, records = _save_items(db, data.attendance_date, data.items)
-    return {"saved": saved, "cleared": cleared, "errors": errors, "records": records}
+    res = _save_items(db, data.attendance_date, data.items)
+    if res["saved"] or res["cleared"]:
+        publish_event("attendance", date=data.attendance_date.isoformat(), ids=res["ids"],
+                      names=res["names"], count=res["saved"] + res["cleared"],
+                      by=who_role(role), client=client_tag(request))
+    return {"saved": res["saved"], "cleared": res["cleared"], "errors": res["errors"],
+            "records": res["records"]}
 
 
 # ---------------------------------------------------------------- dashboard
@@ -1207,7 +1418,8 @@ def get_schedule(branch: str, _: bool = Depends(require_auth), db: Session = Dep
 
 
 @app.post("/api/schedule/shifts")
-def create_shift(data: ShiftIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def create_shift(data: ShiftIn, request: Request, role: str = Depends(require_admin),
+                 db: Session = Depends(get_db)):
     _check_branch(data.branch)
     name = data.name.strip()
     if not name:
@@ -1215,21 +1427,27 @@ def create_shift(data: ShiftIn, _: bool = Depends(require_admin), db: Session = 
     if not db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == name).first():
         db.add(ShiftDef(branch=data.branch, name=name))
         db.commit()
+        publish_event("schedule", branch=data.branch, action="shift-create", by=who_role(role),
+                      client=client_tag(request))
     return {"name": name}
 
 
 @app.delete("/api/schedule/shifts")
-def delete_shift(branch: str, name: str, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def delete_shift(branch: str, name: str, request: Request, role: str = Depends(require_admin),
+                 db: Session = Depends(get_db)):
     _check_branch(branch)
     if db.query(Employee).filter(Employee.branch == branch, Employee.shift == name, Employee.active.is_(True)).count():
         raise HTTPException(400, "الشيفت فيه موظفين. انقلهم لشيفت آخر أو أوقفهم أولًا.")
     db.query(ShiftDef).filter(ShiftDef.branch == branch, ShiftDef.name == name).delete()
     db.commit()
+    publish_event("schedule", branch=branch, action="shift-delete", by=who_role(role),
+                  client=client_tag(request))
     return {"message": "تم حذف الشيفت"}
 
 
 @app.post("/api/schedule/shifts/rename")
-def rename_shift(data: ShiftRenameIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def rename_shift(data: ShiftRenameIn, request: Request, role: str = Depends(require_admin),
+                 db: Session = Depends(get_db)):
     _check_branch(data.branch)
     new = data.new.strip()
     if not new:
@@ -1241,11 +1459,14 @@ def rename_shift(data: ShiftRenameIn, _: bool = Depends(require_admin), db: Sess
     if not db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == new).first():
         db.add(ShiftDef(branch=data.branch, name=new))
     db.commit()
+    publish_event("schedule", branch=data.branch, action="shift-rename", by=who_role(role),
+                  client=client_tag(request))
     return {"name": new, "moved": moved}
 
 
 @app.post("/api/schedule/add")
-def schedule_add(data: ScheduleAddIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def schedule_add(data: ScheduleAddIn, request: Request, role: str = Depends(require_admin),
+                 db: Session = Depends(get_db)):
     _check_branch(data.branch)
     shift = data.shift.strip()
     if not shift:
@@ -1292,11 +1513,14 @@ def schedule_add(data: ScheduleAddIn, _: bool = Depends(require_admin), db: Sess
     db.commit()
     for e in out:
         db.refresh(e)
+    publish_event("schedule", branch=data.branch, action="add", count=created,
+                  names=[e.name for e in out[:3]], by=who_role(role), client=client_tag(request))
     return {"created": created, "notes": notes, "employees": [employee_dict(e) for e in out]}
 
 
 @app.post("/api/schedule/apply")
-def schedule_apply(data: ScheduleApplyIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def schedule_apply(data: ScheduleApplyIn, request: Request, role: str = Depends(require_admin),
+                   db: Session = Depends(get_db)):
     if not data.items:
         raise HTTPException(400, "لا توجد تغييرات للحفظ")
     if len(data.items) > 2000:
@@ -1329,6 +1553,10 @@ def schedule_apply(data: ScheduleApplyIn, _: bool = Depends(require_admin), db: 
                 db.add(ShiftDef(branch=e.branch, name=sh))
         updated += 1
     db.commit()
+    if updated:
+        publish_event("schedule", action="apply", count=updated,
+                      names=[emps[i.id].name for i in data.items if i.id in emps][:3],
+                      by=who_role(role), client=client_tag(request))
     return {"updated": updated, "errors": errors}
 
 
@@ -1797,7 +2025,8 @@ class ScheduleImportIn(BaseModel):
 
 
 @app.post("/api/schedule/import")
-def schedule_import(data: ScheduleImportIn, _: bool = Depends(require_admin), db: Session = Depends(get_db)):
+def schedule_import(data: ScheduleImportIn, request: Request, role: str = Depends(require_admin),
+                    db: Session = Depends(get_db)):
     _check_branch(data.branch)
     try:
         raw = base64.b64decode(data.file_b64, validate=False)
@@ -1863,6 +2092,8 @@ def schedule_import(data: ScheduleImportIn, _: bool = Depends(require_admin), db
     db.commit()
     plan["applied"] = {"created": created, "updated": updated, "same": sum(1 for it, _ in expected if it["action"] == "same"),
                        "deactivated": deactivated, "verified": len(expected)}
+    publish_event("employees", action="import-schedule", branch=data.branch,
+                  count=created + updated, names=[], by=who_role(role), client=client_tag(request))
     return plan
 
 
@@ -1888,8 +2119,10 @@ def backup(_: bool = Depends(require_admin)):
 
 # ---------------------------------------------------------------- danger zone (admin only)
 @app.post("/api/admin/wipe-attendance")
-def wipe_attendance(_: str = Depends(require_admin), db: Session = Depends(get_db)):
+def wipe_attendance(request: Request, role: str = Depends(require_admin), db: Session = Depends(get_db)):
     """مسح سجل الحضور بالكامل (الموظفين والإعدادات والجدول بيفضلوا زي ما هما)."""
     n = db.query(Attendance).delete(synchronize_session=False)
     db.commit()
+    publish_event("attendance", date="", ids=[], names=[], count=n, wipe=True,
+                  by=who_role(role), client=client_tag(request))
     return {"deleted": n, "message": f"تم مسح {n} تسجيلة حضور. السجل بقى فاضي."}

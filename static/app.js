@@ -74,7 +74,17 @@ const S = {
   rep: { sum: null, emps: [], sort: { key: "name", dir: 1 }, page: 1, size: 50, preset: "7" },
   fines: { data: null, sort: { key: "date", dir: -1 }, page: 1, size: 50, preset: "month" },
   hist: { id: null },
+  stale: new Set(), /* صفوف اتغيّرت من مستخدم تاني وعندنا عليها مسودة مش محفوظة */
 };
+/* معرّف التاب الحالي: بيتبعت مع كل طلب والسيرفر بيرجّعه في حدث التحديث المباشر
+   عشان التاب تتجاهل التغييرات اللي هي مصدرها (مفيش تنبيه لنفسك). */
+S.clientId = (() => {
+  try {
+    let v = sessionStorage.getItem("bankai_cid");
+    if (!v) { v = Math.random().toString(36).slice(2) + Date.now().toString(36); sessionStorage.setItem("bankai_cid", v); }
+    return v;
+  } catch (e) { return "tab" + Math.random().toString(36).slice(2); }
+})();
 
 /* شريط تقدّم رقيق أعلى الصفحة. بيظهر بس لو الطلب خد أكتر من 220ms عشان مايرمشش
    مع كل تفاعل سريع، والطلبات الخلفية (تحديث الـ feed كل 30 ثانية) بتبعت silent. */
@@ -94,6 +104,7 @@ async function api(path, opt = {}) {
   delete opts.silent;
   const headers = { ...(opts.headers || {}) };
   if (S.token) headers.Authorization = `Bearer ${S.token}`;
+  if (S.clientId) headers["X-Client-Id"] = S.clientId;
   let body = opts.body;
   if (body !== undefined && typeof body !== "string") { body = JSON.stringify(body); headers["Content-Type"] = "application/json"; }
   if (!silent) trackStart();
@@ -188,10 +199,11 @@ on("loginForm", "submit", async e => {
 });
 
 function logout(show = true) {
+  stopLive();
   S.token = ""; S.role = "";
   localStorage.removeItem("bankai_token"); localStorage.removeItem("bankai_role");
   delete document.documentElement.dataset.auth; /* نشيل قفل إخفاء شاشة الدخول المبكّر بتاع الـ head */
-  S.draft.clear(); if (S.sch) S.sch.draft.clear(); S.shown = false; S.page = "";
+  S.draft.clear(); if (S.sch) S.sch.draft.clear(); S.shown = false; S.page = ""; S.stale.clear();
   $("appView").classList.add("hidden"); $("loginView").classList.remove("hidden");
   if (show) toast("تم تسجيل الخروج");
 }
@@ -331,6 +343,7 @@ async function init() {
     S.role = me.role || "admin"; localStorage.setItem("bankai_role", S.role);
     applyRole();
     showApp();
+    startLive();
     S.employees = emps; S.settings = settings;
     fillShiftLists();
     S.shown = false;
@@ -458,7 +471,7 @@ async function loadRoster() {
   try {
     const r = await api(`/api/roster?attendance_date=${date}`);
     if (date !== S.att.date) return;
-    S.roster = r; S.rmap = new Map(r.employees.map(e => [e.id, e])); S.draft.clear();
+    S.roster = r; S.rmap = new Map(r.employees.map(e => [e.id, e])); S.draft.clear(); S.stale.clear();
     fillAttShiftOptions();
     renderAttendance(); renderOff(); updateSaveBar();
   } catch (e) { toast(e.message, "err"); }
@@ -505,7 +518,7 @@ function rowHTML(e) {
   const sub = [esc(e.employee_code || "بدون كود"), e.employment_type];
   if (e.break_start) sub.push(`بريك <span class="num">${esc(e.break_start)}</span>`);
   if (!S.att.group) sub.push(esc(e.branch), sh(e.shift));
-  return `<div class="arow${S.draft.has(e.id) ? " dirty" : ""}" data-id="${e.id}" data-st="${st}">
+  return `<div class="arow${S.draft.has(e.id) ? " dirty" : ""}${S.stale.has(e.id) ? " stale" : ""}" data-id="${e.id}" data-st="${st}">
     <div class="a-who">${whoHTML(e.name, `<div class="a-name">${esc(e.name)}${contactHTML(e)}</div><div class="a-sub">${sub.join(" · ")}</div>`)}</div>
     <div class="seg" role="group" aria-label="حالة ${esc(e.name)}">${STK.map(k => `<button type="button" class="${k}${st === k ? " on" : ""}" data-set="${k}" aria-pressed="${st === k}">${ST[k][0]}</button>`).join("")}</div>
     <input class="inp f-fine" type="number" min="0" step="1" inputmode="numeric" value="${fineOn && d.fine ? d.fine : ""}" placeholder="غرامة" aria-label="الغرامة" ${fineOn ? "" : "disabled"}>
@@ -575,6 +588,7 @@ function updateRowUI(e) {
   const row = qs(`.arow[data-id="${e.id}"]`, $("attList")); if (!row) return;
   const d = rowState(e), st = d.status || "";
   row.dataset.st = st; row.classList.toggle("dirty", S.draft.has(e.id));
+  row.classList.toggle("stale", S.stale.has(e.id));
   qsa(".seg button", row).forEach(b => { const o = b.dataset.set === st; b.classList.toggle("on", o); b.setAttribute("aria-pressed", o); });
   const fineOn = st === "Late" || st === "Absent";
   const fine = qs(".f-fine", row), reason = qs(".f-reason", row), note = qs(".f-note", row);
@@ -587,6 +601,7 @@ function updateRowUI(e) {
 
 function setStatus(e, st) {
   const d = getDraft(e);
+  S.stale.delete(e.id); /* المستخدم بيعدّل الصف بنفسه: التنبيه بتاع «اتغيّر من حد تاني» خلص */
   if (d.status === st) st = "";
   d.status = st;
   if (st === "Present") { d.fine = 0; d.reason = ""; }
@@ -625,7 +640,12 @@ async function saveAttendance() {
   for (const [id, d] of S.draft) {
     const fine = (d.status === "Late" || d.status === "Absent") ? Number(d.fine || 0) : 0;
     if (fine > 0 && !String(d.reason || "").trim()) invalid.push(id);
-    items.push({ employee_id: id, status: d.status, fine, reason: d.reason || "", note: d.note || "" });
+    /* بنبعت الـstamp اللي شفناه وقت التحميل: لو السجل اتعدّل بعده، السيرفر يرفض
+       الحفظ بتعارض واضح بدل ما يكتب فوق شغل حد تاني بالغلط. لو شفناه من غير أي
+       تسجيل، بنقول للسيرفر كده صريح عشان يمسك حالة إن حد سجّله في نفس اللحظة. */
+    const seen = S.rmap.get(id)?.attendance;
+    const stamp = seen ? (seen.updated_at || "") : "-";
+    items.push({ employee_id: id, status: d.status, fine, reason: d.reason || "", note: d.note || "", expected_updated_at: stamp });
   }
   qsa(".arow.invalid").forEach(r => r.classList.remove("invalid"));
   if (invalid.length) {
@@ -640,13 +660,27 @@ async function saveAttendance() {
   try {
     const r = await api("/api/attendance/bulk", { method: "POST", body: { attendance_date: S.roster.date, items } });
     const failed = new Set(r.errors.map(x => x.employee_id));
+    const conflicts = r.errors.filter(x => x.conflict);
+    /* بنسيب نسخة المستخدم زي ما هي على الصفوف اللي فشلت (سواء تعارض أو أي سبب
+       تاني) عشان مايضيّعش شغله، وبنسيب التعارض نفسه للـsoft refresh يحدّث الصف
+       بقيمة السيرفر الحالية. */
+    conflicts.forEach(x => S.draft.delete(x.employee_id));
     for (const idStr of Object.keys(r.records)) {
-      const id = +idStr, e = S.rmap.get(id); if (!e) continue;
-      e.attendance = r.records[idStr]; S.draft.delete(id); updateRowUI(e);
+      const id = +idStr; if (failed.has(id)) continue;
+      const e = S.rmap.get(id); if (!e) continue;
+      e.attendance = r.records[idStr]; S.draft.delete(id); S.stale.delete(id); updateRowUI(e);
     }
     updateAttSummary(); updateSaveBar();
-    if (r.errors.length) { const x = r.errors[0]; toast(`تعذر حفظ ${failed.size} موظف — ${x.name ? x.name + ": " : ""}${x.detail}`, "err"); }
-    else toast(`تم حفظ ${r.saved + r.cleared} تسجيل.`, "ok");
+    if (conflicts.length) {
+      const x = conflicts[0];
+      toast(`التسجيل اتعدّل من مستخدم تاني — ${x.name ? x.name + " · " : ""}جرى تحديث الصف بآخر نسخة. راجعها واحفظ تاني لو لسه عايز تعدّل.`, "err");
+      loadRosterSoft();
+    } else if (r.errors.length) {
+      const x = r.errors[0];
+      toast(`تعذر حفظ ${failed.size} موظف — ${x.name ? x.name + ": " : ""}${x.detail}`, "err");
+    } else if (r.saved || r.cleared) {
+      toast(`تم حفظ ${r.saved + r.cleared} تسجيل.`, "ok");
+    }
   } catch (e) { toast(e.message, "err"); }
   finally { btn.disabled = false; }
 }
@@ -672,7 +706,7 @@ on("attCollapse", "click", () => {
 on("attChips", "click", ev => { const c = ev.target.closest(".chip"); if (!c) return; S.att.status = c.dataset.status; renderAttendance(); });
 on("markPresentBtn", "click", () => { if (S.roster) markPresent(S.view.base); });
 on("saveBtn", "click", saveAttendance);
-on("saveDiscard", "click", () => { if (!S.draft.size) return; S.draft.clear(); renderAttendance(); updateSaveBar(); });
+on("saveDiscard", "click", () => { if (!S.draft.size) return; S.draft.clear(); S.stale.clear(); renderAttendance(); updateSaveBar(); });
 
 on("attList", "click", ev => {
   const t = ev.target;
@@ -1949,3 +1983,195 @@ if (S.token) { showApp(); init(); }
     window.bkVtDataReady("fines");
   };
 })();
+
+/* ============================== التحديث المباشر (live) ==============================
+   كل تاب بتعمل long-poll على `/api/events`: أي تسجيل أو تعديل من أي مستخدم تاني
+   بيوصل هنا في نفس اللحظة، فالصفحة بتحدّث نفسها لوحدها من غير أي refresh، ومعاها
+   تنبيه مرئي (وسمعي لو حابب). لو الاتصال وقع بيتكرر من نفسه، ومفيش أي تأثير على
+   الشغل العادي: أسوأ حالة إن التنبيه يتأخر شوية. */
+
+/* -------- التنبيه الصوتي: نبرتين قصيرتين بـ WebAudio (من غير أي ملف صوت) -------- */
+const soundOn = () => { try { return localStorage.getItem("bankai-live-sound") !== "0"; } catch (e) { return true; } };
+let audioCtx = null;
+function initAudio() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+  } catch (e) { audioCtx = null; }
+}
+/* المتصفحات بتمنع الصوت قبل أي تفاعل من المستخدم: بنجهّز الصوت من أول كليكة */
+document.addEventListener("pointerdown", initAudio, { once: true });
+document.addEventListener("keydown", initAudio, { once: true });
+
+function beep() {
+  if (!soundOn()) return;
+  /* التنبيه بيتكرر بسرعة مع كل حدث، فبنمنع الرنّ المتكرر (نبرة واحدة كل ~1.2 ث) */
+  const now = Date.now();
+  if (now - (beep._last || 0) < 1200) return;
+  beep._last = now;
+  try {
+    initAudio(); if (!audioCtx) return;
+    const t0 = audioCtx.currentTime;
+    [[880, 0], [1180, 0.11]].forEach(([f, d]) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = "sine"; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0 + d);
+      g.gain.exponentialRampToValueAtTime(0.14, t0 + d + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.17);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(t0 + d); o.stop(t0 + d + 0.2);
+    });
+  } catch (e) { /* الصوت مش أساسي */ }
+}
+
+function applySoundBtn() {
+  const b = $("soundBtn"); if (!b) return;
+  const on = soundOn();
+  b.classList.toggle("off", !on);
+  b.setAttribute("aria-pressed", on ? "true" : "false");
+  b.title = on ? "تنبيه صوتي عند تغيير من مستخدم تاني — شغّال (اضغط للكتم)" : "التنبيه الصوتي مكتوم (اضغط للتشغيل)";
+}
+on("soundBtn", "click", () => {
+  try { localStorage.setItem("bankai-live-sound", soundOn() ? "0" : "1"); } catch (e) { }
+  applySoundBtn();
+  if (soundOn()) beep();
+  toast(soundOn() ? "التنبيه الصوتي اتشغّل" : "التنبيه الصوتي اتكتم");
+});
+
+/* -------- مؤشّر الاتصال في الشريط العلوي -------- */
+function setLive(up, text) {
+  const p = $("livePill"); if (!p) return;
+  p.classList.toggle("off", !up);
+  $("liveText").textContent = text;
+  p.title = up ? "متصل: أي تغيير من أي مستخدم تاني بيظهر هنا فورًا من غير refresh"
+    : "الاتصال بالتحديث المباشر انقطع — بنحاول نرجع تاني";
+}
+
+/* -------- حلقة الاستماع (long-poll) -------- */
+let liveRun = false, liveRev = 0, liveFails = 0, liveFirst = true;
+async function liveLoop() {
+  while (liveRun) {
+    try {
+      /* أول اتصال بياخد لقطة فورية (wait=0) عشان يعرف مكانه من غير ما يستنى،
+         وبعدها long-poll عادي. `liveFirst` بدل ما نعتمد على liveRev===0 لأن rev
+         صفر نفسها قيمة صحيحة (سيرفر جديد لسه مفيش أحداث فيه).
+         مدة الانتظار أقل من أي timeout على البروكسي (Railway ~30 ث) بمargin. */
+      const hide = document.visibilityState === "hidden";
+      const wait = liveFirst ? 0 : (hide ? 20 : 15);
+      const r = await api(`/api/events?since=${liveRev}&wait=${wait}`, { silent: true });
+      liveFails = 0; setLive(true, "متابعة مباشرة");
+      if (!liveFirst) { if (r.reset) liveRefreshPage(); else applyEvents(r.events || []); }
+      liveFirst = false;
+      liveRev = (typeof r.rev === "number") ? r.rev : liveRev;
+    } catch (e) {
+      if (!S.token) { stopLive(); return; }
+      liveFails++;
+      setLive(false, liveFails > 2 ? "إعادة الاتصال…" : "الاتصال انقطع");
+      await new Promise(res => setTimeout(res, Math.min(12000, 1500 * liveFails)));
+    }
+  }
+}
+function startLive() {
+  if (liveRun || !S.token) return;
+  liveRun = true; liveRev = 0; liveFails = 0; liveFirst = true;
+  setLive(true, "متابعة مباشرة");
+  liveLoop();
+}
+function stopLive() { liveRun = false; if ($("livePill")) setLive(false, "متوقف"); }
+
+/* -------- تطبيق الأحداث على الشاشة -------- */
+const KIND_AR = { attendance: "تسجيلات الحضور", employees: "بيانات الموظفين", schedule: "الجدول", settings: "الإعدادات" };
+function applyEvents(events) {
+  /* بنتجاهل بس الأحداث اللي مصدرها التاب نفسها. أي حدث من غير معرّف تاب (كتابة
+     من بره الواجهة مثلًا) بنعتبره من حد تاني وبنطبّقه. */
+  const mine = ev => !!ev.client && ev.client === S.clientId;
+  const fresh = events.filter(ev => !mine(ev));
+  if (!fresh.length) return;
+  let hit = false;
+  for (const ev of fresh) if (liveRefresh(ev)) hit = true;
+  if (!hit) return;
+  const names = [...new Set(fresh.flatMap(ev => ev.names || []))].filter(Boolean);
+  const what = names.length ? names.slice(0, 2).join("، ") + (names.length > 2 ? ` +${names.length - 2}` : "")
+    : (KIND_AR[fresh[0].kind] || "بيانات");
+  toast(`تحديث مباشر — ${fresh[0].by || "مستخدم"}: ${what}`, "ok");
+  beep();
+  pulse($("livePill"), "bump");
+}
+
+/* بيحدّث الصفحة الحالية لو الحدث يعنيها، وبيرجّع true لو اتأثرت فعلاً */
+function liveRefresh(ev) {
+  const kind = ev.kind;
+  if (S.page === "attendance") {
+    if (kind === "attendance" && (!ev.date || ev.date === S.att.date)) { loadRosterSoft(ev); return true; }
+    if (kind !== "attendance") { loadRosterSoft(ev); return true; } /* بيانات موظفين/جدول: الروستر كله */
+    return false;
+  }
+  if (S.page === "dashboard") {
+    if (kind === "attendance" && ev.date && ev.date !== S.dash.date) return false;
+    loadDashboard(); if (kind === "attendance") loadFeed();
+    return true;
+  }
+  if (S.page === "employees") { loadEmployeesSoft(); return true; }
+  if (S.page === "fines") { loadFines(); return true; }
+  if (S.page === "reports") { if ($("repStart").value) runReport(); return true; }
+  if (S.page === "schedule") { if (S.sch && !S.sch.draft.size) loadSchedulePage(); return true; }
+  return false; /* صفحة الإعدادات: تنبيه بس من غير ما نلمس اللي المستخدم بيكتبه */
+}
+function liveRefreshPage() {
+  if (S.page === "attendance") loadRosterSoft();
+  else if (S.page === "dashboard") { loadDashboard(); loadFeed(); }
+  else if (S.page === "employees") loadEmployeesSoft();
+  else if (S.page === "fines") loadFines();
+  else if (S.page === "reports" && $("repStart").value) runReport();
+  else if (S.page === "schedule" && S.sch && !S.sch.draft.size) loadSchedulePage();
+}
+
+/* -------- تحديث ناعم لصفحة الحضور: بيمسّ الصفوف اللي اتغيّرت بس -------- */
+async function loadRosterSoft(ev = {}) {
+  if (S.page !== "attendance" || !S.roster) return;
+  const date = S.att.date, y = window.scrollY;
+  let r;
+  try { r = await api(`/api/roster?attendance_date=${date}`, { silent: true }); }
+  catch (e) { return; }                        /* التحديث التلقائي مش أساسي: نسيب الشاشة زي ما هي */
+  if (S.page !== "attendance" || date !== S.att.date) return;
+  const only = (ev.ids && ev.ids.length) ? new Set(ev.ids) : null;
+  let full = !!ev.reset;
+  const hit = id => !only || only.has(id);
+  const list = [];
+  for (const e of r.employees) {
+    const old = S.rmap.get(e.id);
+    if (!old) { full = true; list.push(e); continue; }
+    if (S.draft.has(e.id)) {
+      /* الصف اللي عليه مسودة بنسيب نسختنا زي ما هي عشان القفل المتفائل يشتغل عند
+         الحفظ، بس بنعلّمه إن حد غيّره من بره. */
+      if (hit(e.id) && JSON.stringify(e.attendance || null) !== JSON.stringify(old.attendance || null)) {
+        S.stale.add(e.id);
+        if (!full) updateRowUI(old);
+      }
+    } else {
+      Object.assign(old, e);
+      S.stale.delete(e.id);
+      if (!full && hit(e.id)) updateRowUI(old);
+    }
+    list.push(old);
+  }
+  if (r.employees.length !== S.roster.employees.length) full = true;
+  S.roster = r; S.roster.employees = list;
+  S.rmap = new Map(list.map(e => [e.id, e]));
+  for (const id of [...S.draft.keys()]) { const e = S.rmap.get(id); if (!e) S.draft.delete(id); else maybeClean(e); }
+  if (full) { renderAttendance(); } else { updateAttSummary(); renderOff(); }
+  updateSaveBar();
+  if (full && window.scrollY !== y) window.scrollTo(0, y);
+}
+
+async function loadEmployeesSoft() {
+  try {
+    S.employees = await api("/api/employees", { silent: true });
+    if (S.page === "employees") renderEmployees();
+    if (S.page === "attendance") loadRosterSoft();
+  } catch (e) { /* زي فوق: تحديث تلقائي مش أساسي */ }
+}
+
+applySoundBtn();
+setLive(false, "غير متصل");
+

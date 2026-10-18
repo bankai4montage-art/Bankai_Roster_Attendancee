@@ -2356,3 +2356,27 @@ dialog::backdrop{background:color-mix(in srgb,#1c1633 55%,transparent);backdrop-
 :root[data-theme=dark] .tbl tr.sel td{background:color-mix(in srgb,var(--brand) 15%,var(--surface))}
 :root[data-theme=dark] .mini-tbl tr[data-go]:hover td,
 :root[data-theme=dark] .mini-tbl tr[data-hist]:hover td{background:color-mix(in srgb,var(--brand) 9%,var(--surface))}
+
+/* ============================================================
+   التحديث المباشر: مؤشّر الاتصال + مفتاح الصوت + تعليم الصفوف
+   ============================================================ */
+/* كلها بتستخدم توكنز الهوية، فهي مظبوطة في الوضع الفاتح والداكن بنفس الشكل. */
+.live-pill{display:inline-flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 13px;color:var(--ink2);font-weight:800;font-size:12.5px;box-shadow:var(--shadow)}
+.live-pill i{width:8px;height:8px;border-radius:50%;flex:none;background:var(--ok);box-shadow:0 0 0 3px var(--ok-bg)}
+.live-pill.off i{background:var(--slate);box-shadow:0 0 0 3px var(--off-bg)}
+.live-pill:not(.off) i{animation:livePulse 2.2s ease-in-out infinite}
+@keyframes livePulse{0%,100%{opacity:1}50%{opacity:.4}}
+.live-btn{width:38px;height:38px;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);background:var(--surface);color:var(--ink2);border-radius:12px;box-shadow:var(--shadow);cursor:pointer;transition:color .2s,border-color .2s}
+.live-btn:hover{border-color:var(--brand);color:var(--brand)}
+.live-btn .i{width:19px;height:19px}
+.live-btn .snd-off{display:none}
+.live-btn.off .snd-on{display:none}
+.live-btn.off .snd-off{display:block}
+.live-btn.off{color:var(--slate)}
+.topnav .live-btn{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14);color:#cfc6ec;box-shadow:none}
+.topnav .live-btn:hover{border-color:var(--brand);color:#fff}
+/* صف اتغيّر من مستخدم تاني وعليه عندنا مسودة مش محفوظة: تنبيه قبل الحفظ */
+.arow.stale{box-shadow:inset 3px 0 0 0 var(--warn)}
+.arow.stale .a-sub::after{content:"اتغيّر من مستخدم تاني — راجع قبل الحفظ";display:block;margin-top:3px;font-weight:800;color:var(--warn-d)}
+@media(max-width:860px){.live-pill{padding:6px 9px}.live-pill #liveText{display:none}}
+@media(prefers-reduced-motion:reduce){.live-pill i{animation:none!important}}
