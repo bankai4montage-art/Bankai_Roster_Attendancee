@@ -745,7 +745,9 @@ document.addEventListener("keydown", ev => {
   if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "s" && S.page === "attendance") { ev.preventDefault(); saveAttendance(); return; }
   if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "s" && S.page === "schedule") { ev.preventDefault(); schSave(); return; }
   if (ev.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) {
-    const el = S.page === "attendance" ? $("attSearch") : S.page === "employees" ? $("empSearch") : S.page === "schedule" ? $("schSearch") : null;
+    /* اختصار البحث في كل الصفحات اللي فيها خانة بحث */
+    const searchMap = { attendance: "attSearch", employees: "empSearch", schedule: "schSearch", reports: "repSearch", fines: "fineSearch" };
+    const el = $(searchMap[S.page]);
     if (el) { ev.preventDefault(); el.focus(); }
   }
 });
@@ -1631,8 +1633,12 @@ on("setWipeAtt", "click", async () => {
   try {
     const r = await api("/api/admin/wipe-attendance", { method: "POST" });
     toast(r.message || "تم مسح سجل الحضور.", "ok");
+    /* الغرامات كلها بتيجي من سجل الحضور، فبياناتها المخزّنة اتفسحت: نهيّئها عشان
+       تتحدّث من أول وجديد أول ما صفحة الغرامات تفتح تاني. */
+    S.fines.data = null;
     if (S.page === "dashboard") loadDashboard();
     else if (S.page === "reports" && $("repStart").value) runReport();
+    else if (S.page === "fines") loadFines();
     else if (S.page === "attendance") loadRoster();
   } catch (e) { toast(e.message, "err"); }
 });

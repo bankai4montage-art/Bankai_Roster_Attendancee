@@ -620,6 +620,10 @@ def move_employee_branch(employee_id: int, data: MoveBranchIn, request: Request,
     if data.branch == old_branch:
         raise HTTPException(400, "الموظف في الفرع ده بالفعل")
     e.branch = data.branch
+    # نشتغل بالشيفت القديم في الفرع الجديد: لو مش معمول فيه نعريف شيفت بنضيفه
+    # عشان صفحة الجدول والفلاتر تشوفه من غير خطوة إضافية.
+    if e.shift and not db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == e.shift).first():
+        db.add(ShiftDef(branch=data.branch, name=e.shift))
     db.commit()
     db.refresh(e)
     publish_event("employees", action="move", names=[e.name], branch=e.branch,
@@ -1275,11 +1279,11 @@ def list_fines(start: Optional[date] = None, end: Optional[date] = None, branch:
     """كل غرامات الفرعين (تأخير وغياب) بكل تفاصيلها: الموظف والفرع والشيفت والنوع واليوم والغرامة والسبب والملاحظة."""
     if start and end and end < start:
         raise HTTPException(400, "تاريخ النهاية يجب ألا يسبق تاريخ البداية")
-    rows = _fines_rows(db, start, end, branch, status, q)
-    # عدّادات الفروع بتتحسب من غير فلتر الفرع، عشان مفتاح الفروع في الصفحة يفضل
-    # شايف الفرعين الاتنين وإنت واقف على فرع واحد
-    branch_rows = rows if branch not in BRANCHES else _fines_rows(db, start, end, None, status, q)
-    payload = _fines_payload(rows, branch_rows)
+    # استعلام واحد بس، وفلتر الفرع بيتطبّق في الذاكرة: نفس النتيجة نفس ترتيب الصفوف،
+    # وعدّادات الفروع تفضل شايفة الفرعين وإنت واقف على فرع واحد
+    all_rows = _fines_rows(db, start, end, None, status, q)
+    rows = [r for r in all_rows if r[1].branch == branch] if branch in BRANCHES else all_rows
+    payload = _fines_payload(rows, all_rows)
     return {"start": start.isoformat() if start else "", "end": end.isoformat() if end else "",
             "branch": branch if branch in BRANCHES else "", "status": status if status in STATUSES else "", **payload}
 

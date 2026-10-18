@@ -2380,3 +2380,12 @@ dialog::backdrop{background:color-mix(in srgb,#1c1633 55%,transparent);backdrop-
 .arow.stale .a-sub::after{content:"اتغيّر من مستخدم تاني — راجع قبل الحفظ";display:block;margin-top:3px;font-weight:800;color:var(--warn-d)}
 @media(max-width:860px){.live-pill{padding:6px 9px}.live-pill #liveText{display:none}}
 @media(prefers-reduced-motion:reduce){.live-pill i{animation:none!important}}
+
+/* ============================================================
+   زر «نقل» لفرع آخر في جدول الموظفين: Badge صغير بيظهر مع مرور
+   الماوس على الصف، وثابت على شاشات اللمس (مفيش hover فيها)
+   ============================================================ */
+.br-mv{font-size:11.5px;padding:2px 9px;border-radius:999px;background:var(--brand-bg);color:var(--brand);margin-inline-start:6px;opacity:0;transition:opacity .15s,transform .15s}
+.br-mv:hover{background:var(--brand);color:#fff!important;text-decoration:none!important}
+.tbl tbody tr:hover .br-mv,.br-mv:focus-visible{opacity:1}
+@media(hover:none){.br-mv{opacity:1}}
