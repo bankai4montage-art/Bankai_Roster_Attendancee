@@ -144,6 +144,7 @@ on("loginForm", "submit", async e => {
     const r = await api("/api/login", { method: "POST", body: { password: $("password").value } });
     S.token = r.token; localStorage.setItem("bankai_token", S.token);
     S.role = r.role || "admin"; localStorage.setItem("bankai_role", S.role);
+    document.documentElement.dataset.auth = "1"; /* نفس القفل بتاع الـ head: شاشة الدخول مقفولة من هنا لقدام */
     $("password").value = "";
     await init();
   } catch (err) { $("loginError").textContent = err.message; }
@@ -152,6 +153,7 @@ on("loginForm", "submit", async e => {
 function logout(show = true) {
   S.token = ""; S.role = "";
   localStorage.removeItem("bankai_token"); localStorage.removeItem("bankai_role");
+  delete document.documentElement.dataset.auth; /* نشيل قفل إخفاء شاشة الدخول المبكّر بتاع الـ head */
   S.draft.clear(); if (S.sch) S.sch.draft.clear(); S.shown = false; S.page = "";
   $("appView").classList.add("hidden"); $("loginView").classList.remove("hidden");
   if (show) toast("تم تسجيل الخروج");
@@ -242,16 +244,21 @@ on("navSearch", "input", debounce(() => {
 
 async function init() {
   try {
-    const me = await api("/api/me");
+    /* التلاتة طلبات على التوازي بدل ما /api/me يستنى الأول — بيقصّر زمن هيكل
+       التحميل الأول للنص تقريبًا ومفيش أي فرق في الترتيب من ناحية البيانات. */
+    const [me, emps, settings] = await Promise.all([api("/api/me"), api("/api/employees"), api("/api/settings")]);
     S.role = me.role || "admin"; localStorage.setItem("bankai_role", S.role);
     applyRole();
     showApp();
-    const [emps, settings] = await Promise.all([api("/api/employees"), api("/api/settings")]);
     S.employees = emps; S.settings = settings;
     fillShiftLists();
     S.shown = false;
     if (!location.hash) location.hash = isAdmin() ? "dashboard" : "attendance"; else route();
-  } catch (e) { if (S.token) toast(e.message, "err"); }
+  } catch (e) {
+    /* لو طلب البوت فشل (شبكة/401/500) ما نسيبش المستخدم عالق على هيكل التحميل:
+       صفحة فاضية + رسالة خطأ أحسن من شاشة واقفة للأبد. 401 كده مخلّص لوحده (logout). */
+    if (S.token) { toast(e.message, "err"); S.shown = false; route(); }
+  }
 }
 
 /* ============================== dashboard ============================== */
@@ -1458,11 +1465,15 @@ if (S.token) { showApp(); init(); }
     if (RM() || document.visibilityState !== "visible") return;
     var root = qs("#page-" + p);
     if (!root) return;
-    /* الحاويات الفاضية بتتسيب من غير حركة: هي دي اللي هتتملي بالداتا بعد شوية،
+    /* الحاويات الفاضية بتتسيب من غير حركة: هي دي اللي هتتملي بالداتا بعد شوية,
        فلو حرّكناها هنا بيبقى في حركتين فوق بعض (الحاوية بتطلع والصفوف جواها
-       بتتحرك في نفس اللحظة) — وده اللي كان شكله مش نضيف. الصفوف بتتحرك لوحدها. */
+       بتتحرك في نفس اللحظة) — وده اللي كان شكله مش نضيف. الصفوف بتتحرك لوحدها.
+       DATA_HOSTS = عناصر بتاخد stagger خاص بيها من wrapper العرض نفسه — نسيبها
+       من حركة الحاوية عشان مايبقاش في موجتين متزاممتين على نفس المكان. */
+    var DATA_HOSTS = { dashKpis: 1, repKpis: 1, attList: 1, schTotals: 1, schShifts: 1 };
     var kids = qsa(":scope > *", root).filter(function (el) {
-      if (el.classList.contains("save-bar") || el.classList.contains("hidden") || el.classList.contains("print-only")) return false;
+      if (el.classList.contains("save-bar") || el.classList.contains("hidden") || el.classList.contains("print-only") || el.classList.contains("table-wrap")) return false;
+      if (DATA_HOSTS[el.id]) return false;
       return el.textContent.trim().length > 0;
     });
     stagger(kids, 20, 0, 8, RISE, 110);
@@ -1478,22 +1489,49 @@ if (S.token) { showApp(); init(); }
     });
   }
 
-  /* ---------- 4. لقطة الصفحة عند التبديل ---------- */
+  /* ---------- 4. هيكل التحميل الأول + لقطة الصفحة عند التبديل ----------
+     الهيكل مابيتشالش أول ما صفحة البوت تفتح — بيفضل شغال لحد ما أول داتا
+     بتاعة الصفحة توصل (wrapper العرض بيسأل reveal()). الفايدة: المستخدم مايشوفش
+     وضاحة فاضية بين الهيكل والداتا، والصفحة بتظهر مكمّلة بالداتا وحركة الدخول
+     في نفس اللحظة. صافّي أمان: لو الطلب اتأخر أكتر من 2.5 ثانية بنكشف الصفحة
+     زي ما هي بدل ما يقف على الهيكل للأبد. */
   var _showPage = window.showPage;
-  var bootSkel = qs("#bootSkel");
-  window.showPage = function (p) {
-    /* أول صفحة حقيقية بتتشال معاها شاشة التحميل — قبلها المستخدم كان بيقعد
-       قدام منطقة فاضية لحد ما /api/me و/api/employees يرجعوا. */
+  var bootSkel = qs("#bootSkel"), bootPage = "", bootT = 0;
+  function finishBoot() {
+    bootPage = ""; clearTimeout(bootT);
     if (bootSkel && bootSkel.parentNode) { bootSkel.parentNode.removeChild(bootSkel); bootSkel = null; }
-    _showPage(p);
-    markEnter(p);
-    requestAnimationFrame(function () { syncNav(); enterPage(p); });
+  }
+  /* بترجّع true لو فعلا الكشف (reveal) حصل هنا — يعني لو الصفحة بتستنى داتا لسه */
+  function revealBoot(p) {
+    if (bootPage !== p || !bootSkel) return false;
+    finishBoot();
+    var pg = qs("#page-" + p); if (pg) pg.classList.remove("hidden");
+    syncNav();
+    return true;
+  }
+  function syncNavNow() { requestAnimationFrame(syncNav); }
+  window.showPage = function (p) {
+    if (bootSkel && bootSkel.parentNode) {
+      bootPage = p;
+      bootT = setTimeout(function () { revealBoot(bootPage); }, 2500); /* أمان: كشف الصفحة لو الداتا اتأخرت جدًا */
+      _showPage(p);
+      markEnter(p);
+      if (bootSkel && bootSkel.parentNode) {
+        /* الصفحة لسه فاضية (محتاجة طلب) — نسيب الهيكل شغال ونخفي الصفحة لحد الداتا */
+        var pg = qs("#page-" + p); if (pg) pg.classList.add("hidden");
+        syncNavNow();
+        return;
+      }
+      /* صفحة بتترندر فورًا (employees/settings) — الهيكل اتشال من جوه _showPage على طول */
+    } else { _showPage(p); markEnter(p); }
+    requestAnimationFrame(function () { if (!bootPage) enterPage(p); syncNav(); });
   };
 
   /* ---------- 5. كروت الملخص: شريط + نسبة + عدّاد ---------- */
   var _dash = window.renderDashboard;
   window.renderDashboard = function (d) {
     _dash(d);
+    var boot = bootPage === "dashboard" && revealBoot("dashboard"); /* أول داتا وصلت — نبدّل الهيكل بالصفحة الحقيقية */
     var host = qs("#dashKpis"); if (!host) return;
     host.setAttribute("aria-busy", "false");
     host.style.animation = "none"; /* نشيل حركة الحاوية عشان حركة الكروت لوحدها تبان */
@@ -1505,16 +1543,17 @@ if (S.token) { showApp(); init(); }
       f.innerHTML = '<span class="kpi-bar"><i style="width:' + p + '%"></i></span><span class="kpi-pct">' + p + "%</span>";
       kv.classList.toggle("is-zero", numeric(kv) === 0 || isNaN(numeric(kv)));
     });
-    if (enter === "dashboard") { enter = null; stagger("#dashKpis .kpi", 26, 0, 6, RISE, 130); }
+    if (boot || enter === "dashboard") { enter = null; stagger("#dashKpis .kpi", 26, 0, 6, RISE, 130); }
   };
 
   /* ---------- 6. التقارير ---------- */
   var _rep = window.renderReport;
   window.renderReport = function () {
     _rep.apply(null, arguments);
+    var boot = bootPage === "reports" && revealBoot("reports");
     var rh = qs("#repKpis"); if (rh) rh.setAttribute("aria-busy", "false");
     if (rh) rh.style.animation = "none";
-    if (enter === "reports") {
+    if (boot || enter === "reports") {
       enter = null;
       stagger("#repKpis .kpi", 26, 0, 6, RISE, 130);
       stagger("#repDays tr", 10, 30, 14, FADE, 90);
@@ -1526,7 +1565,8 @@ if (S.token) { showApp(); init(); }
   var _att = window.renderAttendance;
   window.renderAttendance = function () {
     _att.apply(null, arguments);
-    if (enter === "attendance") {
+    var boot = bootPage === "attendance" && revealBoot("attendance");
+    if (boot || enter === "attendance") {
       enter = null;
       stagger("#attList .arow", 9, 30, 30, FADE, 150);
       growBars("#attList .ghead .stack i");
@@ -1537,18 +1577,27 @@ if (S.token) { showApp(); init(); }
   var _emp = window.renderEmployees;
   window.renderEmployees = function () {
     _emp.apply(null, arguments);
-    if (enter === "employees") { enter = null; stagger("#empRows tr", 9, 20, 26, FADE, 140); }
+    if (bootPage === "employees" && revealBoot("employees")) { enter = null; stagger("#empRows tr", 9, 20, 26, FADE, 140); }
+    else if (enter === "employees") { enter = null; stagger("#empRows tr", 9, 20, 26, FADE, 140); }
   };
 
   /* ---------- 9. الجدول ---------- */
   var _sch = window.renderSchedule;
   window.renderSchedule = function () {
     _sch.apply(null, arguments);
-    if (enter === "schedule") {
+    var boot = bootPage === "schedule" && revealBoot("schedule");
+    if (boot || enter === "schedule") {
       enter = null;
       stagger("#schTotals .dt", 22, 20, 8, RISE, 90);
       stagger("#schShifts .shcard", 40, 40, 6, RISE, 140);
     }
+  };
+  /* صفحة الإعدادات مالهاش render wrapper — أول رد من /api/settings بيكمّل هيكل التحميل */
+  var _ls = window.loadSettings;
+  window.loadSettings = function () {
+    var pr = _ls.apply(null, arguments);
+    if (bootPage === "settings") pr.then(function () { revealBoot("settings"); }).catch(function () { });
+    return pr;
   };
 
   /* ---------- 10. شارة المسودّات على شريط التنقّل ---------- */
