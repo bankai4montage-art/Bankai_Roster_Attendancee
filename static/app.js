@@ -1453,8 +1453,11 @@ on("schImpRun", "click", async () => {
     await refreshEmployees(); S.sch.draft.clear(); await loadSchedule();
   } catch (e) { toast(e.message, "err"); simpRender(); }
 });
-
 on("schExport", "click", () => download(`/api/schedule/export.csv?branch=${encodeURIComponent(S.sch.branch)}`, `bankai_schedule_${S.sch.branch.replace(" ", "")}.csv`).catch(e => toast(e.message, "err")));
+
+on("schExcel", "click", () => download(`/api/schedule/export.xlsx?branch=${encodeURIComponent(S.sch.branch)}`, `bankai_schedule_${S.sch.branch.replace(" ", "")}.xlsx`).catch(e => toast(e.message, "err")));
+
+
 on("schPrint", "click", () => window.print());
 
 /* one-click day off, pin, move, remove, break edits (event delegation) */

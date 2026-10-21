@@ -11,6 +11,9 @@ import threading
 import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List, Dict
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 from fastapi import FastAPI, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse, Response
@@ -1638,10 +1641,125 @@ def schedule_export(branch: Optional[str] = None, _: bool = Depends(require_auth
         q = q.filter(Employee.branch == branch)
     emps = sorted(q.all(), key=lambda e: (e.branch, shift_sort_key(e.shift), e.name))
     return csv_response(
-        ["الفرع", "الشيفت", "الاسم", "الكود", "النوع", "يوم الإجازة", "بداية البريك", "مدة البريك (دقيقة)"],
+        ["الفرع", "الشيفت", "الاسم", "الكود", "النوع", "يوم الإجازة", "Beginning البريك", "مدة البريك (دقيقة)"],
         [[e.branch, e.shift, e.name, e.employee_code or "", e.employment_type, WD_AR.get(e.day_off, e.day_off),
           e.break_start or "", (e.break_min or 60) if e.break_start else ""] for e in emps],
         f"bankai_schedule_{(branch or 'all').replace(' ', '')}.csv")
+
+
+@app.get("/api/schedule/export.xlsx")
+def schedule_export_xlsx(branch: Optional[str] = None, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+    q = db.query(Employee).filter(Employee.active.is_(True))
+    if branch in BRANCHES:
+        q = q.filter(Employee.branch == branch)
+    emps = list(q.all())
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Schedule"
+
+    # Styles
+    header_font = Font(name="Cairo", bold=True, size=11, color="FFFFFF")
+    header_fill = PatternFill(start_color="2A0F57", end_color="2A0F57", fill_type="solid")
+    branch_font = Font(name="Cairo", bold=True, size=12, color="2A0F57")
+    normal_font = Font(name="Cairo", size=10)
+    thin_border = Border(
+        left=Side(style="thin"),
+        right=Side(style="thin"),
+        top=Side(style="thin"),
+        bottom=Side(style="thin")
+    )
+    title_font = Font(name="Cairo", bold=True, size=14, color="2A0F57")
+    section_font = Font(name="Cairo", bold=True, size=13, color="2A0F57")
+
+    # Separate FT and PT
+    ft_emps = [e for e in emps if e.employment_type == "FT"]
+    pt_emps = [e for e in emps if e.employment_type == "PT"]
+
+    def write_section(ws, emps_list, start_row, is_ft=True):
+        # Title
+        title = "Full Time Employees" if is_ft else "Part Time Employees"
+        ws.merge_cells(start_row=start_row, start_column=1, end_row=start_row, end_column=8)
+        cell = ws.cell(row=start_row, column=1, value=title)
+        cell.font = title_font
+        cell.alignment = Alignment(horizontal="right", vertical="center")
+        ws.row_dimensions[start_row].height = 30
+
+        # Headers
+        headers = ["الفرع", "الشيفت", "الاسم", "الكود", "النوع", "يوم الإجازة", "Beginning البريك", "مدة البريك (دقيقة)"]
+        header_row = start_row + 1
+        for i, h in enumerate(headers, 1):
+            cell = ws.cell(row=header_row, column=i, value=h)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=True)
+            cell.border = thin_border
+        ws.row_dimensions[header_row].height = 30
+
+        # Data rows
+        for r, e in enumerate(emps_list, header_row + 1):
+            values = [
+                e.branch,
+                e.shift,
+                e.name,
+                e.employee_code or "",
+                e.employment_type,
+                WD_AR.get(e.day_off, e.day_off),
+                e.break_start or "",
+                e.break_min if e.break_start else ""
+            ]
+            for c, v in enumerate(values, 1):
+                cell = ws.cell(row=r, column=c, value=v)
+                cell.font = normal_font
+                cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=True)
+                cell.border = thin_border
+            ws.row_dimensions[r].height = 25
+
+        return start_row + 1 + len(emps_list) + 2
+
+    # Write FT section
+    ft_start = 1
+    if ft_emps:
+        ft_end = write_section(wb.active, ft_emps, ft_start, is_ft=True)
+    else:
+        ft_end = ft_start
+
+    # Write PT section after FT
+    pt_start = ft_end
+    if pt_emps:
+        write_section(wb.active, pt_emps, pt_start, is_ft=False)
+    else:
+        # Write empty PT section header
+        cell = ws.cell(row=pt_start, column=1, value="Part Time Employees (no employees)")
+        cell.font = Font(name="Cairo", italic=True, size=10, color="808080")
+        ws.merge_cells(start_row=pt_start, start_column=1, end_row=pt_start, end_column=8)
+
+    # Set column widths
+    ws.column_dimensions["A"].width = 14  # branch
+    ws.column_dimensions["B"].width = 20   # shift
+    ws.column_dimensions["C"].width = 30   # name
+    ws.column_dimensions["D"].width = 18   # code
+    ws.column_dimensions["E"].width = 14   # type
+    ws.column_dimensions["F"].width = 18   # day off
+    ws.column_dimensions["G"].width = 22   # break start
+    ws.column_dimensions["H"].width = 22   # break minutes
+
+    # Apply Arabic number formatting for numeric columns
+    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+        for cell in row:
+            if cell.column >= 8 and isinstance(cell.value, (int, float)):
+                cell.number_format = '0.00'
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    filename = f"bankai_schedule_{(branch or 'all').replace(' ', '')}.xlsx"
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 
 # ---------------------------------------------------------------- schedule import (Excel)
