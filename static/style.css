@@ -2389,3 +2389,14 @@ dialog::backdrop{background:color-mix(in srgb,#1c1633 55%,transparent);backdrop-
 .br-mv:hover{background:var(--brand);color:#fff!important;text-decoration:none!important}
 .tbl tbody tr:hover .br-mv,.br-mv:focus-visible{opacity:1}
 @media(hover:none){.br-mv{opacity:1}}
+
+/* ================= شريط الأسبوع (Week bar) ================= */
+.wkbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:0 0 16px;padding:10px 14px;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.wkbar .wk-cur{display:flex;flex-direction:column;align-items:center;min-width:150px;line-height:1.25}
+.wkbar .wk-cur b{font-size:18px;font-weight:900;color:var(--head);direction:ltr;unicode-bidi:isolate}
+.wkbar .wk-cur span{font-size:12.5px;font-weight:600;color:var(--ink3)}
+.wkbar .wk-cur.now b{color:var(--brand-d)}
+.wkbar .wk-note{font-size:12.5px;margin-inline-start:auto}
+.wkbar .inp[type=date]{width:auto}
+@media(max-width:700px){.wkbar{padding:8px 10px;gap:8px}.wkbar .wk-note{display:none}.wkbar .wk-cur{min-width:0;flex:1}}
+@media print{.wkbar{display:none!important}}
