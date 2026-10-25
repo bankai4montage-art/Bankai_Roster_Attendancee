@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Optional, List, Dict
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -104,6 +105,20 @@ class Setting(Base):
     value = Column(String(500), nullable=False, default="")
 
 
+class WeekSchedule(Base):
+    """جدول الموظف في أسبوع معيّن (الشيفت + يوم الإجازة + البريك). كل أسبوع له نسخته المستقلة."""
+    __tablename__ = "week_schedule"
+    id = Column(Integer, primary_key=True)
+    week_start = Column(Date, nullable=False, index=True)       # يوم الأحد بتاع الأسبوع
+    employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
+    shift = Column(String(80), nullable=False)
+    day_off = Column(String(12), nullable=False, default="Friday")
+    break_start = Column(String(5), nullable=True)
+    break_min = Column(Integer, nullable=True)
+    off_locked = Column(Boolean, nullable=False, default=False)
+    __table_args__ = (UniqueConstraint("week_start", "employee_id", name="uq_week_employee"),)
+
+
 Base.metadata.create_all(bind=engine)
 
 
@@ -123,6 +138,137 @@ def ensure_columns():
 
 
 ensure_columns()
+
+
+# ---------------------------------------------------------------- الأسابيع (Sunday → Saturday)
+# الأسبوع بيبدأ الأحد. الأسبوع اللي فيه 1 يناير هو Week 1، فيكون 25-31 أكتوبر 2026 = Week 44.
+BASE_WEEK = date(2026, 10, 25)          # الجدول الموجود قبل نظام الأسابيع بيتحوّل لهذا الأسبوع
+SCHED_FIELDS = ("shift", "day_off", "break_start", "break_min", "off_locked")
+
+
+def week_start_of(d: date) -> date:
+    return d - timedelta(days=(d.weekday() + 1) % 7)
+
+
+def week_number(ws: date):
+    end = ws + timedelta(days=6)
+    first = week_start_of(date(end.year, 1, 1))
+    return end.year, (ws - first).days // 7 + 1
+
+
+def week_info(ws: date) -> dict:
+    year, no = week_number(ws)
+    end = ws + timedelta(days=6)
+    return {"start": ws.isoformat(), "end": end.isoformat(), "number": no, "year": year,
+            "label": f"Week {no}"}
+
+
+def today_local() -> date:
+    return (utcnow() + timedelta(hours=3)).date()      # توقيت القاهرة تقريبًا
+
+
+def week_param(value: Optional[date]) -> date:
+    """أي تاريخ بيتحوّل ليوم الأحد بتاع أسبوعه. من غير قيمة = أسبوع النهارده."""
+    return week_start_of(value or today_local())
+
+
+def _copy_row(src, ws, employee_id=None):
+    return WeekSchedule(week_start=ws, employee_id=employee_id or src.employee_id, shift=src.shift,
+                        day_off=src.day_off, break_start=src.break_start, break_min=src.break_min,
+                        off_locked=bool(src.off_locked))
+
+
+def peek_week(db: Session, ws: date) -> dict:
+    """جدول الأسبوع لو موجود (من غير ما ننشئه). فاضي لو الأسبوع ما اتفتحش قبل كده."""
+    return {r.employee_id: r for r in db.query(WeekSchedule).filter(WeekSchedule.week_start == ws).all()}
+
+
+def ensure_week(db: Session, ws: date) -> dict:
+    """جدول الأسبوع {employee_id: WeekSchedule}. أول مرة الأسبوع بيتفتح بياخد نسخة من أقرب أسبوع
+    قبله (أو بعده لو مفيش)، وبعد كده بيبقى مستقل تمامًا: أي تعديل فيه ما بيأثرش في أسبوع تاني."""
+    rows = peek_week(db, ws)
+    if rows:
+        return rows
+    prev = (db.query(func.max(WeekSchedule.week_start)).filter(WeekSchedule.week_start < ws).scalar())
+    src_week = prev or db.query(func.min(WeekSchedule.week_start)).filter(WeekSchedule.week_start > ws).scalar()
+    if src_week:
+        src = db.query(WeekSchedule).filter(WeekSchedule.week_start == src_week).all()
+        new = [_copy_row(r, ws) for r in src]
+    else:
+        new = [WeekSchedule(week_start=ws, employee_id=e.id, shift=e.shift, day_off=e.day_off,
+                            break_start=e.break_start, break_min=e.break_min,
+                            off_locked=bool(e.off_locked)) for e in db.query(Employee).all()]
+    if not new:
+        return {}
+    try:
+        db.add_all(new)
+        db.commit()
+    except IntegrityError:                  # طلب تاني فتح نفس الأسبوع في نفس اللحظة
+        db.rollback()
+    return peek_week(db, ws)
+
+
+def migrate_weeks():
+    """مرة واحدة: الجدول الحالي (شيفت/إجازة/بريك على الموظف) يبقى جدول Week 44."""
+    db = SessionLocal()
+    try:
+        if db.query(WeekSchedule.id).first() is None and db.query(Employee.id).first() is not None:
+            ensure_week(db, BASE_WEEK)
+    finally:
+        db.close()
+
+
+migrate_weeks()
+
+
+def ov(e, s=None):
+    """الموظف + جدول أسبوعه (لو متاح) كـ dict جاهز للواجهة."""
+    d = employee_dict(e)
+    if s is not None:
+        d.update(shift=s.shift, day_off=s.day_off, break_start=s.break_start or "",
+                 break_min=s.break_min or 60, off_locked=bool(s.off_locked))
+    return d
+
+
+def week_pairs(db: Session, ws: date, branch: Optional[str] = None, active_only: bool = True):
+    """[(Employee, WeekSchedule)] للموظفين اللي ليهم جدول في الأسبوع ده."""
+    smap = ensure_week(db, ws)
+    q = db.query(Employee)
+    if active_only:
+        q = q.filter(Employee.active.is_(True))
+    if branch in BRANCHES:
+        q = q.filter(Employee.branch == branch)
+    return [(e, smap[e.id]) for e in q.order_by(Employee.branch, Employee.name).all() if e.id in smap]
+
+
+def set_sched(db: Session, e, ws: date, **vals):
+    """يكتب شيفت/إجازة/بريك لأسبوع واحد بس. لو الأسبوع هو أسبوع النهارده بنحدّث نسخة الموظف الأساسية كمان."""
+    smap = ensure_week(db, ws)
+    s = smap.get(e.id)
+    if s is None:
+        s = WeekSchedule(week_start=ws, employee_id=e.id, shift=e.shift, day_off=e.day_off,
+                         break_start=e.break_start, break_min=e.break_min, off_locked=bool(e.off_locked))
+        db.add(s)
+        smap[e.id] = s
+    for k, v in vals.items():
+        if k in SCHED_FIELDS:
+            setattr(s, k, v)
+    if ws == week_param(None):
+        for k in SCHED_FIELDS:
+            setattr(e, k, getattr(s, k))
+    return s
+
+
+def add_to_weeks(db: Session, e, ws: date, **vals):
+    """موظف جديد: يدخل جدول الأسبوع ده وكل الأسابيع اللي بعده واللي اتفتحت قبل كده."""
+    base = dict(shift=e.shift, day_off=e.day_off, break_start=e.break_start, break_min=e.break_min,
+                off_locked=bool(e.off_locked))
+    base.update({k: v for k, v in vals.items() if k in SCHED_FIELDS})
+    weeks = {ws} | {w for (w,) in db.query(WeekSchedule.week_start).filter(WeekSchedule.week_start > ws).distinct().all()}
+    have = {w for (w,) in db.query(WeekSchedule.week_start).filter(WeekSchedule.employee_id == e.id).all()}
+    for w in weeks - have:
+        db.add(WeekSchedule(week_start=w, employee_id=e.id, **base))
+
 
 if ADMIN_PASSWORD == "ChangeThisPassword123!":
     print("WARNING: ADMIN_PASSWORD is the default value. Set a strong ADMIN_PASSWORD environment variable.")
@@ -555,19 +701,22 @@ def update_settings(data: SettingsIn, request: Request, role: str = Depends(requ
 
 # ---------------------------------------------------------------- employees
 @app.get("/api/employees")
-def list_employees(branch: Optional[str] = None, active_only: bool = False,
+def list_employees(branch: Optional[str] = None, active_only: bool = False, week: Optional[date] = None,
                    _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+    """موظفين الأسبوع المختار (الشيفت والإجازة والبريك بتاعة الأسبوع ده)."""
+    ws = week_param(week)
+    smap = ensure_week(db, ws)
     q = db.query(Employee)
     if branch in BRANCHES:
         q = q.filter(Employee.branch == branch)
     if active_only:
         q = q.filter(Employee.active.is_(True))
-    return [employee_dict(e) for e in q.order_by(Employee.branch, Employee.name).all()]
+    return [ov(e, smap[e.id]) for e in q.order_by(Employee.branch, Employee.name).all() if e.id in smap]
 
 
 @app.post("/api/employees")
-def create_employee(data: EmployeeIn, request: Request, role: str = Depends(require_admin),
-                    db: Session = Depends(get_db)):
+def create_employee(data: EmployeeIn, request: Request, week: Optional[date] = None,
+                    role: str = Depends(require_admin), db: Session = Depends(get_db)):
     check_employee_values(data.branch, data.employment_type, data.day_off)
     code = (data.employee_code or "").strip() or None
     if code and db.query(Employee).filter(Employee.employee_code == code).first():
@@ -576,15 +725,19 @@ def create_employee(data: EmployeeIn, request: Request, role: str = Depends(requ
                  employment_type=data.employment_type, day_off=data.day_off, active=data.active,
                  phone=(data.phone or "").strip() or None)
     db.add(e)
+    db.flush()
+    ws = week_param(week)
+    ensure_week(db, ws)
+    add_to_weeks(db, e, ws)
     db.commit()
     db.refresh(e)
     publish_event("employees", action="create", names=[e.name], by=who_role(role),
                   client=client_tag(request))
-    return employee_dict(e)
+    return ov(e, peek_week(db, ws).get(e.id))
 
 
 @app.put("/api/employees/{employee_id}")
-def update_employee(employee_id: int, data: EmployeeIn, request: Request,
+def update_employee(employee_id: int, data: EmployeeIn, request: Request, week: Optional[date] = None,
                     role: str = Depends(require_admin), db: Session = Depends(get_db)):
     e = db.query(Employee).filter(Employee.id == employee_id).first()
     if not e:
@@ -594,18 +747,19 @@ def update_employee(employee_id: int, data: EmployeeIn, request: Request,
     if code and db.query(Employee).filter(Employee.employee_code == code, Employee.id != employee_id).first():
         raise HTTPException(409, "كود الموظف مستخدم بالفعل")
     e.name = data.name.strip()
-    e.shift = data.shift.strip()
     e.employee_code = code
     e.branch = data.branch
     e.employment_type = data.employment_type
-    e.day_off = data.day_off
     e.active = data.active
     e.phone = (data.phone or "").strip() or None
+    # الشيفت ويوم الإجازة بيتغيّروا في الأسبوع المختار بس
+    ws = week_param(week)
+    s = set_sched(db, e, ws, shift=data.shift.strip(), day_off=data.day_off)
     db.commit()
     db.refresh(e)
     publish_event("employees", action="update", names=[e.name], by=who_role(role),
                   client=client_tag(request))
-    return employee_dict(e)
+    return ov(e, s)
 
 
 @app.post("/api/employees/{employee_id}/move")
@@ -625,8 +779,9 @@ def move_employee_branch(employee_id: int, data: MoveBranchIn, request: Request,
     e.branch = data.branch
     # نشتغل بالشيفت القديم في الفرع الجديد: لو مش معمول فيه نعريف شيفت بنضيفه
     # عشان صفحة الجدول والفلاتر تشوفه من غير خطوة إضافية.
-    if e.shift and not db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == e.shift).first():
-        db.add(ShiftDef(branch=data.branch, name=e.shift))
+    for (sh_name,) in db.query(WeekSchedule.shift).filter(WeekSchedule.employee_id == e.id).distinct().all():
+        if sh_name and not db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == sh_name).first():
+            db.add(ShiftDef(branch=data.branch, name=sh_name))
     db.commit()
     db.refresh(e)
     publish_event("employees", action="move", names=[e.name], branch=e.branch,
@@ -636,11 +791,20 @@ def move_employee_branch(employee_id: int, data: MoveBranchIn, request: Request,
 
 
 @app.delete("/api/employees/{employee_id}")
-def delete_employee(employee_id: int, request: Request, role: str = Depends(require_admin),
-                    db: Session = Depends(get_db)):
+def delete_employee(employee_id: int, request: Request, from_week: Optional[date] = None,
+                    role: str = Depends(require_admin), db: Session = Depends(get_db)):
     e = db.query(Employee).filter(Employee.id == employee_id).first()
     if not e:
         raise HTTPException(404, "الموظف غير موجود")
+    if from_week is not None:
+        # من صفحة الجدول: الموظف بيطلع من جدول الأسبوع ده وما بعده بس. الأسابيع اللي قبله وسجل الحضور زي ما هما.
+        ws = week_param(from_week)
+        db.query(WeekSchedule).filter(WeekSchedule.employee_id == e.id, WeekSchedule.week_start >= ws).delete(
+            synchronize_session=False)
+        db.commit()
+        publish_event("employees", action="deactivate", names=[e.name], by=who_role(role),
+                      client=client_tag(request))
+        return {"message": "تمت إزالة الموظف من جدول الأسبوع ده وما بعده مع الاحتفاظ بسجل حضوره"}
     # نحافظ على سجل الحضور القديم: إيقاف بدل الحذف النهائي.
     e.active = False
     db.commit()
@@ -650,8 +814,8 @@ def delete_employee(employee_id: int, request: Request, role: str = Depends(requ
 
 
 @app.post("/api/employees/bulk")
-def bulk_employees(data: BulkEmployeesIn, request: Request, role: str = Depends(require_admin),
-                   db: Session = Depends(get_db)):
+def bulk_employees(data: BulkEmployeesIn, request: Request, week: Optional[date] = None,
+                   role: str = Depends(require_admin), db: Session = Depends(get_db)):
     if not data.ids:
         raise HTTPException(400, "لم يتم تحديد أي موظف")
     if len(data.ids) > 2000:
@@ -677,12 +841,15 @@ def bulk_employees(data: BulkEmployeesIn, request: Request, role: str = Depends(
         else:
             if data.branch is not None:
                 e.branch = data.branch
-            if shift is not None:
-                e.shift = shift
             if data.employment_type is not None:
                 e.employment_type = data.employment_type
+            sched = {}
+            if shift is not None:
+                sched["shift"] = shift
             if data.day_off is not None:
-                e.day_off = data.day_off
+                sched["day_off"] = data.day_off
+            if sched:
+                set_sched(db, e, week_param(week), **sched)
     db.commit()
     publish_event("employees", action=data.action, names=[e.name for e in emps[:3]],
                   count=len(emps), by=who_role(role), client=client_tag(request))
@@ -690,8 +857,8 @@ def bulk_employees(data: BulkEmployeesIn, request: Request, role: str = Depends(
 
 
 @app.post("/api/employees/import")
-def import_employees(data: ImportIn, request: Request, role: str = Depends(require_admin),
-                     db: Session = Depends(get_db)):
+def import_employees(data: ImportIn, request: Request, week: Optional[date] = None,
+                     role: str = Depends(require_admin), db: Session = Depends(get_db)):
     if not data.rows:
         raise HTTPException(400, "الملف فاضي")
     if len(data.rows) > 5000:
@@ -703,6 +870,8 @@ def import_employees(data: ImportIn, request: Request, role: str = Depends(requi
         by_name.setdefault((e.name.strip().lower(), e.branch), e)
     created = updated = skipped = 0
     errors = []
+    ws = week_param(week)
+    ensure_week(db, ws)
 
     for idx, r in enumerate(data.rows, start=1):
         def err(msg):
@@ -750,11 +919,13 @@ def import_employees(data: ImportIn, request: Request, role: str = Depends(requi
                 continue
             if code and by_code.get(code) not in (None, match):
                 err("الكود مستخدم لموظف آخر"); continue
-            match.name, match.branch, match.shift = name, branch, shift
+            match.name, match.branch = name, branch
             if etype:
                 match.employment_type = etype
+            sched = {"shift": shift}
             if day:
-                match.day_off = day
+                sched["day_off"] = day
+            set_sched(db, match, ws, **sched)
             match.active = active
             if phone:
                 match.phone = phone
@@ -768,6 +939,8 @@ def import_employees(data: ImportIn, request: Request, role: str = Depends(requi
             e = Employee(name=name, employee_code=code, branch=branch, shift=shift,
                          employment_type=etype or "FT", day_off=day or "Friday", active=active, phone=phone)
             db.add(e)
+            db.flush()
+            add_to_weeks(db, e, ws)
             if code:
                 by_code[code] = e
             by_name.setdefault((name.lower(), branch), e)
@@ -785,13 +958,16 @@ def import_employees(data: ImportIn, request: Request, role: str = Depends(requi
 
 
 @app.get("/api/employees/export.csv")
-def export_employees(_: bool = Depends(require_auth), db: Session = Depends(get_db)):
-    rows = db.query(Employee).order_by(Employee.branch, Employee.shift, Employee.name).all()
+def export_employees(week: Optional[date] = None, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+    ws = week_param(week)
+    smap = ensure_week(db, ws)
+    rows = [(e, smap[e.id]) for e in db.query(Employee).all() if e.id in smap]
+    rows.sort(key=lambda p: (p[0].branch, p[1].shift, p[0].name))
     return csv_response(
         ["name", "employee_code", "branch", "shift", "employment_type", "day_off", "phone", "active"],
-        [[e.name, e.employee_code or "", e.branch, e.shift, e.employment_type, e.day_off,
-          e.phone or "", "yes" if e.active else "no"] for e in rows],
-        "bankai_employees.csv")
+        [[e.name, e.employee_code or "", e.branch, s.shift, e.employment_type, s.day_off,
+          e.phone or "", "yes" if e.active else "no"] for e, s in rows],
+        f"bankai_employees_week{week_number(ws)[1]}.csv")
 
 
 # ---------------------------------------------------------------- roster & attendance
@@ -799,24 +975,23 @@ def export_employees(_: bool = Depends(require_auth), db: Session = Depends(get_
 def roster(attendance_date: date = Query(...), branch: Optional[str] = None,
            _: bool = Depends(require_auth), db: Session = Depends(get_db)):
     weekday = attendance_date.strftime("%A")
-    base = db.query(Employee).filter(Employee.active.is_(True))
-    if branch in BRANCHES:
-        base = base.filter(Employee.branch == branch)
-    employees = base.filter(Employee.day_off != weekday).order_by(Employee.branch, Employee.shift, Employee.name).all()
-    off = base.filter(Employee.day_off == weekday).order_by(Employee.branch, Employee.name).all()
-    ids = [e.id for e in employees]
+    ws = week_start_of(attendance_date)
+    pairs = week_pairs(db, ws, branch)
+    working = sorted([(e, s) for e, s in pairs if s.day_off != weekday], key=lambda p: (p[0].branch, p[1].shift, p[0].name))
+    off = [(e, s) for e, s in pairs if s.day_off == weekday]
+    ids = [e.id for e, _ in working]
     existing = {}
     if ids:
         rows = db.query(Attendance).filter(Attendance.attendance_date == attendance_date,
                                            Attendance.employee_id.in_(ids)).all()
         existing = {a.employee_id: attendance_dict(a) for a in rows}
     out = []
-    for e in employees:
-        row = employee_dict(e)
+    for e, s in working:
+        row = ov(e, s)
         row["attendance"] = existing.get(e.id)
         out.append(row)
-    return {"date": attendance_date.isoformat(), "weekday": weekday, "employees": out,
-            "off_employees": [employee_dict(e) for e in off]}
+    return {"date": attendance_date.isoformat(), "weekday": weekday, "week": week_info(ws), "employees": out,
+            "off_employees": [ov(e, s) for e, s in off]}
 
 
 def _parse_stamp(value: str) -> Optional[datetime]:
@@ -845,6 +1020,7 @@ def _save_items(db: Session, day: date, items: List[AttendanceItem], _retry: boo
         wanted[it.employee_id] = it
     ids = list(wanted.keys())
     emps = {e.id: e for e in db.query(Employee).filter(Employee.id.in_(ids)).all()}
+    smap = ensure_week(db, week_start_of(day))
     # بنقرا المفاتيح والـstamps بس (مش كائنات ORM) عشان مفيش أي كائن قديم يتكتب بعد الكتابة
     rows = db.execute(select(Attendance.id, Attendance.employee_id, Attendance.updated_at).where(
         Attendance.attendance_date == day, Attendance.employee_id.in_(ids))).all()
@@ -862,7 +1038,10 @@ def _save_items(db: Session, day: date, items: List[AttendanceItem], _retry: boo
             errors.append({"employee_id": eid, "detail": "الموظف غير موجود"}); continue
         if not e.active:
             errors.append({"employee_id": e.id, "name": e.name, "detail": "الموظف غير نشط"}); continue
-        if e.day_off == weekday:
+        sched = smap.get(eid)
+        if sched is None:
+            errors.append({"employee_id": e.id, "name": e.name, "detail": "الموظف مش مضاف في جدول الأسبوع ده"}); continue
+        if sched.day_off == weekday:
             errors.append({"employee_id": e.id, "name": e.name, "detail": "هذا الموظف في إجازة في هذا اليوم"}); continue
         status = (it.status or "").strip()
         row_id = row_ids.get(eid)
@@ -997,7 +1176,10 @@ def save_attendance_bulk(data: AttendanceBulkIn, request: Request, role: str = D
 @app.get("/api/dashboard")
 def dashboard(attendance_date: date = Query(...), _: bool = Depends(require_auth), db: Session = Depends(get_db)):
     weekday = attendance_date.strftime("%A")
-    active = db.query(Employee).filter(Employee.active.is_(True)).all()
+    ws = week_start_of(attendance_date)
+    pairs = week_pairs(db, ws)
+    smap = {e.id: s for e, s in pairs}
+    active = [e for e, _ in pairs]
     att = {a.employee_id: a for a in db.query(Attendance).filter(Attendance.attendance_date == attendance_date).all()}
 
     def blank():
@@ -1006,12 +1188,12 @@ def dashboard(attendance_date: date = Query(...), _: bool = Depends(require_auth
     totals = blank()
     branches = {b: dict(blank(), shifts={}) for b in BRANCHES}
     off_today = 0
-    for e in active:
-        if e.day_off == weekday:
+    for e, s in pairs:
+        if s.day_off == weekday:
             off_today += 1
             continue
         b = branches.setdefault(e.branch, dict(blank(), shifts={}))
-        sh = b["shifts"].setdefault(e.shift, blank())
+        sh = b["shifts"].setdefault(s.shift, blank())
         a = att.get(e.id)
         key = a.status.lower() if a else "unmarked"
         if key not in totals:
@@ -1026,45 +1208,62 @@ def dashboard(attendance_date: date = Query(...), _: bool = Depends(require_auth
         b["fines"] = round(b["fines"], 2)
         b["shifts"] = [dict(shift=k, **dict(v, fines=round(v["fines"], 2))) for k, v in sorted(b["shifts"].items())]
 
-    start = attendance_date - timedelta(days=6)
+    # الاتجاه والمتابعة بيتحسبوا على الأسبوع ده بس (من الأحد للسبت)
+    we = ws + timedelta(days=6)
     trend_rows = (db.query(Attendance.attendance_date, Attendance.status, func.count(Attendance.id))
                   .select_from(Attendance).join(Employee, Attendance.employee_id == Employee.id)
-                  .filter(Employee.active.is_(True), Attendance.attendance_date >= start,
-                          Attendance.attendance_date <= attendance_date)
+                  .filter(Employee.active.is_(True), Attendance.attendance_date >= ws,
+                          Attendance.attendance_date <= we)
                   .group_by(Attendance.attendance_date, Attendance.status).all())
     trend_map = {}
     for d, st, c in trend_rows:
         trend_map.setdefault(d, {})[st] = int(c)
     trend = []
     for i in range(7):
-        d = start + timedelta(days=i)
+        d = ws + timedelta(days=i)
         m = trend_map.get(d, {})
         trend.append({"date": d.isoformat(), "present": m.get("Present", 0), "late": m.get("Late", 0),
                       "absent": m.get("Absent", 0), "excused": m.get("Excused", 0)})
 
-    w_start = attendance_date - timedelta(days=29)
-    w_rows = (db.query(Employee.id, Employee.name, Employee.branch, Employee.shift,
+    w_rows = (db.query(Employee.id, Employee.name, Employee.branch,
                        func.sum(case((Attendance.status == "Absent", 1), else_=0)).label("absent"),
                        func.sum(case((Attendance.status == "Late", 1), else_=0)).label("late"),
                        func.coalesce(func.sum(Attendance.fine), 0).label("fines"))
               .select_from(Attendance).join(Employee, Attendance.employee_id == Employee.id)
-              .filter(Employee.active.is_(True), Attendance.attendance_date >= w_start,
-                      Attendance.attendance_date <= attendance_date)
-              .group_by(Employee.id, Employee.name, Employee.branch, Employee.shift).all())
+              .filter(Employee.active.is_(True), Attendance.attendance_date >= ws,
+                      Attendance.attendance_date <= we)
+              .group_by(Employee.id, Employee.name, Employee.branch).all())
     watch = []
     for r in w_rows:
         absent, late = int(r.absent or 0), int(r.late or 0)
         if absent or late:
-            watch.append({"id": r.id, "name": r.name, "branch": r.branch, "shift": r.shift,
+            sc = smap.get(r.id)
+            watch.append({"id": r.id, "name": r.name, "branch": r.branch, "shift": sc.shift if sc else "",
                           "absent": absent, "late": late, "fines": round(float(r.fines or 0), 2)})
     watch.sort(key=lambda x: (x["absent"] * 2 + x["late"], x["fines"]), reverse=True)
 
-    return {"date": attendance_date.isoformat(), "weekday": weekday, "active_total": len(active),
+    wf = db.query(func.coalesce(func.sum(Attendance.fine), 0)).filter(
+        Attendance.attendance_date >= ws, Attendance.attendance_date <= we).scalar()
+    return {"date": attendance_date.isoformat(), "weekday": weekday, "week": week_info(ws),
+            "week_fines": round(float(wf or 0), 2), "active_total": len(active),
             "off_today": off_today, "totals": totals, "branches": branches,
             "trend": trend, "watchlist": watch[:8]}
 
 
 # ---------------------------------------------------------------- reports
+class WeekLookup:
+    """بيجيب شيفت/إجازة الموظف في أسبوع تاريخ معيّن (من غير ما ينشئ أسابيع جديدة)."""
+    def __init__(self, db):
+        self.db, self.cache = db, {}
+
+    def get(self, e, d):
+        ws = week_start_of(d)
+        if ws not in self.cache:
+            self.cache[ws] = peek_week(self.db, ws)
+        s = self.cache[ws].get(e.id)
+        return s if s is not None else e          # الموظف نفسه عنده shift/day_off احتياطي
+
+
 def _count_cols():
     return [
         func.count(Attendance.id).label("total"),
@@ -1132,11 +1331,13 @@ def report_employees(start: date, end: date, branch: Optional[str] = None, q: Op
                       Employee.shift, Employee.employment_type, Employee.active)
             .order_by(Employee.branch, Employee.name).all())
     out = []
+    smap = peek_week(db, week_start_of(end))
     for r in rows:
         c = _counts(r)
         rate = round((c["present"] + c["late"]) * 100 / c["total"], 1) if c["total"] else 0
+        sc = smap.get(r.id)
         out.append(dict(c, id=r.id, name=r.name, employee_code=r.code or "", branch=r.branch,
-                        shift=r.shift, employment_type=r.etype, active=bool(r.active), rate=rate))
+                        shift=sc.shift if sc else r.shift, employment_type=r.etype, active=bool(r.active), rate=rate))
     return {"start": start.isoformat(), "end": end.isoformat(), "employees": out}
 
 
@@ -1161,8 +1362,8 @@ def employee_history(employee_id: int, start: Optional[date] = None, end: Option
         stats["fine_total"] += a.fine or 0
         records.append(dict(attendance_dict(a), weekday=a.attendance_date.strftime("%A")))
     stats["fine_total"] = round(stats["fine_total"], 2)
-    return {"employee": employee_dict(e), "start": start.isoformat(), "end": end.isoformat(),
-            "stats": stats, "records": records}
+    return {"employee": ov(e, peek_week(db, week_start_of(end)).get(e.id)), "start": start.isoformat(),
+            "end": end.isoformat(), "stats": stats, "records": records}
 
 
 @app.get("/api/reports/export.csv")
@@ -1174,11 +1375,16 @@ def export_csv(start: date, end: date, branch: Optional[str] = None,
     if branch in BRANCHES:
         q = q.filter(Employee.branch == branch)
     rows = q.order_by(Attendance.attendance_date, Employee.branch, Employee.name).all()
+    look = WeekLookup(db)
+    out = []
+    for a, e in rows:
+        sc = look.get(e, a.attendance_date)
+        out.append([week_number(week_start_of(a.attendance_date))[1], a.attendance_date.isoformat(), e.branch,
+                    e.employee_code or "", e.name, e.employment_type, sc.shift, sc.day_off, a.status,
+                    f"{float(a.fine or 0):.2f}", a.reason or "", a.note or ""])
     return csv_response(
-        ["Date", "Branch", "Employee Code", "Name", "Type", "Shift", "Day Off", "Status", "Reason", "Note"],
-        [[a.attendance_date.isoformat(), e.branch, e.employee_code or "", e.name, e.employment_type,
-          e.shift, e.day_off, a.status, a.reason or "", a.note or ""] for a, e in rows],
-        f"bankai_attendance_{start}_{end}.csv")
+        ["Week", "Date", "Branch", "Employee Code", "Name", "Type", "Shift", "Day Off", "Status", "Fine (EGP)",
+         "Reason", "Note"], out, f"bankai_attendance_{start}_{end}.csv")
 
 
 @app.get("/api/reports/employees.csv")
@@ -1215,7 +1421,7 @@ def _fines_rows(db, start=None, end=None, branch=None, status=None, q=None):
     return query.order_by(Attendance.attendance_date.desc(), Employee.name).all()
 
 
-def _fines_payload(rows, branch_rows=None):
+def _fines_payload(rows, branch_rows=None, look=None):
     """تجميع الغرامات: إجماليات الفرعين + تفصيل شهري + إجمالي كل موظف + السجل الكامل بالتفاصيل.
 
     branch_rows: صفوف إجماليات الفرعين لوحدها. لما الفلتر يكون على فرع واحد بنمرّر
@@ -1232,11 +1438,19 @@ def _fines_payload(rows, branch_rows=None):
         b["total"] = round(b["total"] + fine, 2)
         b[kind] += 1
         b[kind + "_total"] = round(b[kind + "_total"] + fine, 2)
-    by_month, by_employee, items = {}, {}, []
+    by_month, by_employee, by_week, items = {}, {}, {}, []
     total = late_total = absent_total = 0.0
     for a, e in rows:
         fine = round(float(a.fine or 0), 2)
         late = a.status == "Late"
+        shift_name = look.get(e, a.attendance_date).shift if look else e.shift
+        wstart = week_start_of(a.attendance_date)
+        wk = by_week.setdefault(wstart, dict(week_info(wstart), count=0, total=0.0, late=0, absent=0,
+                                             late_total=0.0, absent_total=0.0))
+        wk["count"] += 1
+        wk["total"] = round(wk["total"] + fine, 2)
+        wk["late" if late else "absent"] += 1
+        wk["late_total" if late else "absent_total"] = round(wk["late_total" if late else "absent_total"] + fine, 2)
         kind = "late" if late else "absent"
         total += fine
         late_total += fine if late else 0.0
@@ -1249,7 +1463,7 @@ def _fines_payload(rows, branch_rows=None):
         m[kind] += 1
         m[kind + "_total"] = round(m[kind + "_total"] + fine, 2)
         emp = by_employee.setdefault(e.id, {"id": e.id, "name": e.name, "employee_code": e.employee_code or "",
-                                            "branch": e.branch, "shift": e.shift,
+                                            "branch": e.branch, "shift": shift_name,
                                             "employment_type": e.employment_type, "count": 0, "total": 0.0,
                                             "late": 0, "absent": 0})
         emp["count"] += 1
@@ -1257,7 +1471,8 @@ def _fines_payload(rows, branch_rows=None):
         emp[kind] += 1
         items.append({
             "id": a.id, "employee_id": e.id, "name": e.name, "employee_code": e.employee_code or "",
-            "branch": e.branch, "shift": e.shift, "employment_type": e.employment_type,
+            "branch": e.branch, "shift": shift_name, "employment_type": e.employment_type,
+            "week": wk["number"], "week_start": wstart.isoformat(),
             "date": a.attendance_date.isoformat(), "weekday": a.attendance_date.strftime("%A"),
             "status": a.status, "fine": fine, "reason": a.reason or "", "note": a.note or "",
             "updated_at": a.updated_at.isoformat() if a.updated_at else "",
@@ -1268,6 +1483,7 @@ def _fines_payload(rows, branch_rows=None):
         "avg": round(total / len(items), 2) if items else 0.0,
         "max": round(max((i["fine"] for i in items), default=0.0), 2),
         "by_branch": [by_branch[b] for b in BRANCHES],
+        "by_week": sorted(by_week.values(), key=lambda x: x["start"], reverse=True),
         "by_month": sorted(by_month.values(), key=lambda x: x["month"], reverse=True),
         "by_employee": sorted(by_employee.values(), key=lambda x: x["total"], reverse=True),
         "items": items[:FINES_ITEMS_LIMIT],
@@ -1286,7 +1502,7 @@ def list_fines(start: Optional[date] = None, end: Optional[date] = None, branch:
     # وعدّادات الفروع تفضل شايفة الفرعين وإنت واقف على فرع واحد
     all_rows = _fines_rows(db, start, end, None, status, q)
     rows = [r for r in all_rows if r[1].branch == branch] if branch in BRANCHES else all_rows
-    payload = _fines_payload(rows, all_rows)
+    payload = _fines_payload(rows, all_rows, WeekLookup(db))
     return {"start": start.isoformat() if start else "", "end": end.isoformat() if end else "",
             "branch": branch if branch in BRANCHES else "", "status": status if status in STATUSES else "", **payload}
 
@@ -1296,10 +1512,12 @@ def export_fines(start: Optional[date] = None, end: Optional[date] = None, branc
                  status: Optional[str] = None, q: Optional[str] = None,
                  _: bool = Depends(require_auth), db: Session = Depends(get_db)):
     rows = _fines_rows(db, start, end, branch, status, q)
+    look = WeekLookup(db)
     return csv_response(
-        ["Date", "Branch", "Employee Code", "Name", "Type", "Shift", "Status", "Fine (EGP)", "Reason", "Note"],
-        [[a.attendance_date.isoformat(), e.branch, e.employee_code or "", e.name, e.employment_type,
-          e.shift, a.status, f"{float(a.fine or 0):.2f}", a.reason or "", a.note or ""] for a, e in rows],
+        ["Week", "Date", "Branch", "Employee Code", "Name", "Type", "Shift", "Status", "Fine (EGP)", "Reason", "Note"],
+        [[week_number(week_start_of(a.attendance_date))[1], a.attendance_date.isoformat(), e.branch,
+          e.employee_code or "", e.name, e.employment_type, look.get(e, a.attendance_date).shift, a.status,
+          f"{float(a.fine or 0):.2f}", a.reason or "", a.note or ""] for a, e in rows],
         f"bankai_fines_{start or 'all'}_{end or 'all'}.csv")
 
 
@@ -1371,6 +1589,12 @@ class ShiftRenameIn(BaseModel):
     branch: str
     old: str
     new: str = Field(min_length=1, max_length=80)
+    week: Optional[date] = None
+
+
+class CopyWeekIn(BaseModel):
+    from_week: date
+    to_week: date
 
 
 class ScheduleAddItem(BaseModel):
@@ -1384,6 +1608,7 @@ class ScheduleAddIn(BaseModel):
     branch: str
     shift: str = Field(min_length=1, max_length=80)
     items: List[ScheduleAddItem]
+    week: Optional[date] = None
 
 
 class ScheduleApplyItem(BaseModel):
@@ -1397,6 +1622,7 @@ class ScheduleApplyItem(BaseModel):
 
 class ScheduleApplyIn(BaseModel):
     items: List[ScheduleApplyItem]
+    week: Optional[date] = None
 
 
 class ScheduleAutoIn(BaseModel):
@@ -1408,6 +1634,7 @@ class ScheduleAutoIn(BaseModel):
     distribute_breaks: bool = True
     overwrite_breaks: bool = False
     break_min: int = Field(default=60, ge=5, le=120)
+    week: Optional[date] = None
 
 
 def _check_branch(branch):
@@ -1416,12 +1643,14 @@ def _check_branch(branch):
 
 
 @app.get("/api/schedule")
-def get_schedule(branch: str, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def get_schedule(branch: str, week: Optional[date] = None, _: bool = Depends(require_auth),
+                 db: Session = Depends(get_db)):
     _check_branch(branch)
-    emps = db.query(Employee).filter(Employee.branch == branch, Employee.active.is_(True)).order_by(Employee.name).all()
-    names = {d.name for d in db.query(ShiftDef).filter(ShiftDef.branch == branch).all()} | {e.shift for e in emps}
-    return {"branch": branch, "days": list(WEEKDAYS), "shifts": sorted(names, key=shift_sort_key),
-            "employees": [employee_dict(e) for e in emps]}
+    ws = week_param(week)
+    pairs = week_pairs(db, ws, branch)
+    names = {d.name for d in db.query(ShiftDef).filter(ShiftDef.branch == branch).all()} | {s.shift for _, s in pairs}
+    return {"branch": branch, "week": week_info(ws), "days": list(WEEKDAYS),
+            "shifts": sorted(names, key=shift_sort_key), "employees": [ov(e, s) for e, s in pairs]}
 
 
 @app.post("/api/schedule/shifts")
@@ -1440,11 +1669,11 @@ def create_shift(data: ShiftIn, request: Request, role: str = Depends(require_ad
 
 
 @app.delete("/api/schedule/shifts")
-def delete_shift(branch: str, name: str, request: Request, role: str = Depends(require_admin),
-                 db: Session = Depends(get_db)):
+def delete_shift(branch: str, name: str, request: Request, week: Optional[date] = None,
+                 role: str = Depends(require_admin), db: Session = Depends(get_db)):
     _check_branch(branch)
-    if db.query(Employee).filter(Employee.branch == branch, Employee.shift == name, Employee.active.is_(True)).count():
-        raise HTTPException(400, "الشيفت فيه موظفين. انقلهم لشيفت آخر أو أوقفهم أولًا.")
+    if any(s.shift == name for _, s in week_pairs(db, week_param(week), branch)):
+        raise HTTPException(400, "الشيفت فيه موظفين في الأسبوع ده. انقلهم لشيفت آخر أو أوقفهم أولًا.")
     db.query(ShiftDef).filter(ShiftDef.branch == branch, ShiftDef.name == name).delete()
     db.commit()
     publish_event("schedule", branch=branch, action="shift-delete", by=who_role(role),
@@ -1461,8 +1690,17 @@ def rename_shift(data: ShiftRenameIn, request: Request, role: str = Depends(requ
         raise HTTPException(400, "اسم الشيفت مطلوب")
     if new == data.old:
         return {"name": new, "moved": 0}
-    moved = db.query(Employee).filter(Employee.branch == data.branch, Employee.shift == data.old).update({"shift": new})
-    db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == data.old).delete()
+    ws = week_param(data.week)
+    moved = 0
+    for e, sc in week_pairs(db, ws, data.branch, active_only=False):
+        if sc.shift == data.old:
+            set_sched(db, e, ws, shift=new)
+            moved += 1
+    db.flush()
+    still_used = (db.query(WeekSchedule.id).join(Employee, Employee.id == WeekSchedule.employee_id)
+                  .filter(Employee.branch == data.branch, WeekSchedule.shift == data.old).first())
+    if not still_used:
+        db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == data.old).delete()
     if not db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == new).first():
         db.add(ShiftDef(branch=data.branch, name=new))
     db.commit()
@@ -1482,6 +1720,8 @@ def schedule_add(data: ScheduleAddIn, request: Request, role: str = Depends(requ
         raise HTTPException(400, "اكتب اسم واحد على الأقل")
     if len(data.items) > 500:
         raise HTTPException(400, "الحد الأقصى 500 اسم في المرة")
+    ws = week_param(data.week)
+    smap = ensure_week(db, ws)
     existing = {}
     for e in db.query(Employee).filter(Employee.branch == data.branch).all():
         key = e.name.strip().lower()
@@ -1499,20 +1739,25 @@ def schedule_add(data: ScheduleAddIn, request: Request, role: str = Depends(requ
         bs = it.break_start.strip() if it.break_start and HHMM_RE.match(it.break_start.strip()) else None
         e = existing.get(name.lower())
         if e is not None:
-            if e.active and e.shift == shift:
+            cur = smap.get(e.id)
+            if e.active and cur is not None and cur.shift == shift:
                 notes.append({"name": e.name, "type": "same"})
             else:
                 notes.append({"name": e.name, "type": "moved" if e.active else "reactivated",
-                              "from": e.shift if e.active else None})
-                e.shift, e.active = shift, True
+                              "from": cur.shift if (e.active and cur is not None) else None})
+                e.active = True
+                vals = {"shift": shift}
                 if day:
-                    e.day_off, e.off_locked = day, True
+                    vals.update(day_off=day, off_locked=True)
                 if bs:
-                    e.break_start = bs
+                    vals["break_start"] = bs
+                set_sched(db, e, ws, **vals)
         else:
             e = Employee(name=name, branch=data.branch, shift=shift, employment_type=etype,
                          day_off=day or "Friday", off_locked=bool(day), break_start=bs, break_min=60, active=True)
             db.add(e)
+            db.flush()
+            add_to_weeks(db, e, ws)
             existing[name.lower()] = e
             created += 1
             notes.append({"name": name, "type": "created"})
@@ -1520,9 +1765,10 @@ def schedule_add(data: ScheduleAddIn, request: Request, role: str = Depends(requ
     db.commit()
     for e in out:
         db.refresh(e)
+    smap = peek_week(db, ws)
     publish_event("schedule", branch=data.branch, action="add", count=created,
                   names=[e.name for e in out[:3]], by=who_role(role), client=client_tag(request))
-    return {"created": created, "notes": notes, "employees": [employee_dict(e) for e in out]}
+    return {"created": created, "notes": notes, "employees": [ov(e, smap.get(e.id)) for e in out]}
 
 
 @app.post("/api/schedule/apply")
@@ -1533,6 +1779,7 @@ def schedule_apply(data: ScheduleApplyIn, request: Request, role: str = Depends(
     if len(data.items) > 2000:
         raise HTTPException(400, "عدد التعديلات كبير جدًا في طلب واحد")
     emps = {e.id: e for e in db.query(Employee).filter(Employee.id.in_([i.id for i in data.items])).all()}
+    ws = week_param(data.week)
     updated, errors = 0, []
     for it in data.items:
         e = emps.get(it.id)
@@ -1546,16 +1793,20 @@ def schedule_apply(data: ScheduleApplyIn, request: Request, role: str = Depends(
         sh = None if it.shift is None else it.shift.strip()
         if sh is not None and not sh:
             errors.append({"id": it.id, "name": e.name, "detail": "الشيفت مطلوب"}); continue
+        vals = {}
         if it.day_off is not None:
-            e.day_off = it.day_off
+            vals["day_off"] = it.day_off
         if bs is not None:
-            e.break_start = bs or None
+            vals["break_start"] = bs or None
         if it.break_min is not None:
-            e.break_min = it.break_min
+            vals["break_min"] = it.break_min
         if it.off_locked is not None:
-            e.off_locked = it.off_locked
+            vals["off_locked"] = it.off_locked
         if sh is not None:
-            e.shift = sh
+            vals["shift"] = sh
+        if vals:
+            set_sched(db, e, ws, **vals)
+        if sh is not None:
             if not db.query(ShiftDef).filter(ShiftDef.branch == e.branch, ShiftDef.name == sh).first():
                 db.add(ShiftDef(branch=e.branch, name=sh))
         updated += 1
@@ -1574,12 +1825,14 @@ def schedule_auto(data: ScheduleAutoIn, _: bool = Depends(require_admin), db: Se
     allowed = [d for d in WEEKDAYS if d in data.allowed_days]
     if data.distribute_off and not allowed:
         raise HTTPException(400, "اختر يوم واحد على الأقل متاح للإجازة")
-    q = db.query(Employee).filter(Employee.branch == data.branch, Employee.active.is_(True))
-    if data.shift:
-        q = q.filter(Employee.shift == data.shift)
+    ws = week_param(data.week)
     groups = {}
-    for e in q.order_by(Employee.name).all():
-        groups.setdefault(e.shift, []).append(e)
+    for e, sc in sorted(week_pairs(db, ws, data.branch), key=lambda p: p[0].name):
+        if data.shift and sc.shift != data.shift:
+            continue
+        v = SimpleNamespace(id=e.id, name=e.name, shift=sc.shift, day_off=sc.day_off, off_locked=bool(sc.off_locked),
+                            break_start=sc.break_start, break_min=sc.break_min)
+        groups.setdefault(sc.shift, []).append(v)
     changes, warnings = {}, []
     off_changed = break_changed = 0
     for shift in sorted(groups, key=shift_sort_key):
@@ -1635,28 +1888,27 @@ def schedule_auto(data: ScheduleAutoIn, _: bool = Depends(require_admin), db: Se
 
 
 @app.get("/api/schedule/export.csv")
-def schedule_export(branch: Optional[str] = None, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
-    q = db.query(Employee).filter(Employee.active.is_(True))
-    if branch in BRANCHES:
-        q = q.filter(Employee.branch == branch)
-    emps = sorted(q.all(), key=lambda e: (e.branch, shift_sort_key(e.shift), e.name))
+def schedule_export(branch: Optional[str] = None, week: Optional[date] = None,
+                    _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+    ws = week_param(week)
+    emps = sorted((SimpleNamespace(**ov(e, s)) for e, s in week_pairs(db, ws, branch)),
+                  key=lambda e: (e.branch, shift_sort_key(e.shift), e.name))
     return csv_response(
         ["الفرع", "الشيفت", "الاسم", "الكود", "النوع", "يوم الإجازة", "Beginning البريك", "مدة البريك (دقيقة)"],
         [[e.branch, e.shift, e.name, e.employee_code or "", e.employment_type, WD_AR.get(e.day_off, e.day_off),
           e.break_start or "", (e.break_min or 60) if e.break_start else ""] for e in emps],
-        f"bankai_schedule_{(branch or 'all').replace(' ', '')}.csv")
+        f"bankai_schedule_week{week_number(ws)[1]}_{(branch or 'all').replace(' ', '')}.csv")
 
 
 @app.get("/api/schedule/export.xlsx")
-def schedule_export_xlsx(branch: Optional[str] = None, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
-    q = db.query(Employee).filter(Employee.active.is_(True))
-    if branch in BRANCHES:
-        q = q.filter(Employee.branch == branch)
-    emps = list(q.all())
+def schedule_export_xlsx(branch: Optional[str] = None, week: Optional[date] = None,
+                         _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+    wk = week_param(week)
+    emps = [SimpleNamespace(**ov(e, s)) for e, s in week_pairs(db, wk, branch)]
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "Schedule"
+    ws.title = f"Week {week_number(wk)[1]}"
 
     # Styles
     header_font = Font(name="Cairo", bold=True, size=11, color="FFFFFF")
@@ -1754,12 +2006,35 @@ def schedule_export_xlsx(branch: Optional[str] = None, _: bool = Depends(require
     wb.save(buffer)
     buffer.seek(0)
 
-    filename = f"bankai_schedule_{(branch or 'all').replace(' ', '')}.xlsx"
+    filename = f"bankai_schedule_week{week_number(wk)[1]}_{(branch or 'all').replace(' ', '')}.xlsx"
     return StreamingResponse(
         iter([buffer.getvalue()]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
+
+
+@app.post("/api/schedule/copy-week")
+def copy_week(data: CopyWeekIn, request: Request, role: str = Depends(require_admin),
+              db: Session = Depends(get_db)):
+    """ينسخ جدول أسبوع (شيفت/إجازة/بريك) فوق أسبوع تاني. الحضور والغرامات ما بتتأثرش."""
+    src_w, dst_w = week_start_of(data.from_week), week_start_of(data.to_week)
+    if src_w == dst_w:
+        raise HTTPException(400, "اختار أسبوعين مختلفين")
+    src = ensure_week(db, src_w)
+    dst = ensure_week(db, dst_w)
+    n = 0
+    for eid, r in src.items():
+        d = dst.get(eid)
+        if d is None:
+            db.add(_copy_row(r, dst_w))
+        else:
+            for k in SCHED_FIELDS:
+                setattr(d, k, getattr(r, k))
+        n += 1
+    db.commit()
+    publish_event("schedule", action="copy-week", count=n, by=who_role(role), client=client_tag(request))
+    return {"copied": n, "from": week_info(src_w), "to": week_info(dst_w)}
 
 
 # ---------------------------------------------------------------- schedule import (Excel)
@@ -1996,9 +2271,11 @@ def _cand(e, score=None):
             **({"score": score} if score is not None else {})}
 
 
-def plan_schedule_import(db, branch, raw_rows, decisions=None, deactivate_missing=False):
+def plan_schedule_import(db, branch, raw_rows, decisions=None, deactivate_missing=False, ws=None):
     decisions = decisions or {}
-    emps = db.query(Employee).all()
+    smap_w = ensure_week(db, ws or week_param(None))
+    # الموظفين بجدول الأسبوع المختار (الشيفت/الإجازة/البريك بتاعة الأسبوع ده)
+    emps = [SimpleNamespace(**ov(e, smap_w.get(e.id))) for e in db.query(Employee).all()]
     in_branch = [e for e in emps if e.branch == branch]
     other = [e for e in emps if e.branch != branch]
     shifts_known = {}
@@ -2124,7 +2401,7 @@ def plan_schedule_import(db, branch, raw_rows, decisions=None, deactivate_missin
             if item["status"] != "review":
                 item["status"] = "create"
     matched = {i["match"]["id"] for i in plan if i["match"] and i["action"] in ("update", "same")}
-    missing = [_cand(e) for e in in_branch if e.active and e.id not in matched]
+    missing = [_cand(e) for e in in_branch if e.active and e.id in smap_w and e.id not in matched]
     summary = {k: sum(1 for i in plan if i["status"] == k) for k in ("create", "update", "same", "review", "skip")}
     summary["warnings"] = sum(1 for i in plan if i["warnings"] and i["status"] != "skip")
     summary["missing"] = len(missing)
@@ -2138,6 +2415,7 @@ def plan_schedule_import(db, branch, raw_rows, decisions=None, deactivate_missin
 
 
 class ScheduleImportIn(BaseModel):
+    week: Optional[date] = None
     branch: str
     filename: str = ""
     file_b64: str = Field(min_length=10, max_length=9_000_000)
@@ -2159,12 +2437,13 @@ def schedule_import(data: ScheduleImportIn, request: Request, role: str = Depend
     rows, sheets, notes = parse_schedule_workbook(raw)
     if len(rows) > 3000:
         raise HTTPException(400, "عدد الصفوف كبير جدًا")
-    plan = plan_schedule_import(db, data.branch, rows, data.decisions, data.deactivate_missing)
+    ws = week_param(data.week)
+    plan = plan_schedule_import(db, data.branch, rows, data.decisions, data.deactivate_missing, ws)
     hint = None
     m = re.search(r"qcd\s*[-_]?\s*([12])", f"{data.filename} {' '.join(sheets)}", re.I)
     if m:
         hint = f"QCD {m.group(1)}"
-    plan.update({"branch": data.branch, "sheets": sheets, "notes": notes, "branch_hint": hint,
+    plan.update({"branch": data.branch, "week": week_info(ws), "sheets": sheets, "notes": notes, "branch_hint": hint,
                  "branch_mismatch": bool(hint and hint != data.branch)})
     if not data.apply:
         return plan
@@ -2184,28 +2463,39 @@ def schedule_import(data: ScheduleImportIn, request: Request, role: str = Depend
                          employment_type=it["type"], day_off=it["day_off"] or "Friday",
                          off_locked=bool(it["day_off"]), break_start=it["break"], break_min=60, active=True)
             db.add(e)
+            db.flush()
+            add_to_weeks(db, e, ws)
             created += 1
         else:
             e = by_id[it["match"]["id"]]
             if it["action"] == "update":
-                e.branch, e.shift, e.employment_type, e.active = data.branch, it["shift"], it["type"], True
-                if it["day_off"]:
-                    e.day_off, e.off_locked = it["day_off"], True
-                if it["break"]:
-                    e.break_start = it["break"]
-                    e.break_min = e.break_min or 60
+                e.branch, e.employment_type, e.active = data.branch, it["type"], True
                 updated += 1
+            vals = {"shift": it["shift"]}
+            if it["action"] == "update":
+                if it["day_off"]:
+                    vals.update(day_off=it["day_off"], off_locked=True)
+                if it["break"]:
+                    vals["break_start"] = it["break"]
+                    cur = peek_week(db, ws).get(e.id)
+                    vals["break_min"] = (cur.break_min if cur and cur.break_min else None) or e.break_min or 60
+            set_sched(db, e, ws, **vals)
         expected.append((it, e))
     deactivated = 0
     if data.deactivate_missing:
+        # «مش في الشيت» = يطلع من جدول الأسبوع ده وما بعده (الأسابيع اللي قبله وسجلات الحضور ما بتتلمسش)
         for c in plan["missing"]:
-            by_id[c["id"]].active = False
-            deactivated += 1
+            n = (db.query(WeekSchedule).filter(WeekSchedule.employee_id == c["id"], WeekSchedule.week_start >= ws)
+                 .delete(synchronize_session=False))
+            deactivated += 1 if n else 0
     db.flush()
+    smap_after = peek_week(db, ws)
     bad = []
     for it, e in expected:
-        ok = (e.shift == it["shift"] and e.employment_type == it["type"] and e.branch == data.branch and bool(e.active)
-              and (not it["day_off"] or e.day_off == it["day_off"]) and (not it["break"] or e.break_start == it["break"]))
+        sc = smap_after.get(e.id)
+        ok = (sc is not None and sc.shift == it["shift"] and e.employment_type == it["type"]
+              and e.branch == data.branch and bool(e.active)
+              and (not it["day_off"] or sc.day_off == it["day_off"]) and (not it["break"] or sc.break_start == it["break"]))
         if not ok:
             bad.append(it["name"])
     if bad:
