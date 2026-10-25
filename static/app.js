@@ -14,6 +14,14 @@ const isoOf = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate(
 const todayISO = () => isoOf(new Date());
 const parseISO = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
 const addDays = (s, n) => { const d = parseISO(s); d.setDate(d.getDate() + n); return isoOf(d); };
+/* الأسبوع: الأحد → السبت. أول أسبوع في السنة هو اللي فيه 1 يناير، يعني 25-31 أكتوبر 2026 = Week 44 */
+const weekStartOf = s => { const d = parseISO(s); d.setDate(d.getDate() - d.getDay()); return isoOf(d); };
+const weekNoOf = ws => {
+  const y = +addDays(ws, 6).slice(0, 4), first = weekStartOf(`${y}-01-01`);
+  return Math.round((parseISO(ws) - parseISO(first)) / 86400000 / 7) + 1;
+};
+const weekLabel = ws => `Week ${weekNoOf(ws)}`;
+const weekRangeText = ws => `${fmtDay(ws, { day: "numeric", month: "short" })} – ${fmtDay(addDays(ws, 6), { day: "numeric", month: "short", year: "numeric" })}`;
 const fmtDay = (s, opts) => parseISO(s).toLocaleDateString("ar-EG-u-nu-latn", opts);
 const anyDrafts = () => S.draft.size + (S.sch ? S.sch.draft.size : 0);
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
@@ -67,17 +75,20 @@ const S = {
   page: "", shown: false,
   settings: { fine_late: 0, fine_absent: 0 },
   employees: [],
+  week: "",
   dash: { date: todayISO() },
   roster: null, rmap: new Map(), draft: new Map(), view: { base: [], list: [], groups: new Map() },
   att: { date: todayISO(), branch: "", shift: "", type: "", q: "", status: "", group: true, collapsed: new Set() },
   emp: { q: "", branch: "", shift: "", type: "", day: "", active: "1", sort: { key: "name", dir: 1 }, page: 1, size: 50, selected: new Set(), filtered: [] },
-  rep: { sum: null, emps: [], sort: { key: "name", dir: 1 }, page: 1, size: 50, preset: "7" },
-  fines: { data: null, sort: { key: "date", dir: -1 }, page: 1, size: 50, preset: "month" },
+  rep: { sum: null, emps: [], sort: { key: "name", dir: 1 }, page: 1, size: 50, preset: "week" },
+  fines: { data: null, sort: { key: "date", dir: -1 }, page: 1, size: 50, preset: "week" },
   hist: { id: null },
   stale: new Set(), /* صفوف اتغيّرت من مستخدم تاني وعندنا عليها مسودة مش محفوظة */
 };
 /* معرّف التاب الحالي: بيتبعت مع كل طلب والسيرفر بيرجّعه في حدث التحديث المباشر
    عشان التاب تتجاهل التغييرات اللي هي مصدرها (مفيش تنبيه لنفسك). */
+S.week = weekStartOf(todayISO());
+const wq = () => `week=${S.week}`;
 S.clientId = (() => {
   try {
     let v = sessionStorage.getItem("bankai_cid");
@@ -275,6 +286,7 @@ function showPage(p) {
     pg.classList.remove("hidden");
     qsa("[data-page]").forEach(b => b.classList.toggle("active", b.dataset.page === p));
     $("pageTitle").textContent = PAGES[p];
+    $("wkBar").classList.toggle("hidden", p === "settings");
     document.title = `${PAGES[p]} — Bankai`;
     window.scrollTo(0, 0);
   };
@@ -304,7 +316,7 @@ function showPage(p) {
   if (p === "attendance") { syncAttControls(); loadRoster(); }
   if (p === "schedule") loadSchedulePage();
   if (p === "employees") { renderEmployees(); }
-  if (p === "reports") { if (!$("repStart").value) setPreset(S.rep.preset); else runReport(); }
+  if (p === "reports") { if (!$("repStart").value || S.rep.preset === "week") setPreset(S.rep.preset || "week"); else runReport(); }
   if (p === "fines") loadFines();
   if (p === "settings") loadSettings();
 }
@@ -339,10 +351,11 @@ async function init() {
   try {
     /* التلاتة طلبات على التوازي بدل ما /api/me يستنى الأول — بيقصّر زمن هيكل
        التحميل الأول للنص تقريبًا ومفيش أي فرق في الترتيب من ناحية البيانات. */
-    const [me, emps, settings] = await Promise.all([api("/api/me"), api("/api/employees"), api("/api/settings")]);
+    const [me, emps, settings] = await Promise.all([api("/api/me"), api(`/api/employees?${wq()}`), api("/api/settings")]);
     S.role = me.role || "admin"; localStorage.setItem("bankai_role", S.role);
     applyRole();
     showApp();
+    updateWeekBar();
     startLive();
     S.employees = emps; S.settings = settings;
     fillShiftLists();
@@ -355,6 +368,56 @@ async function init() {
   }
 }
 
+/* ============================== week bar ============================== */
+function updateWeekBar() {
+  $("wkNum").textContent = weekLabel(S.week);
+  $("wkRange").textContent = weekRangeText(S.week);
+  $("wkPick").value = S.week;
+  const now = S.week === weekStartOf(todayISO());
+  qs("#wkBar .wk-cur").classList.toggle("now", now);
+  $("wkNow").disabled = now;
+}
+/* لو التاريخ اللي المستخدم فتحه (يوم الحضور/الداشبورد) في أسبوع تاني، الشريط والموظفين بيتبعوه */
+function adoptWeek(date) {
+  const ws = weekStartOf(date);
+  if (ws === S.week) return;
+  S.week = ws; updateWeekBar();
+  if (S.page === "reports" && S.rep.preset === "week") setPreset("week");
+  refreshEmployees().catch(() => {});
+}
+function hasDrafts() { return S.draft.size > 0 || (S.sch && S.sch.draft.size > 0); }
+function setWeek(ws) {
+  ws = weekStartOf(ws);
+  if (ws === S.week) return;
+  if (hasDrafts() && !confirm("عندك تغييرات لم تُحفظ. هل تريد تجاهلها والانتقال لأسبوع تاني؟")) { updateWeekBar(); return; }
+  S.draft.clear(); S.sch.draft.clear(); updateSaveBar(); updateSchSaveBar();
+  S.week = ws; updateWeekBar();
+  const end = addDays(ws, 6), t = todayISO();
+  const fit = d => (d >= ws && d <= end) ? d : ((t >= ws && t <= end) ? t : ws);
+  S.dash.date = fit(S.dash.date); S.att.date = fit(S.att.date);
+  S.rep.preset = "week"; S.fines.preset = "week";
+  refreshEmployees().catch(() => {});
+  if (S.page === "dashboard") { loadDashboard(); loadFeed(); }
+  else if (S.page === "attendance") { syncAttControls(); loadRoster(); }
+  else if (S.page === "schedule") loadSchedule();
+  else if (S.page === "reports") setPreset("week");
+  else if (S.page === "fines") { setFinePreset("week"); loadFines(); }
+}
+on("wkPrev", "click", () => setWeek(addDays(S.week, -7)));
+on("wkNext", "click", () => setWeek(addDays(S.week, 7)));
+on("wkNow", "click", () => setWeek(todayISO()));
+on("wkPick", "change", () => { if ($("wkPick").value) setWeek($("wkPick").value); else updateWeekBar(); });
+on("schCopyPrev", "click", async () => {
+  const prev = addDays(S.week, -7);
+  if (S.sch.draft.size && !confirm("عندك تعديلات في الجدول لم تُحفظ وهتتجاهل. المتابعة؟")) return;
+  if (!confirm(`نسخ جدول ${weekLabel(prev)} (الشيفتات والإجازات والبريك) فوق جدول ${weekLabel(S.week)}؟\nأي تعديل عملته في ${weekLabel(S.week)} هيتستبدل. الحضور والغرامات ما بتتأثرش.`)) return;
+  try {
+    const r = await api("/api/schedule/copy-week", { method: "POST", body: { from_week: prev, to_week: S.week } });
+    S.sch.draft.clear(); await loadSchedule(); refreshEmployees().catch(() => {});
+    toast(`تم نسخ جدول ${r.from.label} لـ ${r.to.label} (${r.copied} موظف).`, "ok");
+  } catch (e) { toast(e.message, "err"); }
+});
+
 /* ============================== dashboard ============================== */
 on("dashDate", "change", () => { S.dash.date = $("dashDate").value || todayISO(); loadDashboard(); });
 on("dashPrev", "click", () => { S.dash.date = addDays(S.dash.date, -1); loadDashboard(); });
@@ -362,6 +425,7 @@ on("dashNext", "click", () => { S.dash.date = addDays(S.dash.date, 1); loadDashb
 on("dashToday", "click", () => { S.dash.date = todayISO(); loadDashboard(); });
 
 async function loadDashboard() {
+  adoptWeek(S.dash.date);
   $("dashDate").value = S.dash.date;
   try { renderDashboard(await api(`/api/dashboard?attendance_date=${S.dash.date}`)); }
   catch (e) { toast(e.message, "err"); }
@@ -369,7 +433,8 @@ async function loadDashboard() {
 
 function renderDashboard(d) {
   const t = d.totals, date = d.date;
-  $("dashSub").textContent = `${WD_AR[d.weekday] || ""} ${fmtDay(date, { day: "numeric", month: "long", year: "numeric" })}`;
+  $("dashSub").textContent = `${WD_AR[d.weekday] || ""} ${fmtDay(date, { day: "numeric", month: "long", year: "numeric" })} · ${weekLabel(d.week.start)}`;
+  $("dashTrendSub").textContent = `${weekLabel(d.week.start)} · ${weekRangeText(d.week.start)}`;
   const kp = [
     ["مجدولون اليوم", t.scheduled, "brand", { date }], ["حاضر", t.present, "ok", { date, status: "Present" }],
     ["متأخر", t.late, "warn", { date, status: "Late" }], ["غائب", t.absent, "bad", { date, status: "Absent" }],
@@ -377,12 +442,12 @@ function renderDashboard(d) {
   ];
   const pct = v => t.scheduled ? Math.round(v * 100 / t.scheduled) : 0;
   $("dashKpis").innerHTML = kp.map(([l, v, c, go]) => `<button class="kpi ${c}" data-go="${esc(JSON.stringify(go))}" style="--p:${pct(v)}" title="${l}: ${v} من ${t.scheduled} مجدول"><span class="kl">${l}</span><span class="kv num${v ? "" : " is-zero"}">${v}</span><span class="ring${v ? "" : " is-zero"}"><b>${pct(v)}%</b></span></button>`).join("");
-  $("dashNote").innerHTML = `<span>في إجازة اليوم: <b class="num">${d.off_today}</b> موظف</span><span>إجمالي الموظفين النشطين: <b class="num">${d.active_total}</b></span>`;
+  $("dashNote").innerHTML = `<span>في إجازة اليوم: <b class="num">${d.off_today}</b> موظف</span><span>موظفين ${weekLabel(d.week.start)}: <b class="num">${d.active_total}</b></span><span>غرامات ${weekLabel(d.week.start)}: <b class="num">${money(d.week_fines)}</b></span>`;
   $("dashBranches").innerHTML = Object.entries(d.branches).map(([name, b]) => branchPanel(name, b, date)).join("");
   renderTrend(d.trend, date);
   $("dashWatch").innerHTML = d.watchlist.length
     ? `<table class="mini-tbl"><thead><tr><th>الموظف</th><th>غياب</th><th>تأخير</th></tr></thead><tbody>${d.watchlist.map(w => `<tr data-hist="${w.id}" style="cursor:pointer"><td>${whoHTML(w.name, `<b>${esc(w.name)}</b><br><small class="muted">${esc(w.branch)} · ${sh(w.shift)}</small>`)}</td><td class="num">${w.absent}</td><td class="num">${w.late}</td></tr>`).join("")}</tbody></table>`
-    : `<p class="muted" style="padding:20px 0">مفيش غياب أو تأخير مسجل في آخر 30 يوم.</p>`;
+    : `<p class="muted" style="padding:20px 0">مفيش غياب أو تأخير مسجل في الأسبوع ده.</p>`;
 }
 
 /* ===== live activity feed (dashboard) ===== */
@@ -467,6 +532,7 @@ function syncAttControls() {
 
 async function loadRoster() {
   const date = S.att.date;
+  adoptWeek(date);
   $("attDayName").textContent = fmtDay(date, { weekday: "long", day: "numeric", month: "long" });
   try {
     const r = await api(`/api/roster?attendance_date=${date}`);
@@ -761,7 +827,7 @@ function fillShiftLists() {
   if (shifts.includes(cur)) sel.value = cur; else { S.emp.shift = ""; sel.value = ""; }
 }
 async function refreshEmployees() {
-  S.employees = await api("/api/employees");
+  S.employees = await api(`/api/employees?${wq()}`);
   fillShiftLists();
   if (S.page === "employees") renderEmployees();
 }
@@ -833,7 +899,7 @@ on("empRows", "click", async ev => {
 
 async function bulkAction(ids, action, extra = {}) {
   try {
-    const r = await api("/api/employees/bulk", { method: "POST", body: { ids, action, ...extra } });
+    const r = await api(`/api/employees/bulk?${wq()}`, { method: "POST", body: { ids, action, ...extra } });
     toast(action === "update" ? `تم تعديل ${r.updated} موظف.` : action === "activate" ? `تم تفعيل ${r.updated} موظف.` : `تم إيقاف ${r.updated} موظف.`, "ok");
     S.emp.selected.clear(); await refreshEmployees();
     return true;
@@ -896,13 +962,13 @@ on("empForm", "submit", async ev => {
   const data = { name: $("fName").value.trim(), employee_code: $("fCode").value.trim() || null, branch: $("fBranch").value, employment_type: $("fType").value, shift: $("fShift").value.trim(), day_off: $("fDay").value, phone: $("fPhone").value.trim() || null, active: $("fActive").checked };
   const id = $("fId").value;
   try {
-    await api(id ? `/api/employees/${id}` : "/api/employees", { method: id ? "PUT" : "POST", body: data });
+    await api(id ? `/api/employees/${id}?${wq()}` : `/api/employees?${wq()}`, { method: id ? "PUT" : "POST", body: data });
     $("empDialog").close(); toast("تم حفظ بيانات الموظف.", "ok");
     await refreshEmployees();
   } catch (err) { $("fError").textContent = err.message; }
 });
 
-on("empExport", "click", () => download("/api/employees/export.csv", "bankai_employees.csv").catch(e => toast(e.message, "err")));
+on("empExport", "click", () => download(`/api/employees/export.csv?${wq()}`, `bankai_employees_${weekLabel(S.week).replace(" ", "")}.csv`).catch(e => toast(e.message, "err")));
 
 /* import */
 const nh = s => String(s || "").toLowerCase().replace(/[\s_\-]/g, "").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
@@ -974,7 +1040,7 @@ async function runImport(dry) {
   const seq = ++impSeq;
   if (!rows.length) { $("impSummary").innerHTML = ""; $("impErrors").classList.add("hidden"); $("impRun").disabled = true; return; }
   try {
-    const r = await api("/api/employees/import", { method: "POST", body: { rows, update_existing: $("impUpdate").checked, dry_run: dry } });
+    const r = await api(`/api/employees/import?${wq()}`, { method: "POST", body: { rows, update_existing: $("impUpdate").checked, dry_run: dry } });
     if (seq !== impSeq && dry) return;
     if (!dry) {
       toast(`تم الاستيراد: ${r.created} جديد، ${r.updated} محدّث${r.errors.length ? `، وتم تجاهل ${r.errors.length} صف فيه أخطاء` : ""}.`, "ok");
@@ -1019,7 +1085,8 @@ async function loadHistory() {
 /* ============================== reports ============================== */
 function setPreset(p) {
   const t = todayISO(), d = new Date(); let s = t, e = t;
-  if (p === "yesterday") s = e = addDays(t, -1);
+  if (p === "week") { s = S.week; e = addDays(S.week, 6); }
+  else if (p === "yesterday") s = e = addDays(t, -1);
   else if (p === "7") s = addDays(t, -6);
   else if (p === "30") s = addDays(t, -29);
   else if (p === "month") s = isoOf(new Date(d.getFullYear(), d.getMonth(), 1));
@@ -1099,7 +1166,8 @@ const fineQuery = () => {
 
 function setFinePreset(p) {
   const t = todayISO(), d = new Date(); let s = t, e = t;
-  if (p === "lastmonth") { s = isoOf(new Date(d.getFullYear(), d.getMonth() - 1, 1)); e = isoOf(new Date(d.getFullYear(), d.getMonth(), 0)); }
+  if (p === "week") { s = S.week; e = addDays(S.week, 6); }
+  else if (p === "lastmonth") { s = isoOf(new Date(d.getFullYear(), d.getMonth() - 1, 1)); e = isoOf(new Date(d.getFullYear(), d.getMonth(), 0)); }
   else if (p === "30") s = addDays(t, -29);
   else if (p === "90") s = addDays(t, -89);
   else if (p === "year") s = isoOf(new Date(d.getFullYear(), 0, 1));
@@ -1127,8 +1195,9 @@ on("fineExport", "click", () => {
 });
 
 async function loadFines() {
-  /* أول فتح للتاب: نعبّي الفترة الافتراضية (الشهر الحالي) قبل ما نطلب الداتا */
-  if (!$("fineStart").value && !$("fineEnd").value && S.fines.preset && S.fines.preset !== "all") setFinePreset(S.fines.preset);
+  /* أول فتح للتاب: نعبّي الفترة الافتراضية (الأسبوع المختار) قبل ما نطلب الداتا */
+  if (S.fines.preset === "week") setFinePreset("week");
+  else if (!$("fineStart").value && !$("fineEnd").value && S.fines.preset && S.fines.preset !== "all") setFinePreset(S.fines.preset);
   const { qs: query } = fineQuery();
   try {
     S.fines.data = await api(`/api/fines${query ? "?" + query : ""}`);
@@ -1167,6 +1236,8 @@ function renderFines() {
       <div class="bp-top"><div><strong class="num">${money(b.total)}</strong> <span class="muted">إجمالي الغرامات</span></div>${picked ? "" : `<span class="muted num">${share}% من الإجمالي</span>`}</div>
       ${b.count ? `<div class="stack lg">${seg("late", b.late, "تأخير")}${seg("absent", b.absent, "غياب")}</div><div class="legend" style="margin-top:10px"><span><i class="dot warn"></i>تأخير <b class="num">${b.late}</b> — ${money(b.late_total)}</span><span><i class="dot bad"></i>غياب <b class="num">${b.absent}</b> — ${money(b.absent_total)}</span></div>` : `<p class="muted">مفيش غرامات في الفترة دي.</p>`}</div>`;
   }).join("");
+  $("fineWeeks").innerHTML = (d.by_week || []).map(w => `<tr><td><b>${esc(w.label)}</b></td><td>${weekRangeText(w.start)}</td><td class="num">${w.count}</td><td class="num">${w.late} — ${money(w.late_total)}</td><td class="num">${w.absent} — ${money(w.absent_total)}</td><td class="num"><b>${money(w.total)}</b></td></tr>`).join("");
+  $("fineWeeksBox").classList.toggle("hidden", !(d.by_week || []).length);
   $("fineMonths").innerHTML = d.by_month.map(m => `<tr><td>${fmtDay(m.month + "-01", { month: "long", year: "numeric" })}</td><td class="num">${m.count}</td><td class="num">${m.late}</td><td class="num">${m.absent}</td><td class="num">${money(m.total)}</td></tr>`).join("");
   $("fineMonthsBox").classList.toggle("hidden", !d.by_month.length);
   renderFineRows();
@@ -1184,7 +1255,7 @@ function renderFineRows() {
     : (total ? `${total} غرامة بالتفاصيل` : "");
   $("fineRows").innerHTML = list.slice((S.fines.page - 1) * S.fines.size, S.fines.page * S.fines.size).map(x => {
     const st = ST[x.status] || [x.status, ""];
-    return `<tr data-hist="${x.employee_id}" style="cursor:pointer"><td class="who">${whoHTML(x.name, `<b>${esc(x.name)}</b><small>${esc(x.employee_code || "بدون كود")} · ${sh(x.shift)} · ${esc(x.employment_type)}</small>`)}</td><td>${esc(x.branch)}</td><td>${WD_AR[x.weekday] || ""} ${fmtDay(x.date, { day: "numeric", month: "short" })}</td><td><span class="tag ${st[1]}">${st[0]}</span></td><td class="num"><b>${money(x.fine)}</b></td><td>${esc(x.reason) || "—"}</td><td>${esc(x.note) || "—"}</td></tr>`;
+    return `<tr data-hist="${x.employee_id}" style="cursor:pointer"><td class="who">${whoHTML(x.name, `<b>${esc(x.name)}</b><small>${esc(x.employee_code || "بدون كود")} · ${sh(x.shift)} · ${esc(x.employment_type)}</small>`)}</td><td>${esc(x.branch)}</td><td>${WD_AR[x.weekday] || ""} ${fmtDay(x.date, { day: "numeric", month: "short" })} <small class="muted">W${x.week}</small></td><td><span class="tag ${st[1]}">${st[0]}</span></td><td class="num"><b>${money(x.fine)}</b></td><td>${esc(x.reason) || "—"}</td><td>${esc(x.note) || "—"}</td></tr>`;
   }).join("");
   $("fineEmpty").classList.toggle("hidden", total > 0);
   renderPager($("finePager"), total, S.fines, renderFineRows);
@@ -1207,7 +1278,7 @@ function loadSchedulePage() {
 }
 async function loadSchedule(keepDraft = false) {
   try {
-    const r = await api(`/api/schedule?branch=${encodeURIComponent(S.sch.branch)}`);
+    const r = await api(`/api/schedule?branch=${encodeURIComponent(S.sch.branch)}&${wq()}`);
     S.sch.data = r; S.sch.base = new Map(r.employees.map(e => [e.id, e]));
     if (!keepDraft) S.sch.draft.clear();
     else for (const id of [...S.sch.draft.keys()]) if (!S.sch.base.has(id)) S.sch.draft.delete(id);
@@ -1301,7 +1372,7 @@ function schCard(name, list, all) {
 function renderTotals(emps) {
   const total = emps.length, off = {}; WEEKDAYS.forEach(d => off[d] = 0);
   emps.forEach(e => { if (off[e.day_off] !== undefined) off[e.day_off]++; });
-  const today = schToday();
+  const today = S.week === weekStartOf(todayISO()) ? schToday() : ""; /* نعلّم النهارده بس في الأسبوع الحالي */
   $("schTotals").innerHTML = WEEKDAYS.map(d => `<div class="dt${d === today ? " today" : ""}"><small>${WD_AR[d]}</small><strong class="num">${total - off[d]}</strong><span>إجازة: ${off[d]}</span></div>`).join("");
 }
 function renderSchedule() {
@@ -1314,8 +1385,8 @@ function renderSchedule() {
   $("autoScope").value = names.includes(scope) ? scope : "";
   $("schShifts").innerHTML = names.length ? names.map(n => schCard(n, groups.get(n), names)).join("") : `<div class="empty"><b>مفيش شيفتات في ${esc(S.sch.branch)} لسه</b>أضف أول شيفت من القسم اللي تحت، وبعدها ابدأ إضافة الموظفين.</div>`;
   renderTotals(emps);
-  $("schPrintTitle").textContent = `جدول الشيفتات — ${S.sch.branch}`;
-  $("schPrintSub").textContent = new Date().toLocaleDateString("ar-EG-u-nu-latn", { day: "numeric", month: "long", year: "numeric" });
+  $("schPrintTitle").textContent = `جدول الشيفتات — ${S.sch.branch} — ${weekLabel(S.week)}`;
+  $("schPrintSub").textContent = weekRangeText(S.week);
 }
 function schRefreshShift(name) {
   const groups = schGroups(), list = groups.get(name), all = [...groups.keys()], card = findCard(name);
@@ -1350,7 +1421,7 @@ async function schSave(silent = false) {
   });
   $("schSave").disabled = true;
   try {
-    const r = await api("/api/schedule/apply", { method: "POST", body: { items } });
+    const r = await api("/api/schedule/apply", { method: "POST", body: { items, week: S.week } });
     await loadSchedule();
     refreshEmployees().then(schSegCounts).catch(() => {});
     if (r.errors.length) { toast(`تعذر حفظ ${r.errors.length}: ${r.errors[0].name ? r.errors[0].name + " — " : ""}${r.errors[0].detail}`, "err"); return false; }
@@ -1379,7 +1450,7 @@ S.simp = { b64: "", name: "", plan: null, decisions: {}, filter: "", deact: fals
 function simpFmt(f, v) { return f === "day_off" ? (WD_AR[v] || v) : f === "employment_type" ? (v === "FT" ? "فول تايم" : "بارت تايم") : v; }
 async function simpRun(apply) {
   const m = S.simp;
-  return api("/api/schedule/import", { method: "POST", body: { branch: S.sch.branch, filename: m.name, file_b64: m.b64, decisions: m.decisions, deactivate_missing: m.deact, apply } });
+  return api("/api/schedule/import", { method: "POST", body: { week: S.week, branch: S.sch.branch, filename: m.name, file_b64: m.b64, decisions: m.decisions, deactivate_missing: m.deact, apply } });
 }
 function simpRender() {
   const m = S.simp, p = m.plan; if (!p) return;
@@ -1453,9 +1524,9 @@ on("schImpRun", "click", async () => {
     await refreshEmployees(); S.sch.draft.clear(); await loadSchedule();
   } catch (e) { toast(e.message, "err"); simpRender(); }
 });
-on("schExport", "click", () => download(`/api/schedule/export.csv?branch=${encodeURIComponent(S.sch.branch)}`, `bankai_schedule_${S.sch.branch.replace(" ", "")}.csv`).catch(e => toast(e.message, "err")));
+on("schExport", "click", () => download(`/api/schedule/export.csv?branch=${encodeURIComponent(S.sch.branch)}&${wq()}`, `bankai_schedule_${weekLabel(S.week).replace(" ", "")}_${S.sch.branch.replace(" ", "")}.csv`).catch(e => toast(e.message, "err")));
 
-on("schExcel", "click", () => download(`/api/schedule/export.xlsx?branch=${encodeURIComponent(S.sch.branch)}`, `bankai_schedule_${S.sch.branch.replace(" ", "")}.xlsx`).catch(e => toast(e.message, "err")));
+on("schExcel", "click", () => download(`/api/schedule/export.xlsx?branch=${encodeURIComponent(S.sch.branch)}&${wq()}`, `bankai_schedule_${weekLabel(S.week).replace(" ", "")}_${S.sch.branch.replace(" ", "")}.xlsx`).catch(e => toast(e.message, "err")));
 
 
 on("schPrint", "click", () => window.print());
@@ -1472,9 +1543,9 @@ on("schShifts", "click", async ev => {
   }
   if (t.closest("[data-del]") && tr) {
     const id = +tr.dataset.id, e = S.sch.base.get(id);
-    if (!confirm(`إزالة «${e.name}» من الجدول؟ هيتوقف مع الاحتفاظ بسجل حضوره، وتقدر تفعّله من صفحة الموظفين.`)) return;
+    if (!confirm(`إزالة «${e.name}» من جدول ${weekLabel(S.week)} وما بعده؟ الأسابيع اللي قبله وسجل حضوره هيفضلوا زي ما هما.`)) return;
     try {
-      await api(`/api/employees/${id}`, { method: "DELETE" });
+      await api(`/api/employees/${id}?from_week=${S.week}`, { method: "DELETE" });
       S.sch.data.employees = S.sch.data.employees.filter(x => x.id !== id); S.sch.base.delete(id); S.sch.draft.delete(id);
       renderSchedule(); updateSchSaveBar(); toast(`تمت إزالة ${e.name}.`, "ok");
       refreshEmployees().then(schSegCounts).catch(() => {});
@@ -1516,7 +1587,7 @@ function schUpsert(emp) {
 async function schAdd(card, items, restore) {
   const shift = card.dataset.shift;
   try {
-    const r = await api("/api/schedule/add", { method: "POST", body: { branch: S.sch.branch, shift, items } });
+    const r = await api("/api/schedule/add", { method: "POST", body: { branch: S.sch.branch, shift, items, week: S.week } });
     r.employees.forEach(schUpsert);
     renderSchedule(); updateSchSaveBar();
     const nc = findCard(shift); if (nc) { const f = qs(".add-name", nc); f.focus(); nc.querySelector(".addrow").scrollIntoView({ block: "nearest" }); }
@@ -1554,14 +1625,14 @@ async function schShiftAction(act, name, card) {
     const nn = (prompt("اسم الشيفت الجديد (مثال: 8 AM - 4 PM)", name) || "").trim();
     if (!nn || nn === name) return;
     try {
-      await api("/api/schedule/shifts/rename", { method: "POST", body: { branch: S.sch.branch, old: name, new: nn } });
+      await api("/api/schedule/shifts/rename", { method: "POST", body: { branch: S.sch.branch, old: name, new: nn, week: S.week } });
       await loadSchedule(true); refreshEmployees().catch(() => {}); toast("تم تعديل اسم الشيفت.", "ok");
     } catch (e) { toast(e.message, "err"); }
     return;
   }
   if (act === "delete") {
     if (!confirm(`حذف الشيفت «${name}»؟`)) return;
-    try { await api(`/api/schedule/shifts?branch=${encodeURIComponent(S.sch.branch)}&name=${encodeURIComponent(name)}`, { method: "DELETE" }); await loadSchedule(true); toast("تم حذف الشيفت.", "ok"); }
+    try { await api(`/api/schedule/shifts?branch=${encodeURIComponent(S.sch.branch)}&name=${encodeURIComponent(name)}&${wq()}`, { method: "DELETE" }); await loadSchedule(true); toast("تم حذف الشيفت.", "ok"); }
     catch (e) { toast(e.message, "err"); }
   }
 }
@@ -1594,7 +1665,7 @@ on("autoRun", "click", async () => {
   const btn = $("autoRun"); btn.disabled = true;
   try {
     const r = await api("/api/schedule/auto", { method: "POST", body: {
-      branch: S.sch.branch, shift: $("autoScope").value || null, include_locked: $("autoLocked").checked, allowed_days: days,
+      week: S.week, branch: S.sch.branch, shift: $("autoScope").value || null, include_locked: $("autoLocked").checked, allowed_days: days,
       distribute_off: $("autoOff").checked, distribute_breaks: $("autoBreaks").checked, overwrite_breaks: $("autoOverwrite").checked, break_min: Number($("autoBreakMin").value) } });
     r.changes.forEach(c => {
       const p = {};
@@ -1645,7 +1716,7 @@ on("setWipeAtt", "click", async () => {
     else if (S.page === "attendance") loadRoster();
   } catch (e) { toast(e.message, "err"); }
 });
-on("setExportEmp", "click", () => download("/api/employees/export.csv", "bankai_employees.csv").catch(e => toast(e.message, "err")));
+on("setExportEmp", "click", () => download(`/api/employees/export.csv?${wq()}`, `bankai_employees_${weekLabel(S.week).replace(" ", "")}.csv`).catch(e => toast(e.message, "err")));
 
 /* ============================== boot ============================== */
 if (S.token) { showApp(); init(); }
@@ -2175,7 +2246,7 @@ async function loadRosterSoft(ev = {}) {
 
 async function loadEmployeesSoft() {
   try {
-    S.employees = await api("/api/employees", { silent: true });
+    S.employees = await api(`/api/employees?${wq()}`, { silent: true });
     if (S.page === "employees") renderEmployees();
     if (S.page === "attendance") loadRosterSoft();
   } catch (e) { /* زي فوق: تحديث تلقائي مش أساسي */ }
