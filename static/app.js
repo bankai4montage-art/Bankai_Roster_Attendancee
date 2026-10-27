@@ -1077,7 +1077,13 @@ async function loadHistory() {
     $("histTitle").textContent = e.name;
     $("histSub").innerHTML = `${esc(e.branch)} · ${sh(e.shift)} · ${esc(e.employee_code || "بدون كود")} · إجازة ${WD_AR[e.day_off] || e.day_off}${e.active ? "" : " · موقوف"}`;
     $("histStats").innerHTML = `<span class="tag">تسجيلات: ${s.total}</span><span class="tag ok">حضور: ${s.present}</span><span class="tag warn">تأخير: ${s.late}</span><span class="tag bad">غياب: ${s.absent}</span><span class="tag info">بعذر: ${s.excused}</span>`;
-    $("histRows").innerHTML = r.records.map(a => `<tr><td>${WD_AR[a.weekday] || ""} ${fmtDay(a.attendance_date, { day: "numeric", month: "short" })}</td><td><span class="tag ${a.status}">${ST[a.status]?.[0] || a.status}</span></td><td>${esc(a.reason) || "—"}</td><td>${esc(a.note) || "—"}</td></tr>`).join("");
+    /* تجميع بالأسبوع زي الجدول: صف رأس لكل أسبوع (Week N + مداه) قبل أيام بياضه */
+    let lastWs = null;
+    $("histRows").innerHTML = r.records.map(a => {
+      const ws = weekStartOf(a.attendance_date), sep = ws !== lastWs;
+      lastWs = ws;
+      return `${sep ? `<tr class="wsep"><td colspan="4"><b>${weekLabel(ws)}</b><span class="muted">${weekRangeText(ws)}</span></td></tr>` : ""}<tr><td>${WD_AR[a.weekday] || ""} ${fmtDay(a.attendance_date, { day: "numeric", month: "short" })}</td><td><span class="tag ${a.status}">${ST[a.status]?.[0] || a.status}</span></td><td>${esc(a.reason) || "—"}</td><td>${esc(a.note) || "—"}</td></tr>`;
+    }).join("");
     $("histEmpty").classList.toggle("hidden", r.records.length > 0);
   } catch (err) { toast(err.message, "err"); }
 }
