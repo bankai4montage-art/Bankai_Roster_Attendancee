@@ -1059,18 +1059,35 @@ async function runImport(dry) {
 on("histClose", "click", () => $("histDialog").close());
 on("histClose2", "click", () => $("histDialog").close());
 on("histRange", "change", loadHistory);
+on("histWeek", "change", loadHistory);
 $("histDialog").addEventListener("click", e => { if (e.target === $("histDialog")) $("histDialog").close(); });
+
+/* قايمة الأسابيع (16 أسبوع لورا) لاختيار "أسبوع معين…" بنفس ترقيم الجدول */
+function fillHistWeeks() {
+  const sel = $("histWeek"), cur = weekStartOf(todayISO());
+  sel.innerHTML = Array.from({ length: 16 }, (_, i) => {
+    const ws = addDays(cur, -7 * i);
+    return `<option value="${ws}"${i === 0 ? " selected" : ""}>${weekLabel(ws)} · ${weekRangeText(ws)}</option>`;
+  }).join("");
+}
 
 async function openHistory(id) {
   S.hist.id = id; $("histRange").value = "30";
+  $("histWeek").classList.add("hidden");
+  fillHistWeeks();
   $("histTitle").textContent = "…"; $("histSub").textContent = ""; $("histStats").innerHTML = ""; $("histRows").innerHTML = "";
   if (!$("histDialog").open) $("histDialog").showModal();
   await loadHistory();
 }
 async function loadHistory() {
-  const range = $("histRange").value, end = todayISO();
-  let start;
-  if (range === "month") { const d = new Date(); start = isoOf(new Date(d.getFullYear(), d.getMonth(), 1)); } else start = addDays(end, -(+range - 1));
+  const range = $("histRange").value, t = todayISO(), tw = weekStartOf(t);
+  let start, end = t;
+  if (range === "thisweek") start = tw;
+  else if (range === "prevweek") { start = addDays(tw, -7); end = addDays(start, 6); }
+  else if (range === "pick") { start = $("histWeek").value || tw; end = addDays(start, 6); }
+  else if (range === "month") { const d = parseISO(t); start = isoOf(new Date(d.getFullYear(), d.getMonth(), 1)); }
+  else start = addDays(t, -(+range - 1));
+  $("histWeek").classList.toggle("hidden", range !== "pick");
   try {
     const r = await api(`/api/reports/employee/${S.hist.id}?start=${start}&end=${end}`);
     const e = r.employee, s = r.stats;
