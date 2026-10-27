@@ -1059,48 +1059,39 @@ async function runImport(dry) {
 on("histClose", "click", () => $("histDialog").close());
 on("histClose2", "click", () => $("histDialog").close());
 on("histRange", "change", loadHistory);
-on("histWeek", "change", loadHistory);
 $("histDialog").addEventListener("click", e => { if (e.target === $("histDialog")) $("histDialog").close(); });
 
-/* قايمة الأسابيع (16 أسبوع لورا) لاختيار "أسبوع معين…" بنفس ترقيم الجدول */
-function fillHistWeeks() {
-  const sel = $("histWeek"), cur = weekStartOf(todayISO());
-  sel.innerHTML = Array.from({ length: 16 }, (_, i) => {
-    const ws = addDays(cur, -7 * i);
-    return `<option value="${ws}"${i === 0 ? " selected" : ""}>${weekLabel(ws)} · ${weekRangeText(ws)}</option>`;
+/* دروب مينيو السجل = الأسابيع بس، وكل أسبوع له تسجيلات في السيستم بيظهر لوحده.
+   السيرفر بيرجّع weeks من كل التاريخ، وهنا بنملي القايمة ونختار افتراضيًا
+   الأسبوع اللي فيهجا النهارده لو موجود، وإلا الأحدث. */
+function histWeekOptions(weeks) {
+  const cur = weekStartOf(todayISO()), starts = weeks.map(w => w.start);
+  if (!starts.includes(cur)) starts.unshift(cur);
+  return starts.map(ws => {
+    const y = +addDays(ws, 6).slice(0, 4), no = weekNoOf(ws);
+    return `<option value="${ws}">Week ${no}${y !== new Date().getFullYear() ? " · " + y : ""} · ${weekRangeText(ws)}</option>`;
   }).join("");
 }
 
 async function openHistory(id) {
-  S.hist.id = id; $("histRange").value = "30";
-  $("histWeek").classList.add("hidden");
-  fillHistWeeks();
-  $("histTitle").textContent = "…"; $("histSub").textContent = ""; $("histStats").innerHTML = ""; $("histRows").innerHTML = "";
+  S.hist.id = id;
+  $("histTitle").textContent = "…"; $("histSub").textContent = ""; $("histStats").innerHTML = ""; $("histRows").innerHTML = ""; $("histRange").innerHTML = "";
   if (!$("histDialog").open) $("histDialog").showModal();
-  await loadHistory();
+  try {
+    const r = await api(`/api/reports/employee/${S.hist.id}`);
+    $("histRange").innerHTML = histWeekOptions(r.weeks || []);
+    await loadHistory();
+  } catch (err) { toast(err.message, "err"); }
 }
 async function loadHistory() {
-  const range = $("histRange").value, t = todayISO(), tw = weekStartOf(t);
-  let start, end = t;
-  if (range === "thisweek") start = tw;
-  else if (range === "prevweek") { start = addDays(tw, -7); end = addDays(start, 6); }
-  else if (range === "pick") { start = $("histWeek").value || tw; end = addDays(start, 6); }
-  else if (range === "month") { const d = parseISO(t); start = isoOf(new Date(d.getFullYear(), d.getMonth(), 1)); }
-  else start = addDays(t, -(+range - 1));
-  $("histWeek").classList.toggle("hidden", range !== "pick");
+  const ws = weekStartOf($("histRange").value), start = ws, end = addDays(ws, 6);
   try {
     const r = await api(`/api/reports/employee/${S.hist.id}?start=${start}&end=${end}`);
     const e = r.employee, s = r.stats;
     $("histTitle").textContent = e.name;
     $("histSub").innerHTML = `${esc(e.branch)} · ${sh(e.shift)} · ${esc(e.employee_code || "بدون كود")} · إجازة ${WD_AR[e.day_off] || e.day_off}${e.active ? "" : " · موقوف"}`;
     $("histStats").innerHTML = `<span class="tag">تسجيلات: ${s.total}</span><span class="tag ok">حضور: ${s.present}</span><span class="tag warn">تأخير: ${s.late}</span><span class="tag bad">غياب: ${s.absent}</span><span class="tag info">بعذر: ${s.excused}</span>`;
-    /* تجميع بالأسبوع زي الجدول: صف رأس لكل أسبوع (Week N + مداه) قبل أيام بياضه */
-    let lastWs = null;
-    $("histRows").innerHTML = r.records.map(a => {
-      const ws = weekStartOf(a.attendance_date), sep = ws !== lastWs;
-      lastWs = ws;
-      return `${sep ? `<tr class="wsep"><td colspan="4"><b>${weekLabel(ws)}</b><span class="muted">${weekRangeText(ws)}</span></td></tr>` : ""}<tr><td>${WD_AR[a.weekday] || ""} ${fmtDay(a.attendance_date, { day: "numeric", month: "short" })}</td><td><span class="tag ${a.status}">${ST[a.status]?.[0] || a.status}</span></td><td>${esc(a.reason) || "—"}</td><td>${esc(a.note) || "—"}</td></tr>`;
-    }).join("");
+    $("histRows").innerHTML = r.records.map(a => `<tr><td>${WD_AR[a.weekday] || ""} ${fmtDay(a.attendance_date, { day: "numeric", month: "short" })}</td><td><span class="tag ${a.status}">${ST[a.status]?.[0] || a.status}</span></td><td>${esc(a.reason) || "—"}</td><td>${esc(a.note) || "—"}</td></tr>`).join("");
     $("histEmpty").classList.toggle("hidden", r.records.length > 0);
   } catch (err) { toast(err.message, "err"); }
 }

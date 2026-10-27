@@ -1362,8 +1362,15 @@ def employee_history(employee_id: int, start: Optional[date] = None, end: Option
         stats["fine_total"] += a.fine or 0
         records.append(dict(attendance_dict(a), weekday=a.attendance_date.strftime("%A")))
     stats["fine_total"] = round(stats["fine_total"], 2)
+    # قايمة الأسابيع اللي للموظف تسجيلات فيها (كل التاريخ، مش الفترة المفلترة)
+    # عشان دروب مينيو السجل يعرض Week N لكل أسبوع اتسجل فيه حاجة.
+    day_rows = {r[0] for r in db.query(Attendance.attendance_date)
+                .filter(Attendance.employee_id == employee_id).distinct().all()}
+    weeks = [{"start": ws.isoformat(), "end": (ws + timedelta(days=6)).isoformat(),
+              "number": week_number(ws)[1], "year": week_number(ws)[0]}
+             for ws in sorted({week_start_of(d) for d in day_rows}, reverse=True)]
     return {"employee": ov(e, peek_week(db, week_start_of(end)).get(e.id)), "start": start.isoformat(),
-            "end": end.isoformat(), "stats": stats, "records": records}
+            "end": end.isoformat(), "stats": stats, "records": records, "weeks": weeks}
 
 
 @app.get("/api/reports/export.csv")
