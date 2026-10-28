@@ -165,6 +165,49 @@ const I18N = {
   }
 };
 
+/* ---------- ?? translator ???? ??????? (????? applyLang) ---------- */
+const RO_TRANS = [
+  // regex pattern -> replacement function receiving match
+  [/\u0641\u064a \u0625\u062c\u0627\u0632\u0629 \u0627\u0644\u064a\u0648\u0645: (\d+) \u0645\u0648\u0638\u0641/g, (m,a) => "On Leave Today: " + a + " Employees"],
+  [/\u0645\u0648\u0638\u0641\u0648\u0646 (Week \d+): (\d+)/g, (m,w,n) => w + " Employees: " + n],
+  [/\u063a\u0631\u0627\u0645\u0627\u062a (Week \d+): ([\d.,]+) \u062c\.\u0645/g, (m,w,n) => w + " Fines: " + n + " EGP"],
+  [/(\d+) \u0645\u0648\u0638\u0641 \u0645\u062c\u062f\u0648\u0644 \u0627\u0644\u064a\u0648\u0645/g, (m,n) => n + " Employees Scheduled Today"],
+];
+function translateText(s) {
+  if (S.lang !== "en") return s;
+  const dict = I18N.en;
+  let t = s;
+  if (dict[s.trim()]) t = dict[s.trim()];
+  for (const [re, fn] of RO_TRANS) t = t.replace(re, fn);
+  return t;
+}
+
+// walking pass
+function translateTree(root) {
+  if (!root) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  let n;
+  while ((n = walker.nextNode())) {
+    if (n.parentNode && n.parentNode.nodeName !== "SCRIPT" && n.parentNode.nodeName !== "STYLE") {
+      const trimmed = n.nodeValue.trim();
+      if (trimmed) {
+        const tr = translateText(trimmed);
+        if (tr !== trimmed) {
+          n.nodeValue = n.nodeValue.replace(trimmed, tr);
+        }
+      }
+    }
+  }
+  // attributes
+  root.querySelectorAll && root.querySelectorAll("*").forEach(el => {
+    if (el.hasAttribute("placeholder")) { const v = el.getAttribute("placeholder"); const t = translateText(v); if (t !== v) el.setAttribute("placeholder", t); }
+    if (el.hasAttribute("title")) { const v = el.getAttribute("title"); const t = translateText(v); if (t !== v) el.setAttribute("title", t); }
+    if (el.hasAttribute("aria-label")) { const v = el.getAttribute("aria-label"); const t = translateText(v); if (t !== v) el.setAttribute("aria-label", t); }
+  });
+}
+// hook into applyLang by overriding? Instead, monkey: wrap original applyLang not accessible. We'll add a separate scheduler.
+window.__roTranslate = function() { translateTree(document.body); };
+
 /* دالة التبديل للغة */
 function setLang(lang) {
   S.lang = lang;
@@ -982,48 +1025,7 @@ on("attList", "input", ev => {
 });
 
 
-/* ---------- ?? translator ???? ??????? (????? applyLang) ---------- */
-const RO_TRANS = [
-  // regex pattern -> replacement function receiving match
-  [/\u0641\u064a \u0625\u062c\u0627\u0632\u0629 \u0627\u0644\u064a\u0648\u0645: (\d+) \u0645\u0648\u0638\u0641/g, (m,a) => "On Leave Today: " + a + " Employees"],
-  [/\u0645\u0648\u0638\u0641\u0648\u0646 (Week \d+): (\d+)/g, (m,w,n) => w + " Employees: " + n],
-  [/\u063a\u0631\u0627\u0645\u0627\u062a (Week \d+): ([\d.,]+) \u062c\.\u0645/g, (m,w,n) => w + " Fines: " + n + " EGP"],
-  [/(\d+) \u0645\u0648\u0638\u0641 \u0645\u062c\u062f\u0648\u0644 \u0627\u0644\u064a\u0648\u0645/g, (m,n) => n + " Employees Scheduled Today"],
-];
-function translateText(s) {
-  if (S.lang !== "en") return s;
-  const dict = I18N.en;
-  let t = s;
-  if (dict[s.trim()]) t = dict[s.trim()];
-  for (const [re, fn] of RO_TRANS) t = t.replace(re, fn);
-  return t;
-}
 
-// walking pass
-function translateTree(root) {
-  if (!root) return;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
-  let n;
-  while ((n = walker.nextNode())) {
-    if (n.parentNode && n.parentNode.nodeName !== "SCRIPT" && n.parentNode.nodeName !== "STYLE") {
-      const trimmed = n.nodeValue.trim();
-      if (trimmed) {
-        const tr = translateText(trimmed);
-        if (tr !== trimmed) {
-          n.nodeValue = n.nodeValue.replace(trimmed, tr);
-        }
-      }
-    }
-  }
-  // attributes
-  root.querySelectorAll && root.querySelectorAll("*").forEach(el => {
-    if (el.hasAttribute("placeholder")) { const v = el.getAttribute("placeholder"); const t = translateText(v); if (t !== v) el.setAttribute("placeholder", t); }
-    if (el.hasAttribute("title")) { const v = el.getAttribute("title"); const t = translateText(v); if (t !== v) el.setAttribute("title", t); }
-    if (el.hasAttribute("aria-label")) { const v = el.getAttribute("aria-label"); const t = translateText(v); if (t !== v) el.setAttribute("aria-label", t); }
-  });
-}
-// hook into applyLang by overriding? Instead, monkey: wrap original applyLang not accessible. We'll add a separate scheduler.
-window.__roTranslate = function() { translateTree(document.body); };
 
 
 // ---- dynamic translation observer ----
