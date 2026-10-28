@@ -1436,117 +1436,117 @@ svg.i{transition:transform var(--t-med) var(--spring)}
    ============================================================ */
 /* ---------- 1. توكنز الهوية (فاتح) ---------- */
 :root{
-  --ink:#1c1633;
-  --ink2:#5b5378;
-  --ink3:#8b84a6;
-  --head:#1c1633;
-  --bg:#f5f4f9;
+  --ink:#1e293b;
+  --ink2:#475569;
+  --ink3:#94a3b8;
+  --head:#1e293b;
+  --bg:#f8fafc;
   --surface:#ffffff;
-  --surf2:#faf9fd;
-  --line:#ece8f7;
-  --line2:#f4f1fa;
-  --line3:#e0daf2;
-  --brand:#4b1d8f;
-  --brand-d:#2a0f57;
-  --brand-bg:#f0ebfb;
-  --brand-line:#ddd2ff;
-  --focus:#7c5cff;
-  --accent:#4b1d8f;
-  --accent-2:#7c5cff;
-  --side:#2a0f57;
-  --side2:#3a1478;
-  --bar:#2a0f57;
-  --ok:#00b884;
-  --ok-d:#00795c;
-  --ok-bg:#e4faf3;
-  --ok-line:#b3eedb;
-  --warn:#f5a524;
+  --surf2:#f8fafc;
+  --line:#e2e8f0;
+  --line2:#f1f5f9;
+  --line3:#e2e8f0;
+  --brand:#2563eb;
+  --brand-d:#1d4ed8;
+  --brand-bg:#dbeafe;
+  --brand-line:#bfdbfe;
+  --focus:#3b82f6;
+  --accent:#2563eb;
+  --accent-2:#3b82f6;
+  --side:#1e40af;
+  --side2:#1e3a8a;
+  --bar:#1e40af;
+  --ok:#059669;
+  --ok-d:#047857;
+  --ok-bg:#dcfce7;
+  --ok-line:#86efac;
+  --warn:#d97706;
   --warn-d:#9a6200;
-  --warn-bg:#fff5e3;
-  --amber:#f5a524;
-  --bad:#e5484d;
-  --bad-d:#b3282d;
-  --bad-bg:#feecec;
-  --bad-line:#f8c9cb;
-  --info:#7c5cff;
-  --info-d:#4b2fd6;
-  --info-bg:#f1eeff;
-  --slate:#9a92b8;
-  --none:#c9c3dd;
-  --off-bg:#f3f1f9;
-  --off-fg:#7c7396;
-  --late-row:#fffaf3;
-  --abs-row:#fff5f5;
+  --warn-bg:#fef3c7;
+  --amber:#d97706;
+  --bad:#dc2626;
+  --bad-d:#b91c1c;
+  --bad-bg:#fee2e2;
+  --bad-line:#fca5a5;
+  --info:#2563eb;
+  --info-d:#1d4ed8;
+  --info-bg:#dbeafe;
+  --slate:#64748b;
+  --none:#cbd5e1;
+  --off-bg:#f8fafc;
+  --off-fg:#64748b;
+  --late-row:#fefce8;
+  --abs-row:#fef2f2;
   --r:12px;
   --r-lg:18px;
   --r-card:18px;
-  --shadow:0 2px 10px -7px rgba(28,22,51,.24),0 16px 34px -24px rgba(28,22,51,.5);
-  --shadow-lg:0 4px 14px -8px rgba(28,22,51,.2),0 26px 54px -30px rgba(75,29,143,.55);
-  --glow:0 10px 22px -10px rgba(75,29,143,.62);
+  --shadow:0 2px 10px -7px rgba(15,23,42,.24),0 16px 34px -24px rgba(15,23,42,.5);
+  --shadow-lg:0 4px 14px -8px rgba(15,23,42,.2),0 26px 54px -30px rgba(37,99,235,.55);
+  --glow:0 10px 22px -10px rgba(37,99,235,.62);
   --sheen:inset 0 1px 0 rgba(255,255,255,.7);
-  --ring:0 0 0 4px rgba(124,92,255,.17);
+  --ring:0 0 0 4px rgba(59,130,246,.17);
   --fds-out:cubic-bezier(.22,1,.36,1);
   --fds-spring:cubic-bezier(.34,1.56,.64,1);
 }
 :root[data-theme=dark]{
-  --ink:#efeaf9;
-  --ink2:#c4bcda;
-  --ink3:#9189ab;
-  --head:#f6f3fd;
-  --bg:#0f0b1c;
-  --surface:#1a1338;
-  --surf2:#231c4a;
-  --line:#372c66;
-  --line2:#2d2456;
-  --line3:#4b3c88;
-  --brand:#a78bfa;
-  --brand-d:#c4b5fd;
-  --brand-bg:#2c2159;
-  --brand-line:#52408f;
-  --focus:#b79dfa;
-  --accent:#8b5cf6;
-  --accent-2:#a78bfa;
-  --nav-bg:#1a1038;
-  --side:#191036;
-  --side2:#2a1a5e;
-  --bar:#2c2159;
-  --ok:#2fd6a4;
-  --ok-d:#5ee9c0;
-  --ok-bg:#0f3229;
-  --ok-line:#1f5a49;
-  --warn:#f5b942;
-  --warn-d:#ffd07a;
-  --warn-bg:#3a2b0e;
-  --amber:#f5b942;
-  --bad:#ff8091;
-  --bad-d:#ffa6b1;
-  --bad-bg:#3d1a22;
-  --bad-line:#7a2e3d;
-  --info:#a78bfa;
-  --info-d:#c4b5fd;
-  --info-bg:#291f4d;
-  --slate:#8b83a6;
-  --none:#372c66;
-  --off-bg:#241c4c;
-  --off-fg:#a89fc4;
-  --late-row:#241d10;
-  --abs-row:#251218;
+  --ink:#f1f5f9;
+  --ink2:#cbd5e1;
+  --ink3:#94a3b8;
+  --head:#f8fafc;
+  --bg:#0f172a;
+  --surface:#1e293b;
+  --surf2:#334155;
+  --line:#334155;
+  --line2:#475569;
+  --line3:#64748b;
+  --brand:#60a5fa;
+  --brand-d:#93c5fd;
+  --brand-bg:#1e3a5f;
+  --brand-line:#3b82f6;
+  --focus:#93c5fd;
+  --accent:#3b82f6;
+  --accent-2:#60a5fa;
+  --nav-bg:#0f172a;
+  --side:#1e293b;
+  --side2:#334155;
+  --bar:#1e3a5f;
+  --ok:#34d399;
+  --ok-d:#86efac;
+  --ok-bg:#064e3b;
+  --ok-line:#065f46;
+  --warn:#fbbf24;
+  --warn-d:#fde68a;
+  --warn-bg:#422006;
+  --amber:#fbbf24;
+  --bad:#f87171;
+  --bad-d:#fca5a5;
+  --bad-bg:#450a0a;
+  --bad-line:#7f1d1d;
+  --info:#60a5fa;
+  --info-d:#93c5fd;
+  --info-bg:#1e3a5f;
+  --slate:#94a3b8;
+  --none:#475569;
+  --off-bg:#1e293b;
+  --off-fg:#94a3b8;
+  --late-row:#422006;
+  --abs-row:#450a0a;
   --shadow:0 2px 10px -6px rgba(0,0,0,.5),0 18px 40px -26px rgba(0,0,0,.75);
   --shadow-lg:0 26px 60px -30px rgba(0,0,0,.85);
-  --glow:0 10px 26px -10px rgba(139,92,246,.6);
+  --glow:0 10px 26px -10px rgba(59,130,246,.6);
   --sheen:inset 0 1px 0 rgba(255,255,255,.05);
-  --ring:0 0 0 4px rgba(167,139,250,.22);
+  --ring:0 0 0 4px rgba(59,130,246,.22);
 }
 /* ---------- 2. الخطوط: Almarai للعناوين والأرقام، Tajawal للنص ---------- */
 body{font-family:'Tajawal','Almarai','Cairo',system-ui,'Segoe UI',Tahoma,sans-serif;font-size:14.5px;line-height:1.7;letter-spacing:0;background:var(--bg);color:var(--ink)}
 h1,h2,h3,h4,b,strong,.topbar h2,.page-head h3,.panel-h h3,.dlg-h h3,.shhead h4,.ghead .g-title, .login-card h1,.kpi .kv,.kpi>strong,.dt strong,.topnav .brand,.brand-mark,.btn,.chip,.tag, .seg button,.seg-filter button,.presets button,.pager button,.tbl th,.mini-tbl th,.role-pill, .live-tag,.date-pill,.save-bar .msg,.toast,.empty b,.a-name,.feed-row .who b,.status, .topnav .tabs::before,.nav-badge,.bp-top strong,.g-n,.grp-sum{
   font-family:'Almarai','Tajawal','Cairo',system-ui,sans-serif;
 }
-/* خلفية اللوحة: لمعة فوديكس البنفسجية الهادية */
-body::before{background:radial-gradient(52% 34% at 84% -8%,color-mix(in srgb,#7c5cff 8%,transparent),transparent 64%),
-  radial-gradient(46% 30% at 2% -4%,color-mix(in srgb,#4b1d8f 6%,transparent),transparent 60%)}
+/* خلفية اللوحة: لمعة فوديكس الزرقاء الهادية */
+body::before{background:radial-gradient(52% 34% at 84% -8%,color-mix(in srgb,#2563eb 8%,transparent),transparent 64%),
+  radial-gradient(46% 30% at 2% -4%,color-mix(in srgb,#1d4ed8 6%,transparent),transparent 60%)}
 :root[data-theme=dark] body::before{
-  background:radial-gradient(52% 34% at 84% -8%,color-mix(in srgb,#a78bfa 11%,transparent),transparent 64%),
+  background:radial-gradient(52% 34% at 84% -8%,color-mix(in srgb,#60a5fa 11%,transparent),transparent 64%),
   radial-gradient(46% 30% at 2% -4%,color-mix(in srgb,#8b5cf6 8%,transparent),transparent 60%);
 }
 /* ---------- 3. الحركة: keyframes بأسماء fds* ---------- */

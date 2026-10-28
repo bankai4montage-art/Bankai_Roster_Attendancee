@@ -69,6 +69,166 @@ const ST = { Present: ["حاضر", "ok"], Late: ["متأخر", "warn"], Absent: 
 const STK = ["Present", "Late", "Absent", "Excused"];
 const CLR = { present: "var(--ok)", late: "#e0a020", absent: "var(--bad)", excused: "#7f8fb0", none: "var(--none)" };
 
+/* ===== Language / الترجمة ===== */
+const I18N = {
+  ar: {
+    // nav
+    "نظرة عامة": "نظرة عامة", "الحضور اليومي": "الحضور اليومي", "الجدول": "الجدول", "الموظفون": "الموظفون", "التقارير": "التقارير", "الغرامات": "الغرامات", "الإعدادات": "الإعدادات",
+    "البحث عن موظف": "ابحث عن موظف", "الأسبوع السابق": "الأسبوع السابق", "الأسبوع التالي": "الأسبوع التالي", "الأسبوع الحالي": "الأسبوع الحالي",
+    "السبت": "السبت", "الأحد": "الأحد", "الاثنين": "الاثنين", "الثلاثاء": "الثلاثاء", "الأربعاء": "الأربعاء", "الخميس": "الخميس", "الجمعة": "الجمعة",
+    "حاضر": "حاضر", "متأخر": "متأخر", "غائب": "غائب", "بعذر": "بعذر", "لم يُسجل": "لم يُسجل",
+    "الحضور — من سيستم الروستر": "الحضور — من سيستم الروستر", "مفيش تسجيلات في الأسبوع ده": "مفيش تسجيلات في الأسبوع ده",
+    "تسجيلات": "تسجيلات", "غرامات": "غرامات", "ج": "ج",
+    "الإجمالي": "الإجمالي", "متصل بالروستر": "متصل بالروستر", "غير متصل بالروستر": "غير متصل بالروستر",
+    "مش متطابق في الروستر": "مش متطابق في الروستر", "مش عايز ت_TOO_? مش لقى الموظف": "مش متطابق في الروستر",
+    "التشغيل": "التشغيل", "إدارة الروستر والحضور للفرعين من مكان واحد.": "إدارة الروستر والحضور للفرعين من مكان واحد.",
+    "مركز إدارة العمليات": "مركز إدارة العمليات", "Rawa7el": "Rawa7el",
+    "كلمة المرور": "كلمة المرور", "اكتب كلمة المرور": "اكتب كلمة المرور", "تسجيل الدخول": "تسجيل الدخول",
+    "بوابة دعم المناديب": "بوابة دعم المناديب", "سجّل دخولك بكود الـ DAS الخاص بك": "سجّل دخولك بكود الـ DAS الخاص بك",
+    "كود المندوب": "كود المندوب", "دخول للسيستم": "دخول للسيستم", "متابعة الشكاوى": "متابعة الشكاوى",
+    "لا توجد شكاوى حتى الآن": "لا توجد شكاوى حتى الآن", "اختر قسم من الأعلى لتسجيل أول شكوى": "اختر قسم من الأعلى لتسجيل أول شكوى",
+    "الشيفت": "الشيفت", "تعديل شيفت، غياب، تبديل، حضور": "تعديل شيفت، غياب، تبديل، حضور",
+    "القبض": "القبض", "طلب سلفة من القبض — تحويل على محفظتك": "طلب سلفة من القبض — تحويل على محفظتك",
+    "السلف": "السلف", "متابعة سلفك وحالتها": "متابعة سلفك وحالتها",
+    "طلب سلفة": "طلب سلفة", "سبب السلفة": "سبب السلفة", "اكتب سبب السلفة باختصار...": "اكتب سبب السلفة باختصار...",
+    "إرسال طلب السلفة": "إرسال طلب السلفة", "سلفك وحالتها": "سلفك وحالتها", "لا توجد سلف حتى الآن": "لا توجد سلف حتى الآن",
+    "لو محتاج سلفة اضغط على كارت السلفة فوق": "لو محتاج سلفة اضغط على كارت السلفة فوق",
+    "خروج": "خروج", "الإشعارات": "الإشعارات", "تفعيل الإشعارات": "تفعيل الإشعارات", "إلغاء": "إلغاء",
+    "الحضور": "الحضور", "الجدول": "الجدول", "الموظفون": "الموظفون", "التقارير": "التقارير", "الغرامات": "الغرامات", "الإعدادات": "الإعدادات",
+    "الأسبوع السابق": "الأسبوع السابق", "الأسبوع التالي": "الأسبوع التالي", "الأسبوع الحالي": "الأسبوع الحالي",
+    "افتح أسبوع أي يوم": "افتح أسبوع أي يوم", "هذا الأسبوع": "هذا الأسبوع", "نسخ من الأسبوع السابق": "نسخ من الأسبوع السابق",
+    "استيراد من Excel": "استيراد من Excel", "تصدير": "تصدير", "Excel": "Excel", "طباعة": "طباعة",
+    "شكاوى": "الشكاوى", "السلف": "السلف", "الحضور — من سيستم الروستر": "الحضور — من سيستم الروستر",
+    "المبلغ": "المبلغ", "السبب": "السبب", "الحالة": "الحالة", "ملاحظة": "ملاحظة", "عدد السلف": "عدد السلف", "إجمالي السلف (ج)": "إجمالي السلف (ج)",
+    "السلف المصروفة": "السلف المصروفة", "قيد المراجعة": "قيد المراجعة", "مرفوض": "مرفوض",
+    "الشكاوى": "الشكاوى", "اتحلت": "اتحلت", "تحت المراجعة": "تحت المراجعة", "لازم تيجي المكتب": "لازم تيجي المكتب",
+    "متوسط الرضا": "متوسط الرضا", "تقييمات ضعيفة (★2-)": "تقييمات ضعيفة (★2-)",
+    "عدد الشكاوى": "عدد الشكاوى", "مصروف (ج)": "مصروف (ج)", "مرفوض (ج)": "مرفوض (ج)",
+    "تقرير شهري للغرامات": "تقرير شهري للغرامات", "الأسبوع الحالي": "الأسبوع الحالي", "الأسبوع السابق": "الأسبوع السابق",
+    "الأسبوع": "الأسبوع", "نظرة عامة": "نظرة عامة", "الحضور اليومي": "الحضور اليومي", "الجدول": "الجدول",
+    "الموظفون": "الموظفون", "التقارير": "التقارير", "الغرامات": "الغرامات", "الإعدادات": "الإعدادات",
+    "البحث عن موظف": "ابحث عن موظف", "الأسبوع السابق": "الأسبوع السابق", "الأسبوع التالي": "الأسبوع التالي",
+    "الأسبوع الحالي": "الأسبوع الحالي", "افتح أسبوع أي يوم": "افتح أسبوع أي يوم", "هذا الأسبوع": "هذا الأسبوع",
+    "نسخ من الأسبوع السابق": "نسخ من الأسبوع السابق", "استيراد من Excel": "استيراد من Excel",
+    "تصدير": "تصدير", "Excel": "Excel", "طباعة": "طباعة",
+    "الشكاوى": "الشكاوى", "السلف": "السلف", "الحضور — من سيستم الروستر": "الحضور — من سيستم الروستر",
+  },
+  en: {
+    // nav
+    "نظرة عامة": "Overview", "الحضور اليومي": "Daily Attendance", "الجدول": "Schedule", "الموظفون": "Employees", "التقارير": "Reports", "الغرامات": "Fines", "الإعدادات": "Settings",
+    "البحث عن موظف": "Search employee...", "الأسبوع السابق": "Previous week", "الأسبوع التالي": "Next week", "الأسبوع الحالي": "Current week",
+    "السبت": "Saturday", "الأحد": "Sunday", "الاثنين": "Monday", "الثلاثاء": "Tuesday", "الأربعاء": "Wednesday", "الخميس": "Thursday", "الجمعة": "Friday",
+    "حاضر": "Present", "متأخر": "Late", "غائب": "Absent", "بعذر": "Excused", "لم يُسجل": "Not marked",
+    "الحضور — من سيستم الروستر": "Attendance — from Roster System", "مفيش تسجيلات في الأسبوع ده": "No records this week",
+    "تسجيلات": "Records", "غرامات": "Fines", "ج": "EGP",
+    "الإجمالي": "Total", "متصل بالروستر": "Connected to roster", "غير متصل بالروستر": "Disconnected from roster",
+    "مش متطابق في الروستر": "Not found in roster", "مش عايز ت_TOO_? مش لقى الموظف": "Not found in roster",
+    "التشغيل": "Launch", "إدارة الروستر والحضور للفرعين من مكان واحد.": "Roster & attendance management for two branches in one place.",
+    "مركز إدارة العمليات": "Operations Control Center", "Rawa7el": "Rawa7el",
+    "كلمة المرور": "Password", "اكتب كلمة المرور": "Enter password", "تسجيل الدخول": "Sign in",
+    "بوابة دعم المناديب": "Courier Support Portal", "سجّل دخولك بكود الـ DAS الخاص بك": "Sign in with your DAS code",
+    "كود المندوب": "Courier code", "دخول للسيستم": "Enter system", "متابعة الشكاوى": "My tickets",
+    "لا توجد شكاوى حتى الآن": "No tickets yet", "اختر قسم من الأعلى لتسجيل أول شكوى": "Pick a category above to file your first ticket",
+    "الشيفت": "Shift", "تعديل شيفت، غياب، تبديل، حضور": "Shift, absence, swap, attendance",
+    "القبض": "Payroll", "طلب سلفة من القبض — تحويل على محفظتك": "Request advance from payroll — wallet transfer",
+    "السلف": "Advances", "متابعة سلفك وحالتها": "Your advances & status",
+    "طلب سلفة": "Request advance", "سبب السلفة": "Advance reason", "اكتب سبب السلفة باختصار...": "Write advance reason briefly...",
+    "إرسال طلب السلفة": "Submit advance request", "سلفك وحالتها": "Your advances", "لا توجد سلف حتى الآن": "No advances yet",
+    "لو محتاج سلفة اضغط على كارت السلفة فوق": "Need an advance? Tap the advance card above",
+    "خروج": "Logout", "الإشعارات": "Notifications", "تفعيل الإشعارات": "Enable notifications", "إلغاء": "Cancel",
+    "الحضور": "Attendance", "الجدول": "Schedule", "الموظفون": "Employees", "التقارير": "Reports", "الغرامات": "Fines", "الإعدادات": "Settings",
+    "الأسبوع السابق": "Previous week", "الأسبوع التالي": "Next week", "الأسبوع الحالي": "Current week",
+    "افتح أسبوع أي يوم": "Open any week", "هذا الأسبوع": "This week", "نسخ من الأسبوع السابق": "Copy from previous week",
+    "استيراد من Excel": "Import from Excel", "تصدير": "Export", "Excel": "Excel", "طباعة": "Print",
+    "الشكاوى": "Tickets", "السلف": "Advances", "الحضور — من سيستم الروستر": "Attendance — from Roster System",
+    "المبلغ": "Amount", "السبب": "Reason", "الحالة": "Status", "ملاحظة": "Note", "عدد السلف": "Advances count", "إجمالي السلف (ج)": "Total advances (EGP)",
+    "السلف المصروفة": "Paid advances", "قيد المراجعة": "Under review", "مرفوض": "Rejected",
+    "الشكاوى": "Tickets", "اتحلت": "Resolved", "تحت المراجعة": "Under review", "لازم تيجي المكتب": "Must visit office",
+    "متوسط الرضا": "Avg satisfaction", "تقييمات ضعيفة (★2-)": "Low ratings (★2-)",
+    "عدد الشكاوى": "Ticket count", "مصروف (ج)": "Paid (EGP)", "مرفوض (ج)": "Rejected (EGP)",
+    "تقرير شهري للغرامات": "Monthly fines report", "الأسبوع الحالي": "Current week", "الأسبوع السابق": "Previous week",
+    "الأسبوع": "Week", "نظرة عامة": "Overview", "الحضور اليومي": "Daily Attendance", "الجدول": "Schedule",
+    "الموظفون": "Employees", "التقارير": "Reports", "الغرامات": "Fines", "الإعدادات": "Settings",
+    "البحث عن موظف": "Search employee...", "الأسبوع السابق": "Previous week", "الأسبوع التالي": "Next week",
+    "الأسبوع الحالي": "Current week", "افتح أسبوع أي يوم": "Open any week", "هذا الأسبوع": "This week",
+    "نسخ من الأسبوع السابق": "Copy from previous week", "استيراد من Excel": "Import from Excel",
+    "تصدير": "Export", "Excel": "Excel", "طباعة": "Print",
+    "الشكاوى": "Tickets", "السلف": "Advances", "الحضور — من سيستم الروستر": "Attendance — from Roster System",
+    "المبلغ": "Amount", "السبب": "Reason", "الحالة": "Status", "ملاحظة": "Note", "عدد السلف": "Advances count", "إجمالي السلف (ج)": "Total advances (EGP)",
+    "السلف المصروفة": "Paid advances", "قيد المراجعة": "Under review", "مرفوض": "Rejected",
+    "الشكاوى": "Tickets", "اتحلت": "Resolved", "تحت المراجعة": "Under review", "لازم تيجي المكتب": "Must visit office",
+    "متوسط الرضا": "Avg satisfaction", "تقييمات ضعيفة (★2-)": "Low ratings (★2-)",
+    "عدد الشكاوى": "Ticket count", "مصروف (ج)": "Paid (EGP)", "مرفوض (ج)": "Rejected (EGP)",
+    "تقرير شهري للغرامات": "Monthly fines report", "الأسبوع الحالي": "Current week", "الأسبوع السابق": "Previous week",
+    "الأسبوع": "Week",
+  }
+};
+
+/* دالة التبديل للغة */
+function setLang(lang) {
+  S.lang = lang;
+  try { localStorage.setItem("bankaicode_lang", lang); } catch (e) {}
+  applyLang();
+  const btn = $("js-lang") || qs(".js-lang");
+  if (btn) btn.setAttribute("aria-label", lang === "ar" ? "Switch to English" : "تغيير للعربية");
+}
+
+/* تطبيق الترجمة على كل العناصر */
+function applyLang() {
+  const dict = I18N[S.lang] || I18N.ar;
+  // العناصر اللي فيها data-i18n
+  document.querySelectorAll("[data-i18n]").forEach(el => {
+    const key = el.getAttribute("data-i18n");
+    if (dict[key]) el.textContent = dict[key];
+  });
+  // الـ placeholders
+  document.querySelectorAll("[data-i18n-placeholder]").forEach(el => {
+    const key = el.getAttribute("data-i18n-placeholder");
+    if (dict[key]) el.placeholder = dict[key];
+  });
+  // الـ titles
+  document.querySelectorAll("[data-i18n-title]").forEach(el => {
+    const key = el.getAttribute("data-i18n-title");
+    if (dict[key]) el.title = dict[key];
+  });
+  // الـ aria-label
+  document.querySelectorAll("[data-i18n-aria]").forEach(el => {
+    const key = el.getAttribute("data-i18n-aria");
+    if (dict[key]) el.setAttribute("aria-label", dict[key]);
+  });
+  // العناصر اللي متعرفش data-i18n بس نصها مطابق للمفتاح (fallback للنصوص الثابتة)
+  document.querySelectorAll("button, span, h1, h2, h3, h4, h5, h6, p, label, th, td, summary, option, legend, figcaption, small").forEach(el => {
+    const txt = el.textContent.trim();
+    if (txt && dict[txt] && !el.hasAttribute("data-i18n") && !el.closest("[data-i18n]")) {
+      // لو العنصر مش فيه أيقونة أو عناصرNested، غيره
+      if (!el.querySelector("svg, i, .i, .av")) {
+        el.textContent = dict[txt];
+      }
+    }
+  });
+  // تحديث placeholder للبحث
+  const searchInp = $("#navSearch");
+  if (searchInp && dict["البحث عن موظف"]) searchInp.placeholder = dict["البحث عن موظف"];
+  // تحديث زرار اللغة
+  const langBtn = $("js-lang") || qs(".js-lang");
+  if (langBtn) langBtn.setAttribute("aria-label", S.lang === "ar" ? "Switch to English" : "تغيير للعربية");
+}
+
+/* تبديل اللغة */
+function toggleLang() {
+  setLang(S.lang === "ar" ? "en" : "ar");
+}
+
+/* تحميل اللغة المحفوظة */
+function loadLang() {
+  try {
+    const saved = localStorage.getItem("bankaicode_lang");
+    if (saved) S.lang = saved;
+  } catch (e) {}
+  if (!S.lang) S.lang = "ar";
+  applyLang();
+}
+
 const S = {
   token: localStorage.getItem("bankai_token") || "",
   role: localStorage.getItem("bankai_role") || "",
@@ -233,6 +393,10 @@ function applyTheme(t, save) {
 applyTheme(document.documentElement.dataset.theme || "light", false);
 qsa(".js-theme").forEach(b => b.addEventListener("click", () =>
   applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark", true)));
+
+// ---------- language (ar / en) ----------
+loadLang();
+qsa(".js-lang").forEach(b => b.addEventListener("click", () => toggleLang()));
 
 function showApp() {
   $("loginView").classList.add("hidden"); $("appView").classList.remove("hidden");
