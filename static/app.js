@@ -174,36 +174,41 @@ const RO_TRANS = [
   [/(\d+) \u0645\u0648\u0638\u0641 \u0645\u062c\u062f\u0648\u0644 \u0627\u0644\u064a\u0648\u0645/g, (m,n) => n + " Employees Scheduled Today"],
 ];
 function translateText(s) {
-  if (S.lang !== "en") return s;
-  const dict = I18N.en;
-  let t = s;
-  if (dict[s.trim()]) t = dict[s.trim()];
-  for (const [re, fn] of RO_TRANS) t = t.replace(re, fn);
-  return t;
+  try {
+    if (S.lang !== "en") return s;
+    const dict = I18N.en;
+    let t = s;
+    if (dict[s.trim()]) t = dict[s.trim()];
+    for (const [re, fn] of RO_TRANS) t = t.replace(re, fn);
+    return t;
+  } catch (e) { return s; }
 }
 
 // walking pass
 function translateTree(root) {
-  if (!root) return;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
-  let n;
-  while ((n = walker.nextNode())) {
-    if (n.parentNode && n.parentNode.nodeName !== "SCRIPT" && n.parentNode.nodeName !== "STYLE") {
-      const trimmed = n.nodeValue.trim();
-      if (trimmed) {
-        const tr = translateText(trimmed);
-        if (tr !== trimmed) {
-          n.nodeValue = n.nodeValue.replace(trimmed, tr);
+  try {
+    if (!root) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+    let n;
+    while ((n = walker.nextNode())) {
+      if (n.parentNode && n.parentNode.nodeName !== "SCRIPT" && n.parentNode.nodeName !== "STYLE") {
+        const trimmed = n.nodeValue.trim();
+        if (trimmed) {
+          const tr = translateText(trimmed);
+          if (tr !== trimmed) {
+            n.nodeValue = n.nodeValue.replace(trimmed, tr);
+          }
         }
       }
     }
-  }
-  // attributes
-  root.querySelectorAll && root.querySelectorAll("*").forEach(el => {
-    if (el.hasAttribute("placeholder")) { const v = el.getAttribute("placeholder"); const t = translateText(v); if (t !== v) el.setAttribute("placeholder", t); }
-    if (el.hasAttribute("title")) { const v = el.getAttribute("title"); const t = translateText(v); if (t !== v) el.setAttribute("title", t); }
-    if (el.hasAttribute("aria-label")) { const v = el.getAttribute("aria-label"); const t = translateText(v); if (t !== v) el.setAttribute("aria-label", t); }
-  });
+    // attributes
+    const els = root.querySelectorAll("*");
+    if (els) els.forEach(el => {
+      if (el.hasAttribute("placeholder")) { const v = el.getAttribute("placeholder"); const t = translateText(v); if (t !== v) el.setAttribute("placeholder", t); }
+      if (el.hasAttribute("title")) { const v = el.getAttribute("title"); const t = translateText(v); if (t !== v) el.setAttribute("title", t); }
+      if (el.hasAttribute("aria-label")) { const v = el.getAttribute("aria-label"); const t = translateText(v); if (t !== v) el.setAttribute("aria-label", t); }
+    });
+  } catch (e) { console.warn("translateTree error:", e); }
 }
 // hook into applyLang by overriding? Instead, monkey: wrap original applyLang not accessible. We'll add a separate scheduler.
 window.__roTranslate = function() { translateTree(document.body); };
@@ -261,7 +266,7 @@ function applyLang() {
   const langBtn = $("js-lang") || qs(".js-lang");
   if (langBtn) langBtn.setAttribute("aria-label", S.lang === "ar" ? "Switch to English" : "تغيير للعربية");
 }
-  translateTree(document.body);
+  try { translateTree(document.body); } catch (e) { console.warn("translate error:", e); }
 
 /* تبديل اللغة */
 function toggleLang() {
