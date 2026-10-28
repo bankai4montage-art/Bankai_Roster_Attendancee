@@ -897,9 +897,13 @@ async function loadFeed() {
     const rows = (r.employees || []).filter(e => e.attendance && e.attendance.status && e.attendance.updated_at)
       .sort((a, b) => new Date(b.attendance.updated_at) - new Date(a.attendance.updated_at)).slice(0, 8);
     const AV = { Present: "linear-gradient(135deg,#0e9f6e,#34d399)", Late: "linear-gradient(135deg,#d97706,#f0b429)", Absent: "linear-gradient(135deg,#e02424,#f87171)", Excused: "linear-gradient(135deg,#0284c7,#38bdf8)" };
-    el.innerHTML = rows.length ? rows.map(e => {
+    // دخول متتابع لصفوف الفيد أول مرة الداشبورد بيفتح بس — التحديثات بعد كده بتنزل من غير رفرفة
+    const firstIn = !S.feedAnimated && rows.length > 0;
+    if (firstIn) S.feedAnimated = true;
+    el.innerHTML = rows.length ? rows.map((e, i) => {
       const a = e.attendance, lbl = (ST[a.status] || [a.status])[0];
-      return `<div class="feed-row"><div class="feed-ava" style="background:${AV[a.status] || "#94a3b8"}">${esc(e.name.trim()[0] || "؟")}</div><div class="who"><b>${esc(e.name)}</b><small>سجّل ${lbl} — ${esc(e.branch || "")}</small></div><span class="feed-tm">${relTime(a.updated_at)}</span></div>`;
+      const anim = (firstIn && i < 8 && (function(){ try { return !matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e2) { return true; } })()) ? ` style="animation:fdsRise .34s var(--fds-out) both;animation-delay:${i * 45}ms"` : "";
+      return `<div class="feed-row"${anim}><div class="feed-ava" style="background:${AV[a.status] || "#94a3b8"}">${esc(e.name.trim()[0] || "؟")}</div><div class="who"><b>${esc(e.name)}</b><small>سجّل ${lbl} — ${esc(e.branch || "")}</small></div><span class="feed-tm">${relTime(a.updated_at)}</span></div>`;
     }).join("") : `<div class="empty">لا توجد تسجيلات بعد اليوم</div>`;
   } catch (e) { /* keep old feed on error */ }
 }
