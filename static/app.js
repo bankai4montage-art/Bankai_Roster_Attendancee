@@ -600,7 +600,7 @@ qsa(".js-logout").forEach(b => b.addEventListener("click", () => {
 // ---------- theme (light / dark) ----------
 function applyTheme(t, save) {
   document.documentElement.dataset.theme = t;
-  const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = t === "dark" ? "#0f0b1c" : "#2a0f57";
+  const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = t === "dark" ? "#0b1220" : "#1e40af";
   qsa(".js-theme").forEach(b => b.setAttribute("aria-checked", t === "dark" ? "true" : "false"));
   if (save) { try { sessionStorage.setItem("bankai-theme", t); } catch (e) {} }
 }
