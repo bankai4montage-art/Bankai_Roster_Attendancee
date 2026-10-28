@@ -62,6 +62,35 @@ td.num,th.num{display:table-cell;text-align:right}
 .rawahel-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: linear-gradient(135deg, rgba(124,58,237,0.12), rgba(236,72,153,0.12)); border: 1px solid rgba(168,85,247,0.2); font-family: 'Alexandria', 'Cairo', sans-serif; font-size: 11px; font-weight: 700; color: var(--brand); white-space: nowrap; }
 .rawahel-badge .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--brand); animation: pulseDot 2s ease-in-out infinite; }
 
+/* ===== Rawahel lockup — "Rawahel" بخط عريض + "Powered by Bankai" تحته ===== */
+.rw-lockup{display:flex;align-items:center;gap:12px;justify-content:center}
+.rw-tile{width:52px;height:52px;border-radius:15px;display:grid;place-items:center;flex:none;
+  background:linear-gradient(145deg,#2563eb 0%,#3b82f6 45%,#38bdf8 100%);
+  color:#fff;font-family:'Alexandria','Cairo','Segoe UI',sans-serif;font-weight:800;font-size:27px;line-height:1;
+  box-shadow:0 10px 24px -10px rgba(37,99,235,.65);transition:transform .45s var(--spring, cubic-bezier(.2,.8,.2,1))}
+.rw-stack{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0}
+.rw-name{font-family:'Alexandria','Cairo','Segoe UI',sans-serif;font-weight:800;font-size:34px;line-height:1;letter-spacing:-.015em;
+  background:linear-gradient(100deg,#1d4ed8 0%,#2563eb 40%,#38bdf8 100%);-webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent;color:transparent}
+.rw-powered{font-family:'Alexandria','Cairo','Segoe UI',sans-serif;font-size:9.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted,#64748b);white-space:nowrap}
+.rw-powered b{color:var(--brand);font-weight:800}
+.rw-inline{gap:9px}
+.rw-inline .rw-tile{width:34px;height:34px;border-radius:10px;font-size:18px;box-shadow:none}
+.rw-inline .rw-stack{gap:1px}
+.rw-inline .rw-name{font-size:19px}
+.rw-inline .rw-powered{font-size:7.5px;letter-spacing:.12em}
+:root[data-theme=dark] .rw-name{background:linear-gradient(100deg,#93c5fd 0%,#bfdbfe 55%,#e0f2fe 100%);-webkit-background-clip:text;background-clip:text}
+@media (prefers-reduced-motion: no-preference){.login-card .rw-tile{animation:rwTileIn .5s cubic-bezier(.2,.8,.2,1) both}}
+@keyframes rwTileIn{from{opacity:0;transform:translateY(-8px) scale(.9)}to{opacity:1;transform:none}}
+.login-card .rw-lockup{margin:0 0 18px}
+
+/* fallbacks: المتصفح اللي مش بيدعم قصّ التدرج على النص */
+@supports not ((-webkit-background-clip: text) or (background-clip: text)){
+  .rw-name{-webkit-text-fill-color:currentColor;color:var(--brand);background:none}
+  :root[data-theme=dark] .rw-name{color:#bfdbfe}
+}
+/* رقم النسخة عشان المترجم ميمسحوش: الاسم براند لاتيني في اللغتين */
+
 /* ---------- login ---------- */
 .login-shell{min-height:100vh;display:grid;place-items:center;padding:22px}
 .brand-mark{display:grid;place-items:center;width:48px;height:48px;border-radius:14px;color:#fff;font-weight:800;font-size:24px}
@@ -406,6 +435,8 @@ body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;transi
 .seg-filter,.seg-filter button{height:42px}
 .nav-item{font-weight:700;font-size:15px}
 .brand-row small{font-weight:600;font-size:12px}
+.topnav .rw-lockup{color:#fff}
+.topnav .rw-powered{color:rgba(255,255,255,.62)}
 .panel-h p,.page-head p{font-size:13px;font-weight:600;color:var(--ink3)}
 .tbl th,.sch th{color:var(--ink2)}
 .tbl td b,.sch td.who b,.who b{font-weight:800}

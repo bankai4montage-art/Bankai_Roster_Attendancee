@@ -83,7 +83,7 @@ const I18N = {
     "الإجمالي": "الإجمالي", "متصل بالروستر": "متصل بالروستر", "غير متصل بالروستر": "غير متصل بالروستر",
     "مش متطابق في الروستر": "مش متطابق في الروستر", "مش عايز ت_TOO_? مش لقى الموظف": "مش متطابق في الروستر",
     "التشغيل": "التشغيل", "إدارة الروستر والحضور للفرعين من مكان واحد.": "إدارة الروستر والحضور للفرعين من مكان واحد.",
-    "مركز إدارة العمليات": "مركز إدارة العمليات", "Rawahel": "رواهل",
+    "مركز إدارة العمليات": "مركز إدارة العمليات", "Rawahel": "Rawahel",
     "كلمة المرور": "كلمة المرور", "اكتب كلمة المرور": "اكتب كلمة المرور", "تسجيل الدخول": "تسجيل الدخول",
     "بوابة دعم المناديب": "بوابة دعم المناديب", "سجّل دخولك بكود الـ DAS الخاص بك": "سجّل دخولك بكود الـ DAS الخاص بك",
     "كود المندوب": "كود المندوب", "دخول للسيستم": "دخول للسيستم", "متابعة الشكاوى": "متابعة الشكاوى",
@@ -188,10 +188,13 @@ function translateText(s) {
 function translateTree(root) {
   try {
     if (!root) return;
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
-    let n;
-    while ((n = walker.nextNode())) {
-      if (n.parentNode && n.parentNode.nodeName !== "SCRIPT" && n.parentNode.nodeName !== "STYLE") {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  let n;
+  while ((n = walker.nextNode())) {
+    // الورقة بس: أي عنصر جواه عناصر تانية (زي label فيه input) مترجّعوش نصه —
+    // ده اللي كان بيمسح حقل كلمة المرور من شاشة الدخول أصلاً.
+    const owner = n.parentNode;
+    if (owner && owner.children.length === 0 && owner.nodeName !== "SCRIPT" && owner.nodeName !== "STYLE") {
         const trimmed = n.nodeValue.trim();
         if (trimmed) {
           const tr = translateText(trimmed);
@@ -254,7 +257,8 @@ function applyLang() {
     const txt = el.textContent.trim();
     if (txt && dict[txt] && !el.hasAttribute("data-i18n") && !el.closest("[data-i18n]")) {
       // لو العنصر مش فيه أيقونة أو عناصرNested، غيره
-      if (!el.querySelector("svg, i, .i, .av")) {
+      // ورقة بس: العنصر اللي جواه input/button/أيقونة نلمّوش نصه
+      if (!el.children.length && !el.querySelector("svg, i, .i, .av")) {
         el.textContent = dict[txt];
       }
     }
@@ -266,7 +270,9 @@ function applyLang() {
   const langBtn = $("js-lang") || qs(".js-lang");
   if (langBtn) langBtn.setAttribute("aria-label", S.lang === "ar" ? "Switch to English" : "تغيير للعربية");
 }
-  try { translateTree(document.body); } catch (e) { console.warn("translate error:", e); }
+/* كنا بنادي translateTree(document.body) هنا على مستوى الملف، وده كان بيشيل
+   الـ input جوه الـ label وقت الرسم (textContent بيمسح العناصر الأبناء) — اشتغل
+   مرة واحدة من loadLang بس. */
 
 /* تبديل اللغة */
 function toggleLang() {

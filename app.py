@@ -28,7 +28,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
 from starlette.background import BackgroundTask
 
-APP_NAME = "Bankai Roster & Attendance"
+APP_NAME = "Rawahel — Roster & Attendance"
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./bankai.db")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "ChangeThisPassword123!")
 # كلمة مرور المشرفين: مشاهدة كل حاجة + تعديل الحضور اليومي فقط. فاضية = الخاصية مقفولة.
@@ -299,10 +299,10 @@ async def security_headers(request: Request, call_next):
 FAVICON_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
     '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
-    '<stop offset="0" stop-color="#a78bfa"/><stop offset="1" stop-color="#6d28d9"/>'
+    '<stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#60a5fa"/>'
     '</linearGradient></defs><rect width="64" height="64" rx="18" fill="url(#g)"/>'
-    '<text x="32" y="45" font-family="Cairo,Segoe UI,Arial,sans-serif" font-size="38" '
-    'font-weight="800" fill="#ffffff" text-anchor="middle">B</text></svg>'
+    '<text x="32" y="46" font-family="Alexandria,Cairo,Segoe UI,Arial,sans-serif" font-size="38" '
+    'font-weight="800" fill="#ffffff" text-anchor="middle">R</text></svg>'
 )
 
 
