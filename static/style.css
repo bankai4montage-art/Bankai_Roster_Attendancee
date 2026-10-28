@@ -55,12 +55,12 @@ td.num,th.num{display:table-cell;text-align:right}
 .check input{width:17px;height:17px;accent-color:var(--brand)}
 .tag{white-space:nowrap}
 
-/* ===== Rawa7el Brand ===== */
-.rawa7el-logo { width: 160px; height: 41px; display: block; filter: drop-shadow(0 4px 16px rgba(124,58,237,0.25)); }
-.rawa7el-logo svg { width: 100%; height: 100%; }
-@media (prefers-color-scheme: dark) { .rawa7el-logo { filter: drop-shadow(0 4px 16px rgba(167,139,250,0.35)); } }
-.rawa7el-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: linear-gradient(135deg, rgba(124,58,237,0.12), rgba(236,72,153,0.12)); border: 1px solid rgba(168,85,247,0.2); font-family: 'Alexandria', 'Cairo', sans-serif; font-size: 11px; font-weight: 700; color: var(--brand); white-space: nowrap; }
-.rawa7el-badge .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--brand); animation: pulseDot 2s ease-in-out infinite; }
+/* ===== Rawahel Brand ===== */
+.rawahel-logo { width: 160px; height: 41px; display: block; filter: drop-shadow(0 4px 16px rgba(124,58,237,0.25)); }
+.rawahel-logo svg { width: 100%; height: 100%; }
+@media (prefers-color-scheme: dark) { .rawahel-logo { filter: drop-shadow(0 4px 16px rgba(167,139,250,0.35)); } }
+.rawahel-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: linear-gradient(135deg, rgba(124,58,237,0.12), rgba(236,72,153,0.12)); border: 1px solid rgba(168,85,247,0.2); font-family: 'Alexandria', 'Cairo', sans-serif; font-size: 11px; font-weight: 700; color: var(--brand); white-space: nowrap; }
+.rawahel-badge .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--brand); animation: pulseDot 2s ease-in-out infinite; }
 
 /* ---------- login ---------- */
 .login-shell{min-height:100vh;display:grid;place-items:center;padding:22px}
@@ -578,7 +578,8 @@ dialog.dlg.xwide{width:min(1040px,calc(100% - 20px))}
 .topnav .brand small{font-size:11px;margin-top:4px}
 .topnav .mark{width:40px;height:40px}
 .topnav .tabs{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;min-width:0;flex:1}
-.topnav .tabs:before{content:'القائمة الرئيسية';display:block;color:#7e91b1;font-size:10px;font-weight:800;letter-spacing:.6px;padding:0 12px 9px}
+.topnav .tabs:before{content:'القائمة الرئيسية';
+:root[lang="en"] .topnav .tabs:before{content:'Main Menu'};display:block;color:#7e91b1;font-size:10px;font-weight:800;letter-spacing:.6px;padding:0 12px 9px}
 .topnav .tabs .nav-btn{width:100%;justify-content:flex-start;white-space:normal;text-align:start}
 .topnav .tools{display:flex;flex-wrap:wrap;gap:9px;border-top:1px solid rgba(255,255,255,.1)}
 .nav-search{width:100%;order:0}

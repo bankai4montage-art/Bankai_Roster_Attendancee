@@ -22,7 +22,8 @@ const weekNoOf = ws => {
 };
 const weekLabel = ws => `Week ${weekNoOf(ws)}`;
 const weekRangeText = ws => `${fmtDay(ws, { day: "numeric", month: "short" })} – ${fmtDay(addDays(ws, 6), { day: "numeric", month: "short", year: "numeric" })}`;
-const fmtDay = (s, opts) => parseISO(s).toLocaleDateString("ar-EG-u-nu-latn", opts);
+const curLocale = () => (S.lang === "en" ? "en-US" : "ar-EG-u-nu-latn");
+const fmtDay = (s, opts) => parseISO(s).toLocaleDateString(curLocale(), opts);
 const anyDrafts = () => S.draft.size + (S.sch ? S.sch.draft.size : 0);
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 const on = (id, ev, fn) => $(id).addEventListener(ev, fn);
@@ -82,7 +83,7 @@ const I18N = {
     "الإجمالي": "الإجمالي", "متصل بالروستر": "متصل بالروستر", "غير متصل بالروستر": "غير متصل بالروستر",
     "مش متطابق في الروستر": "مش متطابق في الروستر", "مش عايز ت_TOO_? مش لقى الموظف": "مش متطابق في الروستر",
     "التشغيل": "التشغيل", "إدارة الروستر والحضور للفرعين من مكان واحد.": "إدارة الروستر والحضور للفرعين من مكان واحد.",
-    "مركز إدارة العمليات": "مركز إدارة العمليات", "Rawa7el": "Rawa7el",
+    "مركز إدارة العمليات": "مركز إدارة العمليات", "Rawahel": "رواهل",
     "كلمة المرور": "كلمة المرور", "اكتب كلمة المرور": "اكتب كلمة المرور", "تسجيل الدخول": "تسجيل الدخول",
     "بوابة دعم المناديب": "بوابة دعم المناديب", "سجّل دخولك بكود الـ DAS الخاص بك": "سجّل دخولك بكود الـ DAS الخاص بك",
     "كود المندوب": "كود المندوب", "دخول للسيستم": "دخول للسيستم", "متابعة الشكاوى": "متابعة الشكاوى",
@@ -124,7 +125,7 @@ const I18N = {
     "الإجمالي": "Total", "متصل بالروستر": "Connected to roster", "غير متصل بالروستر": "Disconnected from roster",
     "مش متطابق في الروستر": "Not found in roster", "مش عايز ت_TOO_? مش لقى الموظف": "Not found in roster",
     "التشغيل": "Launch", "إدارة الروستر والحضور للفرعين من مكان واحد.": "Roster & attendance management for two branches in one place.",
-    "مركز إدارة العمليات": "Operations Control Center", "Rawa7el": "Rawa7el",
+    "مركز إدارة العمليات": "Operations Control Center", "Rawahel": "Rawahel",
     "كلمة المرور": "Password", "اكتب كلمة المرور": "Enter password", "تسجيل الدخول": "Sign in",
     "بوابة دعم المناديب": "Courier Support Portal", "سجّل دخولك بكود الـ DAS الخاص بك": "Sign in with your DAS code",
     "كود المندوب": "Courier code", "دخول للسيستم": "Enter system", "متابعة الشكاوى": "My tickets",
@@ -175,7 +176,11 @@ function setLang(lang) {
 
 /* تطبيق الترجمة على كل العناصر */
 function applyLang() {
-  const dict = I18N[S.lang] || I18N.ar;
+  // تبديل اتجاه الصفحة (RTL للعربية، LTR للانكليزية)
+  const isAr = S.lang === "ar";
+  document.documentElement.lang = isAr ? "ar" : "en";
+  document.documentElement.dir = isAr ? "rtl" : "ltr";
+  const dict = isAr ? I18N.ar : I18N.en;
   // العناصر اللي فيها data-i18n
   document.querySelectorAll("[data-i18n]").forEach(el => {
     const key = el.getAttribute("data-i18n");
@@ -243,6 +248,7 @@ const S = {
   rep: { sum: null, emps: [], sort: { key: "name", dir: 1 }, page: 1, size: 50, preset: "week" },
   fines: { data: null, sort: { key: "date", dir: -1 }, page: 1, size: 50, preset: "week" },
   hist: { id: null },
+  lang: "ar",
   stale: new Set(), /* صفوف اتغيّرت من مستخدم تاني وعندنا عليها مسودة مش محفوظة */
 };
 /* معرّف التاب الحالي: بيتبعت مع كل طلب والسيرفر بيرجّعه في حدث التحديث المباشر
@@ -606,7 +612,11 @@ function renderDashboard(d) {
   ];
   const pct = v => t.scheduled ? Math.round(v * 100 / t.scheduled) : 0;
   $("dashKpis").innerHTML = kp.map(([l, v, c, go]) => `<button class="kpi ${c}" data-go="${esc(JSON.stringify(go))}" style="--p:${pct(v)}" title="${l}: ${v} من ${t.scheduled} مجدول"><span class="kl">${l}</span><span class="kv num${v ? "" : " is-zero"}">${v}</span><span class="ring${v ? "" : " is-zero"}"><b>${pct(v)}%</b></span></button>`).join("");
+  if (S.lang === "en") {
+    dashNote.innerHTML = '<span>On Leave Today: <b class="num">' + d.off_today + '</b> Employees</span><span>Week ' + weekNoOf(d.week.start) + ' Employees: <b class="num">' + d.active_total + '</b></span><span>Week ' + weekNoOf(d.week.start) + ' Fines: <b class="num">' + num(d.week_fines) + '</b> EGP</span>';
+  } else {
   $("dashNote").innerHTML = `<span>في إجازة اليوم: <b class="num">${d.off_today}</b> موظف</span><span>موظفين ${weekLabel(d.week.start)}: <b class="num">${d.active_total}</b></span><span>غرامات ${weekLabel(d.week.start)}: <b class="num">${money(d.week_fines)}</b></span>`;
+  }
   $("dashBranches").innerHTML = Object.entries(d.branches).map(([name, b]) => branchPanel(name, b, date)).join("");
   renderTrend(d.trend, date);
   $("dashWatch").innerHTML = d.watchlist.length
@@ -2300,7 +2310,8 @@ on("soundBtn", "click", () => {
 function setLive(up, text) {
   const p = $("livePill"); if (!p) return;
   p.classList.toggle("off", !up);
-  $("liveText").textContent = text;
+  const __d = (S.lang === "en") ? I18N.en : I18N.ar;
+  $("liveText").textContent = __d[text] || text;
   p.title = up ? "متصل: أي تغيير من أي مستخدم تاني بيظهر هنا فورًا من غير refresh"
     : "الاتصال بالتحديث المباشر انقطع — بنحاول نرجع تاني";
 }
