@@ -165,6 +165,119 @@ const I18N = {
   }
 };
 
+/* توسعة القاموس: نصوص الـ templates الديناميكية عشان EN mode يغطي الصفحة كلها مش جزء منها */
+Object.assign(I18N.en, {
+  "تخطَّ إلى المحتوى": "Skip to content", "متابعة مباشرة": "Live watch", "مشرف": "Supervisor",
+  "ملخص اليوم": "Today summary", "اليوم": "Today", "مجدولون اليوم": "Scheduled today",
+  "ج.م": "EGP", "فتح الحضور": "Open attendance", "اكتمل التسجيل": "All marked",
+  "لا يوجد موظفون مجدولون في هذا اليوم.": "No employees scheduled on this day.",
+  "الحضور — أيام الأسبوع": "Attendance — week days", "أحدث التسجيلات": "Latest entries",
+  "لا توجد تسجيلات بعد اليوم": "No entries yet today", "يحتاجون متابعة": "Needs attention",
+  "الأكثر غيابًا وتأخيرًا خلال الأسبوع المختار": "Most absent & late in the selected week",
+  "مفيش غياب أو تأخير مسجل في الأسبوع ده.": "No absences or lateness recorded this week.",
+  "تحديد غير المسجلين كحاضر": "Mark unmarked as present",
+  "كل الشيفتات": "All shifts", "كل الأنواع": "All types", "طي/فتح المجموعات": "Collapse/expand groups",
+  "تجاهل": "Discard", "جدول الشيفتات": "Shift schedule",
+  "ضيف الموظفين على الشيفت مباشرة، وحدّد يوم الإجازة والبريك، وبعدين خلّي النظام يوزّع الأسبوع.": "Add employees to shifts directly, set the day-off & break, and let the system distribute the week.",
+  "التوزيع التلقائي": "Auto distribution",
+  "النظام بيوزّع الإجازات بالتساوي على أيام الأسبوع جوه كل شيفت، ويوزّع البريك على فترات متدرّجة. هتشوف الاقتراح الأول وبعدين تحفظ.": "The system spreads day-offs evenly across the week within each shift, and staggers breaks. Preview first, then save.",
+  "كل شيفتات الفرع": "All branch shifts", "مدة البريك": "Break duration",
+  "30 دقيقة": "30 min", "45 دقيقة": "45 min", "ساعة": "1 hour", "ساعة ونص": "1.5 hours",
+  "الأيام المتاحة للإجازة": "Day-off options",
+  "وزّع الإجازات": "Distribute day-offs", "وزّع البريك": "Distribute breaks",
+  "غيّر حتى الأيام المثبّتة": "Change pinned days too", "غيّر البريك الموجود": "Replace existing breaks",
+  "اعرض التوزيع المقترح": "Preview suggested spread",
+  "إجمالي العاملين كل يوم في الفرع (بعد خصم الإجازات)": "Daily working headcount per branch (after day-offs)",
+  "شيفت جديد": "New shift", "اختار وقت البداية والنهاية أو اكتب اسم الشيفت بنفسك.": "Pick start/end times or type your own shift name.",
+  "من": "From", "إلى": "To", "الاسم": "Name", "اختياري": "Optional", "إضافة الشيفت": "Add shift",
+  "قاعدة بيانات الموظفين": "Employees database", "كل الفروع": "All branches", "كل أيام الإجازة": "All day-offs",
+  "النشطون فقط": "Active only", "غير النشطين": "Inactive", "الكل": "All",
+  "تعديل جماعي": "Bulk edit", "تفعيل": "Activate", "إيقاف": "Deactivate", "إلغاء التحديد": "Clear selection",
+  "الموظف": "Employee", "الفرع": "Branch", "النوع": "Type", "الإجازة": "Day off", "الموبايل": "Mobile",
+  "إجراءات": "Actions", "لا توجد نتائج": "No results", "غيّر الفلاتر أو أضف موظفًا جديدًا": "Change filters or add a new employee",
+  "تقرير الحضور": "Attendance report", "الأسبوع المختار": "Selected week", "أمس": "Yesterday",
+  "آخر 7 أيام": "Last 7 days", "آخر 30 يوم": "Last 30 days", "هذا الشهر": "This month", "الشهر الماضي": "Last month",
+  "من تاريخ": "From", "إلى تاريخ": "To", "بحث في الموظفين": "Search employees", "عرض التقرير": "Run report",
+  "ملخص الموظفين": "Employees summary", "كل التسجيلات": "All entries", "إجمالي التسجيلات": "Total entries",
+  "حضور": "Present", "تأخير": "Late", "غياب": "Absent", "نسبة الحضور": "Attendance rate",
+  "التفصيل اليومي": "Daily breakdown", "التوزيع": "Distribution", "تقرير الموظفين": "Employees report",
+  "لا توجد تسجيلات في الفترة المحددة": "No records in the selected period",
+  "كل الغرامات المسجلة في الفرعين بكل تفاصيلها": "All recorded fines in both branches, full details",
+  "آخر 90 يوم": "Last 90 days", "هذه السنة": "This year", "كل الفترات": "All periods",
+  "تأخير وغياب": "Late & absent", "تأخير بس": "Late only", "غياب بس": "Absent only",
+  "عرض الغرامات": "Run fines report", "إجمالي الغرامات": "Total fines", "عدد الغرامات": "Fines count",
+  "غرامات تأخير": "Late fines", "غرامات غياب": "Absent fines", "متوسط الغرامة": "Average fine", "أكبر غرامة": "Largest fine",
+  "التفصيل بالأسبوع": "Weekly breakdown", "الفترة": "Period", "التفصيل الشهري": "Monthly breakdown", "الشهر": "Month",
+  "سجل الغرامات": "Fines log", "الغرامة": "Fine", "لا توجد غرامات في الفترة المحددة": "No fines in the selected period",
+  "الغرامات الافتراضية": "Default fines",
+  "تتعبّى تلقائيًا في خانة الغرامة عند اختيار الحالة، وتقدر تعدّلها لكل موظف.": "Auto-filled when picking a status; you can adjust per employee.",
+  "الغياب «بعذر» ما عليه غرامة. لو الغرامة أكبر من صفر لازم تكتب السبب قبل الحفظ.": "Excused absence has no fine. A fine above zero requires a reason before saving.",
+  "حفظ الإعدادات": "Save settings", "البيانات والنسخ الاحتياطي": "Data & backup", "خد نسخة من بياناتك بشكل دوري.": "Back up your data regularly.",
+  "منطقة الخطر": "Danger zone", "إجراءات لا يمكن التراجع عنها.": "Irreversible actions.",
+  "سجل الحضور بالكامل": "Full attendance log", "مسح سجل الحضور بالكامل": "Clear the full attendance log",
+  "الموظف نشط": "Employee is active", "حفظ": "Save",
+  "سيبها «بدون تغيير» للحقول اللي مش عايز تعدّلها.": "Leave \"No change\" for fields you don't want to edit.",
+  "بدون تغيير": "No change", "تطبيق على المحددين": "Apply to selected",
+  "استيراد موظفين": "Import employees", "انسخ الجدول من Excel والصقه هنا، أو ارفع ملف CSV.": "Paste the sheet from Excel, or upload a CSV file.",
+  "الأعمدة المقبولة: الاسم، الكود، الفرع (QCD 1 / QCD 2)، الشيفت، النوع (FT / PT)، الإجازة، الموبايل. لو الصف الأول عناوين بيتعرف عليها تلقائيًا، ولو مفيش بيتقرأ بنفس الترتيب ده.": "Accepted columns: name, code, branch (QCD 1 / QCD 2), shift, type (FT / PT), day-off, mobile. A header row is auto-detected; otherwise columns are read in that order.",
+  "استيراد": "Import", "إغلاق": "Close", "استيراد الجدول من Excel": "Import shifts from Excel",
+  "الشيت بيتقرا تلقائي (فول تايم + بارت تايم). هتشوف المعاينة الأول ومفيش حاجة بتتحفظ إلا لما تأكّد.": "The sheet is auto-read (full-time + part-time). Preview first — nothing saves until you confirm.",
+  "لا توجد تسجيلات": "No entries", "في إجازة اليوم": "On leave today",
+  "الموظف اللي يوافق يوم إجازته الأسبوعية بيختفي من قائمة الحضور": "Employees whose weekly day-off matches are hidden from today's list",
+  "تسجيل لم يُحفظ بعد": "Marking not saved yet",
+  "الرئيسية": "Home", "تجميع بالشيفت": "Group by shift", "حفظ الكل": "Save all",
+  "النطاق": "Scope", "وزّع الإجازات والبريك": "Distribute day-offs & breaks",
+  "حفظ الجدول": "Save schedule", "استيراد من Excel / CSV": "Import from Excel / CSV",
+  "عرض": "Show", "صفحة": "Page",
+  "ملخص الموظفين CSV": "Employees summary CSV", "كل التسجيلات CSV": "All entries CSV",
+  "جرّب فترة أخرى أو سجّل الحضور أولًا.": "Try another period or mark attendance first.",
+  "من October 25, 2026 إلى October 31, 2026 — كل الفروع": "All branches · Oct 25, 2026 → Oct 31, 2026",
+  "من Oct 25 إلى Oct 31 · كل الفروع": "All branches · Oct 25 → Oct 31",
+  "في الفترة المختارة.": "in the selected period.",
+  "تصدير CSV": "Export CSV", "نوع الغرامة": "Fine type",
+  "مفيش غرامات في الفترة دي.": "No fines in this period.",
+  "جرّب توسّع الفترة أو غيّر الفلاتر.": "Try widening the period or changing the filters.",
+  "غرامة التأخير (EGP)": "Late fine (EGP)", "غرامة الغياب (EGP)": "Absent fine (EGP)",
+  "تنزيل نسخة احتياطية كاملة (.db)": "Download full backup (.db)",
+  "تصدير قائمة الموظفين CSV": "Export employees list CSV",
+  "كلمة مرور الأدمن بتتغير من متغير": "The admin password is set via a variable",
+  "في إعدادات الاستضافة, وكلمة مرور المشرفين من": "in hosting settings, and the supervisors' password via",
+  "(لو فاضية يبقى مفيش دخول للمشرفين). بعد تغيير أي واحدة سجّل الدخول من جديد.": "(empty disables supervisor access). Sign in again after changing either.",
+  "مسح": "Wipe",
+  "(كل التسجيلات المسجلة) والبدء من الصفر. الموظفين والجدول والإعدادات هيفضلوا زي ما هما.": "(all recorded entries) and start from zero. Employees, schedule & settings stay as they are.",
+  "اسم الموظف *": "Employee name *", "كود الموظف": "Employee code", "الفرع *": "Branch *",
+  "نوع التعاقد *": "Contract type *", "الشيفت *": "Shift *",
+  "يوم الإجازة الأسبوعية": "Weekly day-off", "يوم الإجازة": "Day off",
+  "رقم الموبايل": "Mobile number",
+  "اختيار ملف CSV": "Choose CSV file", "اختيار ملف Excel (.xlsx)": "Choose Excel file (.xlsx)",
+  "تنزيل نموذج جاهز": "Download ready template",
+  "تحديث الموظفين الموجودين (بالكود أو الاسم)": "Update existing employees (by code or name)",
+  "موظف": "employee", "موظفين": "employees", "موقوف": "suspended",
+  "الجدول والحضور والغرامات مستقلين لكل أسبوع (من الأحد للسبت)": "Schedule, attendance and fines are independent per week (Sunday–Saturday)",
+  "في إجازة اليوم:": "On leave today:", "لا يوجد موظفون مجدولون في هذا اليوم": "No employees scheduled on this day",
+  "الموظف اللي يوافق يوم إجازته الأسبوعية بيختفي من قائمة الحضور.": "Employees whose weekly day-off matches are hidden from today's list.",
+  "أضف أول شيفت من القسم اللي تحت, وبعدها ابدأ إضافة الموظفين.": "Add the first shift in the section below, then start adding employees.",
+  "الاسم (اختياري)": "Name (optional)", "إضافة موظف": "Add employee",
+  "غيّر الفلاتر أو أضف موظفًا جديدًا.": "Change filters or add a new employee.",
+  "نوع التعاقد": "Contract type",
+  "ابحث عن موظف": "Search employee", "ابحث عن موظف في الجدول": "Search an employee in the schedule",
+  "ابحث بالاسم أو الكود أو الموبايل": "Search by name, code or mobile",
+  "ابحث بالاسم أو الكود أو الموبايل   ( / )": "Search by name, code or mobile   ( / )",
+  "يتكوّن تلقائيًا من الوقت": "Auto-generated from the times",
+  "الاسم أو الكود": "Name or code", "الاسم بالكامل": "Full name",
+  "مثال: 12 AM - 8 AM": "e.g. 12 AM - 8 AM",
+});
+
+/* خريطة عكسية: من إجابات EN رجّع عربي عند الرجوع للوضع العربي */
+const RO_INV = {};
+for (const k of Object.keys(I18N.en)) RO_INV[String(I18N.en[k])] = k;
+for (const k of Object.keys(I18N.ar)) { const v = String(I18N.ar[k]); if (v !== k) { RO_INV[v] = k; } }
+
+/* كلمات التواريخ: أيام/شهور بتظهر من الدوال الديناميكية في EN */
+const RO_DAYS = { "السبت": "Saturday", "الأحد": "Sunday", "الاثنين": "Monday", "الإثنين": "Monday", "الثلاثاء": "Tuesday", "الأربعاء": "Wednesday", "الخميس": "Thursday", "الجمعة": "Friday" };
+const RO_MONTHS = { "يناير": "January", "فبراير": "February", "مارس": "March", "أبريل": "April", "مايو": "May", "يونيو": "June", "يوليو": "July", "أغسطس": "August", "سبتمبر": "September", "أكتوبر": "October", "نوفمبر": "November", "ديسمبر": "December" };
+const RO_DAYS_RE = new RegExp("^(السبت|الأحد|الاثنين|الإثنين|الثلاثاء|الأربعاء|الخميس|الجمعة)([\u060C\u060C\\s,]|$)");
+
 /* ---------- ?? translator ???? ??????? (????? applyLang) ---------- */
 const RO_TRANS = [
   // regex pattern -> replacement function receiving match
@@ -172,14 +285,34 @@ const RO_TRANS = [
   [/\u0645\u0648\u0638\u0641\u0648\u0646 (Week \d+): (\d+)/g, (m,w,n) => w + " Employees: " + n],
   [/\u063a\u0631\u0627\u0645\u0627\u062a (Week \d+): ([\d.,]+) \u062c\.\u0645/g, (m,w,n) => w + " Fines: " + n + " EGP"],
   [/(\d+) \u0645\u0648\u0638\u0641 \u0645\u062c\u062f\u0648\u0644 \u0627\u0644\u064a\u0648\u0645/g, (m,n) => n + " Employees Scheduled Today"],
+  [/^\u0641\u064a \u0625\u062c\u0627\u0632\u0629 \u0627\u0644\u064a\u0648\u0645 \((\d+)\)$/g, (m,n) => "On leave today (" + n + ")"],
+  [/^(\d+) \u062a\u0633\u062c\u064a\u0644 \u0644\u0645 \u064a\u064f\u062d\u0641\u0638 \u0628\u0639\u062f$/g, (m,n) => n + " unsaved entry marks"],
+  [/^(\d+) \u0645\u0648\u0638\u0641 \u0639\u0644\u064a\u0647\u0645 \u062a\u0639\u062f\u064a\u0644\u0627\u062a \u0644\u0645 \u062a\u064f\u062d\u0641\u0638 \u0628\u0639\u062f$/g, (m,n) => n + " employees with unsaved changes"],
+  [/^(\d+) \u0645\u0648\u0638\u0641 \u0646\u0634\u0637 \u00b7 (\d+) \u0645\u0648\u0642\u0648\u0641$/g, (m,a,b) => a + " active \u00b7 " + b + " suspended"],
+  [/^\u062a\u0645 \u062a\u062d\u062f\u064a\u062f (\d+) \u0645\u0648\u0638\u0641$/g, (m,n) => n + " employees selected"],
+  [/^(\d+) \u063a\u0631\u0627\u0645\u0629$/g, (m,n) => n + " fines"],
+  [/^(\d+)% \u0645\u0646 \u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a$/g, (m,n) => n + "% of total"],
+  [/^\u0625\u062c\u0627\u0632\u0629: (\d+)$/g, (m,n) => "Off: " + n],
+  [/^\u0645\u0648\u0638\u0641\u064a\u0646 (Week \d+):$/g, (m,w) => w + " Employees:"],
+  [/^\u063a\u0631\u0627\u0645\u0627\u062a (Week \d+):$/g, (m,w) => w + " Fines:"],
+  [/^\u0645\u0641\u064a\u0634 \u0634\u064a\u0641\u062a\u0627\u062a \u0641\u064a (.+) \u0644\u0633\u0647$/g, (m,b) => "No shifts in " + b + " yet"],
+  [/^(\d+) \u0635\u0641$/g, (m,n) => n + " rows"],
+  [/\u062c\u062f\u0648\u0644 \u0627\u0644\u0634\u064a\u0641\u062a\u0627\u062a/g, () => "Shift schedule"],
 ];
 function translateText(s) {
   try {
     if (S.lang !== "en") return s;
     const dict = I18N.en;
     let t = s;
-    if (dict[s.trim()]) t = dict[s.trim()];
+    const key = s.trim();
+    const keyNoDots = key.replace(/[…\.]{1,3}$/, "").trim();
+    if (dict[key]) t = dict[key];
+    else if (dict[keyNoDots]) t = dict[keyNoDots];
     for (const [re, fn] of RO_TRANS) t = t.replace(re, fn);
+    t = t.replace(RO_DAYS_RE, (m, d, sep) => RO_DAYS[d] + (sep === "\u060C" ? ", " : sep));
+    for (const [ar, en] of Object.entries(RO_MONTHS)) if (t.indexOf(ar) !== -1) t = t.split(ar).join(en);
+    if (t.indexOf("ج.م") !== -1) t = t.split("ج.م").join("EGP");
+    if (t.indexOf("\u060C") !== -1) t = t.split("\u060C").join(",");
     return t;
   } catch (e) { return s; }
 }
@@ -191,10 +324,10 @@ function translateTree(root) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
   let n;
   while ((n = walker.nextNode())) {
-    // الورقة بس: أي عنصر جواه عناصر تانية (زي label فيه input) مترجّعوش نصه —
-    // ده اللي كان بيمسح حقل كلمة المرور من شاشة الدخول أصلاً.
+    // نعدّل nodeValue مباشرة — آمن حتى لو الأب فيه عناصر تانية (مش textContent).
+    // SCRIPT/STYLE بس المستثناة.
     const owner = n.parentNode;
-    if (owner && owner.children.length === 0 && owner.nodeName !== "SCRIPT" && owner.nodeName !== "STYLE") {
+    if (owner && owner.nodeName !== "SCRIPT" && owner.nodeName !== "STYLE") {
         const trimmed = n.nodeValue.trim();
         if (trimmed) {
           const tr = translateText(trimmed);
@@ -215,11 +348,29 @@ function translateTree(root) {
 }
 // hook into applyLang by overriding? Instead, monkey: wrap original applyLang not accessible. We'll add a separate scheduler.
 window.__roTranslate = function() { translateTree(document.body); };
+// ترجمة تلقائية لأي DOM يتولد بعد الترجمة الأولانية (جدول/شيتات/توست) — عشان
+// العربية في EN mode متفضلش إلآ أجزاء صغيرة. نقطع الرصد وقت الترجمة نفسها عشان
+// مش نعمل حلقة مفتوحة (الترجمة نفسها بتعدّل DOM).
+(function () {
+  if (!("MutationObserver" in window)) return;
+  var mo = new MutationObserver(function () {
+    if (S.lang !== "en") return;
+    clearTimeout(window.__roT);
+    window.__roT = setTimeout(function () {
+      if (S.lang !== "en") return;
+      try { mo.disconnect(); } catch (e) {}
+      try { window.__roTranslate(); } catch (e) {}
+      try { mo.observe(document.body, { childList: true, subtree: true }); } catch (e) {}
+    }, 120);
+  });
+  function startI18nMO() { try { mo.observe(document.body, { childList: true, subtree: true }); } catch (e) {} }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", startI18nMO); else startI18nMO();
+})();
 
 /* دالة التبديل للغة */
 function setLang(lang) {
   S.lang = lang;
-  try { localStorage.setItem("bankaicode_lang", lang); } catch (e) {}
+  try { sessionStorage.setItem("bankaicode_lang", lang); } catch (e) {}
   applyLang();
   const btn = $("js-lang") || qs(".js-lang");
   if (btn) btn.setAttribute("aria-label", lang === "ar" ? "Switch to English" : "تغيير للعربية");
@@ -232,6 +383,8 @@ function applyLang() {
   document.documentElement.lang = isAr ? "ar" : "en";
   document.documentElement.dir = isAr ? "rtl" : "ltr";
   const dict = isAr ? I18N.ar : I18N.en;
+  // fallback مختلف لكل لغة: في AR بنعكس قاموس EN عشان نرجّع النصوص الأصلية
+  const fb = isAr ? RO_INV : I18N.en;
   // العناصر اللي فيها data-i18n
   document.querySelectorAll("[data-i18n]").forEach(el => {
     const key = el.getAttribute("data-i18n");
@@ -255,16 +408,16 @@ function applyLang() {
   // العناصر اللي متعرفش data-i18n بس نصها مطابق للمفتاح (fallback للنصوص الثابتة)
   document.querySelectorAll("button, span, h1, h2, h3, h4, h5, h6, p, label, th, td, summary, option, legend, figcaption, small").forEach(el => {
     const txt = el.textContent.trim();
-    if (txt && dict[txt] && !el.hasAttribute("data-i18n") && !el.closest("[data-i18n]")) {
+    if (txt && fb[txt] && !el.hasAttribute("data-i18n") && !el.closest("[data-i18n]")) {
       // لو العنصر مش فيه أيقونة أو عناصرNested، غيره
       // ورقة بس: العنصر اللي جواه input/button/أيقونة نلمّوش نصه
       if (!el.children.length && !el.querySelector("svg, i, .i, .av")) {
-        el.textContent = dict[txt];
+        el.textContent = fb[txt];
       }
     }
   });
   // تحديث placeholder للبحث
-  const searchInp = $("#navSearch");
+  const searchInp = $("navSearch") || qs("#navSearch");
   if (searchInp && dict["البحث عن موظف"]) searchInp.placeholder = dict["البحث عن موظف"];
   // تحديث زرار اللغة
   const langBtn = $("js-lang") || qs(".js-lang");
@@ -282,7 +435,7 @@ function toggleLang() {
 /* تحميل اللغة المحفوظة */
 function loadLang() {
   try {
-    const saved = localStorage.getItem("bankaicode_lang");
+    const saved = sessionStorage.getItem("bankaicode_lang");
     if (saved) S.lang = saved;
   } catch (e) {}
   if (!S.lang) S.lang = "ar";
@@ -449,7 +602,7 @@ function applyTheme(t, save) {
   document.documentElement.dataset.theme = t;
   const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = t === "dark" ? "#0f0b1c" : "#2a0f57";
   qsa(".js-theme").forEach(b => b.setAttribute("aria-checked", t === "dark" ? "true" : "false"));
-  if (save) { try { localStorage.setItem("bankai-theme", t); } catch (e) {} }
+  if (save) { try { sessionStorage.setItem("bankai-theme", t); } catch (e) {} }
 }
 applyTheme(document.documentElement.dataset.theme || "light", false);
 qsa(".js-theme").forEach(b => b.addEventListener("click", () =>

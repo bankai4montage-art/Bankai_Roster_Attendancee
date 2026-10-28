@@ -466,6 +466,15 @@ body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;transi
 :root[data-theme=dark] .theme-sw .sun{color:var(--ink3)}
 :root[data-theme=dark] .theme-sw .moon{color:#150f2c}
 .theme-sw:hover{border-color:var(--brand)}
+.lang-btn{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;flex:none;cursor:pointer;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink2);border-radius:12px;box-shadow:var(--shadow);
+  transition:border-color .25s,color .25s,background .25s}
+.lang-btn svg.globe{width:19px;height:19px}
+.lang-btn:hover{border-color:var(--brand);color:var(--brand)}
+.lang-btn:active{transform:scale(.96)}
+.topnav .tools .lang-btn{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14);color:#cfc6ec;box-shadow:none}
+.topnav .tools .lang-btn:hover{border-color:rgba(255,255,255,.42);color:#fff}
+.login-theme-row .lang-btn{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.16);color:#d8d2ee;box-shadow:none}
 .topbar-tools{display:flex;align-items:center}
 @media(max-width:860px){
   .date-pill{display:none}
