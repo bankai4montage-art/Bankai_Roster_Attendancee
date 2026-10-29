@@ -400,15 +400,14 @@ window.__roTranslate = function() { translateTree(document.body); };
 // مش نعمل حلقة مفتوحة (الترجمة نفسها بتعدّل DOM).
 (function () {
   if (!("MutationObserver" in window)) return;
+  /* الترجمة هنا فورية في نفس الـ microtask — قبل ما المتصفح يرسم أي فريم.
+     زمان كانت بتتأخر بـ setTimeout 120ms فالمستخدم كان بيشوف فريمات عربي
+     الأول وبعدين يترجع EN (فلاش) وانتقالات الصفحات بيلقط الفريم العربي ده. */
   var mo = new MutationObserver(function () {
     if (S.lang !== "en") return;
-    clearTimeout(window.__roT);
-    window.__roT = setTimeout(function () {
-      if (S.lang !== "en") return;
-      try { mo.disconnect(); } catch (e) {}
-      try { window.__roTranslate(); } catch (e) {}
-      try { mo.observe(document.body, { childList: true, subtree: true }); } catch (e) {}
-    }, 120);
+    try { mo.disconnect(); } catch (e) {}
+    try { window.__roTranslate(); } catch (e) {}
+    try { mo.observe(document.body, { childList: true, subtree: true }); } catch (e) {}
   });
   function startI18nMO() { try { mo.observe(document.body, { childList: true, subtree: true }); } catch (e) {} }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", startI18nMO); else startI18nMO();
@@ -469,6 +468,10 @@ function applyLang() {
   // تحديث زرار اللغة
   const langBtn = $("js-lang") || qs(".js-lang");
   if (langBtn) langBtn.setAttribute("aria-label", S.lang === "ar" ? "Switch to English" : "تغيير للعربية");
+  // عنوان التبويب (document.title) لازم يتبع اللغة — كان بيفضل عربي
+  // بعد التحويل للإنجليزي ويفضح إن الترجمة متبكّرة
+  const ptEl = $("pageTitle");
+  if (ptEl && ptEl.textContent) document.title = `${ptEl.textContent} — Bankai`;
 }
 /* كنا بنادي translateTree(document.body) هنا على مستوى الملف، وده كان بيشيل
    الـ input جوه الـ label وقت الرسم (textContent بيمسح العناصر الأبناء) — اشتغل
@@ -701,24 +704,42 @@ function route() {
    وبنعلّم .vt-skip على الصفحة الجديدة عشان أنيميشن pageIn مايبدأش قبل ما لقطة
    الانتقال تتّاخد (لو بدأ، اللقطة هتبقى صفحة شبه فاضية والانتقال هيبان كأنه فلاش).
    وطبقة الحركة بتقرا window.bkVtActive عشان تأجّل دخول العناصر لحد ما يخلص. */
-let vtPending = null, vtToken = 0;
+let vtPending = null, vtToken = 0, vtGuard = null, vtLast = null;
 function showPage(p) {
   S.page = p; S.shown = true;
+  let swapped = false;
   const swap = () => {
+    if (swapped) return;
+    swapped = true;
     const pg = $("page-" + p);
     qsa(".page").forEach(x => { if (x !== pg) x.classList.add("hidden"); });
     if (window.bkVtActive) pg.classList.add("vt-skip");
     pg.classList.remove("hidden");
     qsa("[data-page]").forEach(b => b.classList.toggle("active", b.dataset.page === p));
-    $("pageTitle").textContent = PAGES[p];
+    /* عنوان الصفحة بيتحط من قاموس اللغة الحالية مباشرة (مش عربي ثابت) —
+       عشان في وضع EN ميتلقطش النص العربي لحظة قبل ما يترجم */
+    const pgTitle = (S.lang === "en" && I18N.en[PAGES[p]]) ? I18N.en[PAGES[p]] : PAGES[p];
+    $("pageTitle").textContent = pgTitle;
     $("wkBar").classList.toggle("hidden", p === "settings");
-    document.title = `${PAGES[p]} — Bankai`;
-    window.scrollTo(0, 0);
+    document.title = `${pgTitle} — Bankai`;
+    /* في وضع EN نترجم الصفحة الجديدة فوراً قبل ما تتعرض — عشان انتقال
+       الصفحات ميلقطش فريم عربي (فلاش "عربي ورجع إنجليزي") */
+    if (S.lang === "en") { try { translateTree(pg); } catch (e) {} }
+    /* النزول لأعلى صفحة لحظي — html scroll-behavior:smooth كان بيعمل سكرول
+       متحرك وقت تنقّل الصفحات وده كان بيخرب إحساس الانتقال */
+    window.scrollTo({ top: 0, behavior: "instant" });
   };
   if (document.startViewTransition && !reducedMotion() && !$("bootSkel")) {
+    /* لو فيه انتقال لسه شغال من تنقّل قبله، نلغيه فورًا — غير كده الانتقال
+       القديم بيمسك الجديد والصفحة الجديدة بتتأخر (تنقّل سريع = صفحات متلخبطة) */
+    if (vtLast) { try { vtLast.skipTransition(); } catch (e) {} }
     window.bkVtActive = true;
     const my = ++vtToken;
-    const off = () => { if (vtToken === my) window.bkVtActive = false; };
+    let myGuard = null;
+    const off = () => {
+      if (vtToken === my) window.bkVtActive = false;
+      if (vtGuard === myGuard) { clearTimeout(myGuard); vtGuard = null; }
+    };
     /* لقطة الصفحة الجديدة بتتاخد لحظة ما الـ update callback يخلص. لو ده حصل
        قبل ما الداتا توصل، المستخدم بيشوف إطار الصفحة فاضي وبعدين الداتا تنطّ
        عليه — إحساس إن الصفحة حمّلت مرتين. هنا بنستنى أول رندر للصفحة (بسقف
@@ -726,16 +747,29 @@ function showPage(p) {
        في حركة واحدة. */
     const wait = window.bkVtWait ? window.bkVtWait(p) : null;
     const upd = wait ? async () => { swap(); await wait; } : swap;
+    let vt = null;
     try {
-      const t = document.startViewTransition(upd);
+      vt = document.startViewTransition(upd);
+      vtLast = vt;
       /* كل وعود الانتقال (ready/updateCallbackDone/finished) ممنوع تسيبها
          من غير معالج: لو الانتقال اتلغى (تبديل سريع ورا بعض، أو تاب اتخفي)
          الرفض بيطلع في الكونسول كـ unhandled rejection. */
-      if (t.ready && t.ready.catch) t.ready.catch(() => { });
-      if (t.updateCallbackDone && t.updateCallbackDone.catch) t.updateCallbackDone.catch(() => { });
-      vtPending = t.finished.then(off, off);
+      if (vt.ready && vt.ready.catch) vt.ready.catch(() => { });
+      if (vt.updateCallbackDone && vt.updateCallbackDone.catch) vt.updateCallbackDone.catch(() => { });
+      vtPending = vt.finished.then(off, off);
     }
     catch (e) { window.bkVtActive = false; vtPending = null; swap(); }
+    /* حماية من التباطؤ: لو المتصفح اتأخر في تشغيل الانتقال (تب مخفي،
+       جهاز بطيء، أو رسم متجمد) الصفحة كانت هتفضل الشاشة القديمة لثانية
+       كاملة — وده اللي بيخلي التنقّل "بايظ". هنا بعد 160ms من غيرSwap
+       بنلغي الانتقال ونبدّل الصفحة فوراً (الحركة بتضيع بس السرعة بتربح). */
+    if (vtGuard) clearTimeout(vtGuard);
+    myGuard = setTimeout(() => {
+      if (swapped) return;
+      try { if (vt && vt.skipTransition) vt.skipTransition(); } catch (e) {}
+      swap();
+    }, 160);
+    vtGuard = myGuard;
   } else { window.bkVtActive = false; vtPending = null; swap(); }
   if (p === "dashboard") { loadDashboard(); restartFeedTimer(); } else stopFeedTimer();
   if (p === "attendance") { syncAttControls(); loadRoster(); }
@@ -2233,7 +2267,7 @@ if (S.token) { showApp(); init(); }
     var o = { t: 0, res: null };
     var pr = new Promise(function (res) { o.res = res; });
     vtWait = o; vtWaitPage = p;
-    o.t = setTimeout(function () { if (vtWait === o) vtRelease(); }, 380);
+    o.t = setTimeout(function () { if (vtWait === o) vtRelease(); }, 260);
     return pr;
   };
   window.bkVtDataReady = function (p) {
