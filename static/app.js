@@ -66,7 +66,7 @@ const pulse = (el, cls, ms) => pulseAll(el ? [el] : [], cls, ms);
 
 const WEEKDAYS = ["Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const WD_AR = { Saturday: "السبت", Sunday: "الأحد", Monday: "الاثنين", Tuesday: "الثلاثاء", Wednesday: "الأربعاء", Thursday: "الخميس", Friday: "الجمعة" };
-const ST = { Present: ["حاضر", "ok"], Late: ["متأخر", "warn"], Absent: ["غائب", "bad"], Excused: ["بعذر", "info"] };
+const ST = { Present: ["حاضر", "ok"], Late: ["متأخر", "warn"], Absent: ["غائب", "bad"], Excused: ["بعذر", "info"], Manual: ["يدوية", "brand"] };
 const STK = ["Present", "Late", "Absent", "Excused"];
 const CLR = { present: "var(--ok)", late: "#e0a020", absent: "var(--bad)", excused: "#7f8fb0", none: "var(--none)" };
 
@@ -292,6 +292,15 @@ Object.assign(I18N.en, {
   "نقل لشيفت آخر أو لفرع تاني": "Move to another shift or branch",
   "نقل…": "Move…",
   "حاضر للباقي": "Present the rest",
+  // غرامة يدوية (من غير حضور)
+  "تسجيل غرامة": "Add fine", "يدوية": "Manual", "غرامات يدوية": "Manual fines",
+  "تسجيل غرامة (من غير حضور)": "Add a fine (no attendance needed)",
+  "تاريخ الغرامة": "Fine date", "سبب الغرامة": "Fine reason", "حفظ الغرامة": "Save fine",
+  "تفاصيل إضافية": "Extra details", "اختياري": "optional", "(ج)": "(EGP)",
+  "كل الغرامات": "All fines", "يدوية بس": "Manual only",
+  "غرامات يدوية سابقة لنفس الموظف": "Previous manual fines for this employee",
+  "غرامة يدوية: بتتسجّل في أي وقت من غير ما تلمس حالة الحضور. بتظهر في صفحة «الغرامات» بنوع «يدوية» وبتتحسب في الإجماليات.":
+    "Manual fine: recorded any time without touching attendance. It shows in the Fines page as “Manual” and counts in the totals.",
 });
 
 /* خريطة عكسية: من إجابات EN رجّع عربي عند الرجوع للوضع العربي */
@@ -1045,6 +1054,9 @@ function contactHTML(e) {
   return `<span class="contact"><a href="tel:${esc(e.phone)}" aria-label="اتصال" title="اتصال"><svg class="i"><use href="#i-phone"/></svg></a><a href="https://wa.me/${wa}" target="_blank" rel="noopener" aria-label="واتساب" title="واتساب"><svg class="i"><use href="#i-msg"/></svg></a></span>`;
 }
 
+/* زرار الغرامة اليدوية (من غير حضور) — للأدمن بس */
+const fineMiniBtn = e => isAdmin() ? `<button type="button" class="fine-mini" data-fine="${e.id}" title="تسجيل غرامة (من غير حضور)" aria-label="تسجيل غرامة"><svg class="i"><use href="#i-fine"/></svg></button>` : "";
+
 function rowHTML(e) {
   const d = rowState(e), st = d.status || "";
   const fineOn = st === "Late" || st === "Absent";
@@ -1052,7 +1064,7 @@ function rowHTML(e) {
   if (e.break_start) sub.push(`بريك <span class="num">${esc(e.break_start)}</span>`);
   if (!S.att.group) sub.push(esc(e.branch), sh(e.shift));
   return `<div class="arow${S.draft.has(e.id) ? " dirty" : ""}${S.stale.has(e.id) ? " stale" : ""}" data-id="${e.id}" data-st="${st}">
-    <div class="a-who">${whoHTML(e.name, `<div class="a-name">${esc(e.name)}${contactHTML(e)}</div><div class="a-sub">${sub.join(" · ")}</div>`)}</div>
+    <div class="a-who">${whoHTML(e.name, `<div class="a-name">${esc(e.name)}${contactHTML(e)}${fineMiniBtn(e)}</div><div class="a-sub">${sub.join(" · ")}</div>`)}</div>
     <div class="seg" role="group" aria-label="حالة ${esc(e.name)}">${STK.map(k => `<button type="button" class="${k}${st === k ? " on" : ""}" data-set="${k}" aria-pressed="${st === k}">${ST[k][0]}</button>`).join("")}</div>
     <input class="inp f-fine" type="number" min="0" step="1" inputmode="numeric" value="${fineOn && d.fine ? d.fine : ""}" placeholder="غرامة" aria-label="الغرامة" ${fineOn ? "" : "disabled"}>
     <input class="inp f-reason" list="reasonList" maxlength="500" value="${esc(d.reason || "")}" placeholder="السبب" aria-label="السبب" ${st && st !== "Present" ? "" : "disabled"}>
@@ -1243,6 +1255,8 @@ on("saveDiscard", "click", () => { if (!S.draft.size) return; S.draft.clear(); S
 
 on("attList", "click", ev => {
   const t = ev.target;
+  const fb = t.closest("[data-fine]");
+  if (fb) { const row = fb.closest(".arow"); if (row) openFineDialog(+row.dataset.id); return; }
   const sb = t.closest("[data-set]");
   if (sb) { const e = S.rmap.get(+sb.closest(".arow").dataset.id); if (e) setStatus(e, sb.dataset.set); return; }
   const nb = t.closest("[data-note]");
@@ -1335,7 +1349,7 @@ function renderEmployees() {
   const slice = list.slice((S.emp.page - 1) * S.emp.size, S.emp.page * S.emp.size);
   $("empRows").innerHTML = slice.map(e => {
     const sel = S.emp.selected.has(e.id);
-    const adminActs = isAdmin() ? `<button class="btn sm" data-edit="${e.id}">تعديل</button>${e.active ? `<button class="btn sm danger" data-deact="${e.id}">إيقاف</button>` : `<button class="btn sm" data-act="${e.id}">تفعيل</button>`}` : "";
+    const adminActs = isAdmin() ? `<button class="btn sm" data-fine="${e.id}" title="تسجيل غرامة (من غير حضور)"><svg class="i"><use href="#i-fine"/></svg>غرامة</button><button class="btn sm" data-edit="${e.id}">تعديل</button>${e.active ? `<button class="btn sm danger" data-deact="${e.id}">إيقاف</button>` : `<button class="btn sm" data-act="${e.id}">تفعيل</button>`}` : "";
     return `<tr class="${sel ? "sel" : ""}" data-id="${e.id}"><td class="c"><input type="checkbox" data-sel ${sel ? "checked" : ""} aria-label="تحديد ${esc(e.name)}"></td>
       <td class="who">${whoHTML(e.name, `<button class="link" data-hist="${e.id}">${esc(e.name)}</button><small>${esc(e.employee_code || "بدون كود")}</small>`)}</td>
       <td class="br">${esc(e.branch)}${isAdmin() ? ` <button class="link br-mv" data-move="${e.id}" title="نقل لفرع ${esc(otherBranchOf(e.branch))} — بنفس الشيفت ويوم الإجازة والبريك" aria-label="نقل ${esc(e.name)} لفرع ${esc(otherBranchOf(e.branch))}">نقل</button>` : ""}</td><td>${sh(e.shift)}</td>
@@ -1375,12 +1389,84 @@ on("empCheckAll", "change", ev => {
   renderEmployees();
 });
 on("empRows", "click", async ev => {
+  const fn = ev.target.closest("[data-fine]"); if (fn) { openFineDialog(+fn.dataset.fine); return; }
   const ed = ev.target.closest("[data-edit]"); if (ed) { openEmpDialog(+ed.dataset.edit); return; }
   const mv = ev.target.closest("[data-move]");
   if (mv) { const e = S.employees.find(x => x.id === +mv.dataset.move); if (e) await moveEmployeeBranch(e.id, otherBranchOf(e.branch)); return; }
   const de = ev.target.closest("[data-deact]");
   if (de) { if (confirm("سيتم إيقاف الموظف مع الاحتفاظ بسجل حضوره السابق. هل تريد المتابعة؟")) bulkAction([+de.dataset.deact], "deactivate"); return; }
   const ac = ev.target.closest("[data-act]"); if (ac) bulkAction([+ac.dataset.act], "activate");
+});
+
+/* ========================== غرامة يدوية (من غير حضور) ==========================
+   غرامة بتتسجّل في أي وقت من غير ما يمسّ تسجيل الحضور: بتتخزّن في جدول manual_fines
+   وبتظهر في صفحة «الغرامات» بنوع «يدوية» وبتتحسب في الإجماليات. */
+const findEmp = id => S.employees.find(x => x.id === id)
+  || (S.roster?.employees || []).find(x => x.id === id)
+  || S.rmap.get(id) || null;
+
+async function openFineDialog(id) {
+  const e = findEmp(id);
+  if (!e) { toast("الموظف مش موجود.", "err"); return; }
+  $("fineForm").reset();
+  $("mfEmpId").value = e.id;
+  $("mfError").textContent = "";
+  $("mfDate").value = (S.page === "attendance" ? S.att.date : todayISO());
+  $("mfTitle").textContent = S.lang === "en" ? "Add fine" : "تسجيل غرامة";
+  $("mfSub").textContent = `${e.name} · ${e.branch} · ${e.employee_code || "بدون كود"}`;
+  $("fineDialog").showModal();
+  $("mfAmount").focus();
+  await loadManualFines(e.id);
+}
+
+async function loadManualFines(id) {
+  try {
+    const r = await api(`/api/fines/manual?employee_id=${id}`);
+    const list = r.fines || [];
+    $("mfListWrap").classList.toggle("hidden", !list.length);
+    $("mfList").innerHTML = list.map(f => `<div class="mf-item">
+      <div class="mf-main"><b class="num">${money(f.fine)}</b><span>${fmtDay(f.date, { day: "numeric", month: "short" })}</span><span class="muted">${esc(f.reason || "—")}</span></div>
+      ${isAdmin() ? `<button type="button" class="btn sm danger" data-mf-del="${f.id}">مسح</button>` : ""}
+    </div>`).join("");
+  } catch (err) { $("mfError").textContent = err.message; }
+}
+
+on("mfClose", "click", () => $("fineDialog").close());
+on("mfCancel", "click", () => $("fineDialog").close());
+$("fineDialog").addEventListener("click", e => { if (e.target === $("fineDialog")) $("fineDialog").close(); });
+
+on("fineForm", "submit", async ev => {
+  ev.preventDefault();
+  const id = +$("mfEmpId").value;
+  const amount = Number($("mfAmount").value);
+  const fineDate = $("mfDate").value;
+  if (!amount || amount <= 0) { $("mfError").textContent = "اكتب مبلغ الغرامة (لازم يكون أكبر من صفر)."; return; }
+  if (!fineDate) { $("mfError").textContent = "اختار تاريخ الغرامة."; return; }
+  const btn = $("mfSave");
+  btn.disabled = true;
+  $("mfError").textContent = "";
+  try {
+    await api("/api/fines/manual", { method: "POST", body: {
+      employee_id: id, fine_date: fineDate, amount,
+      reason: $("mfReason").value.trim(), note: $("mfNote").value.trim()
+    } });
+    toast("تم تسجيل الغرامة.", "ok");
+    $("mfAmount").value = ""; $("mfReason").value = ""; $("mfNote").value = "";
+    await loadManualFines(id);
+    if (S.page === "fines") loadFines();
+  } catch (err) { $("mfError").textContent = err.message; }
+  finally { btn.disabled = false; }
+});
+
+on("mfList", "click", async ev => {
+  const b = ev.target.closest("[data-mf-del]"); if (!b) return;
+  if (!confirm("تمسح الغرامة دي نهائيًا؟")) return;
+  try {
+    await api(`/api/fines/manual/${b.dataset.mfDel}`, { method: "DELETE" });
+    toast("اتمسحت الغرامة.", "ok");
+    await loadManualFines(+$("mfEmpId").value);
+    if (S.page === "fines") loadFines();
+  } catch (err) { $("mfError").textContent = err.message; }
 });
 
 async function bulkAction(ids, action, extra = {}) {
@@ -1718,6 +1804,7 @@ function renderFines() {
   const kp = [
     ["إجمالي الغرامات", money(d.total), "brand", true], ["عدد الغرامات", num(d.count), "", false],
     ["غرامات تأخير", money(d.late_total), "warn", true], ["غرامات غياب", money(d.absent_total), "bad", true],
+    ["غرامات يدوية", money(d.manual_total), "info", true],
     ["متوسط الغرامة", money(d.avg), "info", true], ["أكبر غرامة", money(d.max), "ok", true],
   ];
   $("fineKpis").innerHTML = kp.map(([l, v, c, big]) =>
@@ -1734,11 +1821,11 @@ function renderFines() {
     const seg = (cls, n, tip) => n ? `<i class="s-${cls}" style="width:${n * 100 / b.count}%" title="${tip}: ${n}"></i>` : "";
     return `<div class="panel br-card"><h4><span>${esc(b.branch)}</span><span class="muted num">${b.count} غرامة</span></h4>
       <div class="bp-top"><div><strong class="num">${money(b.total)}</strong> <span class="muted">إجمالي الغرامات</span></div>${picked ? "" : `<span class="muted num">${share}% من الإجمالي</span>`}</div>
-      ${b.count ? `<div class="stack lg">${seg("late", b.late, "تأخير")}${seg("absent", b.absent, "غياب")}</div><div class="legend" style="margin-top:10px"><span><i class="dot warn"></i>تأخير <b class="num">${b.late}</b> — ${money(b.late_total)}</span><span><i class="dot bad"></i>غياب <b class="num">${b.absent}</b> — ${money(b.absent_total)}</span></div>` : `<p class="muted">مفيش غرامات في الفترة دي.</p>`}</div>`;
+      ${b.count ? `<div class="stack lg">${seg("late", b.late, "تأخير")}${seg("absent", b.absent, "غياب")}${seg("manual", b.manual || 0, "يدوية")}</div><div class="legend" style="margin-top:10px"><span><i class="dot warn"></i>تأخير <b class="num">${b.late}</b> — ${money(b.late_total)}</span><span><i class="dot bad"></i>غياب <b class="num">${b.absent}</b> — ${money(b.absent_total)}</span>${b.manual ? `<span><i class="dot brand"></i>يدوية <b class="num">${b.manual}</b> — ${money(b.manual_total || 0)}</span>` : ""}</div>` : `<p class="muted">مفيش غرامات في الفترة دي.</p>`}</div>`;
   }).join("");
-  $("fineWeeks").innerHTML = (d.by_week || []).map(w => `<tr><td><b>${esc(w.label)}</b></td><td>${weekRangeText(w.start)}</td><td class="num">${w.count}</td><td class="num">${w.late} — ${money(w.late_total)}</td><td class="num">${w.absent} — ${money(w.absent_total)}</td><td class="num"><b>${money(w.total)}</b></td></tr>`).join("");
+  $("fineWeeks").innerHTML = (d.by_week || []).map(w => `<tr><td><b>${esc(w.label)}</b></td><td>${weekRangeText(w.start)}</td><td class="num">${w.count}</td><td class="num">${w.late} — ${money(w.late_total)}</td><td class="num">${w.absent} — ${money(w.absent_total)}</td><td class="num">${w.manual || 0} — ${money(w.manual_total || 0)}</td><td class="num"><b>${money(w.total)}</b></td></tr>`).join("");
   $("fineWeeksBox").classList.toggle("hidden", !(d.by_week || []).length);
-  $("fineMonths").innerHTML = d.by_month.map(m => `<tr><td>${fmtDay(m.month + "-01", { month: "long", year: "numeric" })}</td><td class="num">${m.count}</td><td class="num">${m.late}</td><td class="num">${m.absent}</td><td class="num">${money(m.total)}</td></tr>`).join("");
+  $("fineMonths").innerHTML = d.by_month.map(m => `<tr><td>${fmtDay(m.month + "-01", { month: "long", year: "numeric" })}</td><td class="num">${m.count}</td><td class="num">${m.late}</td><td class="num">${m.absent}</td><td class="num">${m.manual || 0} — ${money(m.manual_total || 0)}</td><td class="num">${money(m.total)}</td></tr>`).join("");
   $("fineMonthsBox").classList.toggle("hidden", !d.by_month.length);
   renderFineRows();
 }
@@ -1755,11 +1842,24 @@ function renderFineRows() {
     : (total ? `${total} غرامة بالتفاصيل` : "");
   $("fineRows").innerHTML = list.slice((S.fines.page - 1) * S.fines.size, S.fines.page * S.fines.size).map(x => {
     const st = ST[x.status] || [x.status, ""];
-    return `<tr data-hist="${x.employee_id}" style="cursor:pointer"><td class="who">${whoHTML(x.name, `<b>${esc(x.name)}</b><small>${esc(x.employee_code || "بدون كود")} · ${sh(x.shift)} · ${esc(x.employment_type)}</small>`)}</td><td>${esc(x.branch)}</td><td>${WD_AR[x.weekday] || ""} ${fmtDay(x.date, { day: "numeric", month: "short" })} <small class="muted">W${x.week}</small></td><td><span class="tag ${st[1]}">${st[0]}</span></td><td class="num"><b>${money(x.fine)}</b></td><td>${esc(x.reason) || "—"}</td><td>${esc(x.note) || "—"}</td></tr>`;
+    const del = x.manual_id && isAdmin() ? `<button class="btn sm danger" data-fdel="${x.manual_id}" title="مسح الغرامة اليدوية">مسح</button>` : "";
+    return `<tr data-hist="${x.employee_id}" style="cursor:pointer"><td class="who">${whoHTML(x.name, `<b>${esc(x.name)}</b><small>${esc(x.employee_code || "بدون كود")} · ${sh(x.shift)} · ${esc(x.employment_type)}</small>`)}</td><td>${esc(x.branch)}</td><td>${WD_AR[x.weekday] || ""} ${fmtDay(x.date, { day: "numeric", month: "short" })} <small class="muted">W${x.week}</small></td><td><span class="tag ${st[1]}">${st[0]}</span></td><td class="num"><b>${money(x.fine)}</b></td><td>${esc(x.reason) || "—"}</td><td>${esc(x.note) || "—"}${del ? ` ${del}` : ""}</td></tr>`;
   }).join("");
   $("fineEmpty").classList.toggle("hidden", total > 0);
   renderPager($("finePager"), total, S.fines, renderFineRows);
 }
+
+/* مسح غرامة يدوية من سجل الغرامات */
+on("fineRows", "click", async ev => {
+  const b = ev.target.closest("[data-fdel]"); if (!b) return;
+  ev.stopPropagation();
+  if (!confirm("تمسح الغرامة اليدوية دي نهائيًا؟")) return;
+  try {
+    await api(`/api/fines/manual/${b.dataset.fdel}`, { method: "DELETE" });
+    toast("اتمسحت الغرامة.", "ok");
+    await loadFines();
+  } catch (e) { toast(e.message, "err"); }
+});
 
 
 /* ============================== schedule ============================== */
@@ -2661,7 +2761,7 @@ function startLive() {
 function stopLive() { liveRun = false; if ($("livePill")) setLive(false, "متوقف"); }
 
 /* -------- تطبيق الأحداث على الشاشة -------- */
-const KIND_AR = { attendance: "تسجيلات الحضور", employees: "بيانات الموظفين", schedule: "الجدول", settings: "الإعدادات" };
+const KIND_AR = { attendance: "تسجيلات الحضور", employees: "بيانات الموظفين", schedule: "الجدول", settings: "الإعدادات", fines: "الغرامات" };
 function applyEvents(events) {
   /* بنتجاهل بس الأحداث اللي مصدرها التاب نفسها. أي حدث من غير معرّف تاب (كتابة
      من بره الواجهة مثلًا) بنعتبره من حد تاني وبنطبّقه. */
@@ -2682,6 +2782,11 @@ function applyEvents(events) {
 /* بيحدّث الصفحة الحالية لو الحدث يعنيها، وبيرجّع true لو اتأثرت فعلاً */
 function liveRefresh(ev) {
   const kind = ev.kind;
+  if (kind === "fines") {
+    /* غرامة يدوية:attendance مش متأثر بيها خالص — بس صفحة الغرامات بتتحدّث */
+    if (S.page === "fines") { loadFines(); return true; }
+    return false;
+  }
   if (S.page === "attendance") {
     if (kind === "attendance" && (!ev.date || ev.date === S.att.date)) { loadRosterSoft(ev); return true; }
     if (kind !== "attendance") { loadRosterSoft(ev); return true; } /* بيانات موظفين/جدول: الروستر كله */

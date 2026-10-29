@@ -380,7 +380,7 @@
           <label class="field">من تاريخ<input type="date" id="fineStart" class="inp"></label>
           <label class="field">إلى تاريخ<input type="date" id="fineEnd" class="inp"></label>
           <label class="field">الفرع<select id="fineBranch" class="sel"><option value="">كل الفروع</option><option>QCD 1</option><option>QCD 2</option></select></label>
-          <label class="field">نوع الغرامة<select id="fineKind" class="sel"><option value="">تأخير وغياب</option><option value="Late">تأخير بس</option><option value="Absent">غياب بس</option></select></label>
+          <label class="field">نوع الغرامة<select id="fineKind" class="sel"><option value="">كل الغرامات</option><option value="Late">تأخير بس</option><option value="Absent">غياب بس</option><option value="Manual">يدوية بس</option></select></label>
           <label class="field">بحث في الموظفين<input id="fineSearch" class="inp" placeholder="الاسم أو الكود" autocomplete="off"></label>
           <button class="btn primary" id="fineRun">عرض الغرامات</button>
         </div>
@@ -396,11 +396,11 @@
       <div class="br-grid" id="fineBranches"></div>
       <details class="days-box" id="fineWeeksBox" open>
         <summary>التفصيل بالأسبوع</summary>
-        <div class="table-wrap"><table class="tbl"><thead><tr><th>الأسبوع</th><th>الفترة</th><th>عدد الغرامات</th><th>تأخير</th><th>غياب</th><th>الإجمالي</th></tr></thead><tbody id="fineWeeks"></tbody></table></div>
+        <div class="table-wrap"><table class="tbl"><thead><tr><th>الأسبوع</th><th>الفترة</th><th>عدد الغرامات</th><th>تأخير</th><th>غياب</th><th>يدوية</th><th>الإجمالي</th></tr></thead><tbody id="fineWeeks"></tbody></table></div>
       </details>
       <details class="days-box" id="fineMonthsBox">
         <summary>التفصيل الشهري</summary>
-        <div class="table-wrap"><table class="tbl"><thead><tr><th>الشهر</th><th>عدد الغرامات</th><th>تأخير</th><th>غياب</th><th>الإجمالي</th></tr></thead><tbody id="fineMonths"></tbody></table></div>
+        <div class="table-wrap"><table class="tbl"><thead><tr><th>الشهر</th><th>عدد الغرامات</th><th>تأخير</th><th>غياب</th><th>يدوية</th><th>الإجمالي</th></tr></thead><tbody id="fineMonths"></tbody></table></div>
       </details>
       <div class="page-head" style="margin-top:18px">
         <div><h3>سجل الغرامات</h3><p id="fineSub2"></p></div>
@@ -481,6 +481,28 @@
       <p id="fError" class="error" role="alert"></p>
     </div>
     <div class="dlg-f"><button type="submit" class="btn primary">حفظ</button><button type="button" class="btn" id="fCancel">إلغاء</button></div>
+  </form>
+</dialog>
+
+<dialog id="fineDialog" class="dlg">
+  <form id="fineForm" method="dialog">
+    <div class="dlg-h"><div><h3 id="mfTitle" data-i18n="تسجيل غرامة">تسجيل غرامة</h3><p id="mfSub"></p></div><button type="button" class="btn icon sm" id="mfClose" aria-label="إغلاق"><svg class="i"><use href="#i-x"/></svg></button></div>
+    <div class="dlg-b">
+      <input type="hidden" id="mfEmpId">
+      <div class="form-grid">
+        <label class="field"><span data-i18n="المبلغ">المبلغ</span> <span data-i18n="(ج)">(ج)</span> *<input id="mfAmount" class="inp" type="number" min="0.5" step="0.5" inputmode="decimal" required placeholder="0"></label>
+        <label class="field"><span data-i18n="تاريخ الغرامة">تاريخ الغرامة</span> *<input id="mfDate" class="inp" type="date" required></label>
+        <label class="field wide"><span data-i18n="سبب الغرامة">سبب الغرامة</span> *<input id="mfReason" class="inp" list="reasonList" maxlength="500" required placeholder="سبب الغرامة"></label>
+        <label class="field wide"><span data-i18n="ملاحظة">ملاحظة</span> (<span data-i18n="اختياري">اختياري</span>)<input id="mfNote" class="inp" maxlength="500" placeholder="تفاصيل إضافية"></label>
+      </div>
+      <p class="hint" style="margin-top:10px" data-i18n="غرامة يدوية: بتتسجّل في أي وقت من غير ما تلمس حالة الحضور. بتظهر في صفحة «الغرامات» بنوع «يدوية» وبتتحسب في الإجماليات.">غرامة يدوية: بتتسجّل في أي وقت من غير ما تلمس حالة الحضور. بتظهر في صفحة «الغرامات» بنوع «يدوية» وبتتحسب في الإجماليات.</p>
+      <p id="mfError" class="error" role="alert"></p>
+      <div id="mfListWrap" class="hidden">
+        <h4 class="mf-list-h" data-i18n="غرامات يدوية سابقة لنفس الموظف">غرامات يدوية سابقة لنفس الموظف</h4>
+        <div id="mfList" class="mf-list"></div>
+      </div>
+    </div>
+    <div class="dlg-f"><button type="submit" class="btn primary" id="mfSave" data-i18n="حفظ الغرامة">حفظ الغرامة</button><button type="button" class="btn" id="mfCancel" data-i18n="إلغاء">إلغاء</button></div>
   </form>
 </dialog>
 

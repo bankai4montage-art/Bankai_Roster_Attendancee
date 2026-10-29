@@ -90,6 +90,24 @@ class Attendance(Base):
     __table_args__ = (UniqueConstraint("employee_id", "attendance_date", name="uq_employee_attendance_day"),)
 
 
+class ManualFine(Base):
+    """غرامة يدوية — بتتسجّل في أي وقت من غير ما يتسجّل حضور (مخالفة إدارية أو تأخير).
+
+    منفصلة عن جدول الحضور عن قصد: تسجيل غرامة هنا ما بيلمسش الحضور خالص،
+    فالتقرير ونسبة الحضور للموظف بيفضلوا زي ما هما.
+    """
+    __tablename__ = "manual_fines"
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
+    fine_date = Column(Date, nullable=False, index=True)
+    amount = Column(Float, nullable=False, default=0)
+    reason = Column(String(500), nullable=True, default="")
+    note = Column(String(500), nullable=True, default="")
+    created_by = Column(String(60), nullable=True, default="")
+    created_at = Column(DateTime, default=utcnow)
+    employee = relationship("Employee")
+
+
 class ShiftDef(Base):
     """شيفتات معرّفة لكل فرع (عشان نقدر نضيف شيفت فاضي ونوزّع عليه بعدين)."""
     __tablename__ = "shift_defs"
@@ -431,6 +449,14 @@ class AttendanceBulkIn(BaseModel):
     items: List[AttendanceItem]
 
 
+class ManualFineIn(BaseModel):
+    employee_id: int
+    fine_date: date
+    amount: float = Field(gt=0, le=1000000)
+    reason: str = Field(default="", max_length=500)
+    note: str = Field(default="", max_length=500)
+
+
 class MoveBranchIn(BaseModel):
     branch: str
 
@@ -472,6 +498,23 @@ def attendance_dict(a):
         "attendance_date": a.attendance_date.isoformat(), "status": a.status,
         "fine": a.fine, "reason": a.reason or "", "note": a.note or "",
         "updated_at": a.updated_at.isoformat() if a.updated_at else ""
+    }
+
+
+def manual_fine_dict(f, name=None, branch=None, code=None):
+    return {
+        "id": f.id, "manual_id": f.id, "employee_id": f.employee_id,
+        "name": name if name is not None else (f.employee.name if f.employee else ""),
+        "employee_code": code if code is not None else (f.employee.employee_code or "" if f.employee else ""),
+        "branch": branch if branch is not None else (f.employee.branch if f.employee else ""),
+        "date": f.fine_date.isoformat(),
+        "weekday": f.fine_date.strftime("%A"),
+        "week": week_number(week_start_of(f.fine_date))[1],
+        "week_start": week_start_of(f.fine_date).isoformat(),
+        "status": "Manual", "fine": round(float(f.amount or 0), 2),
+        "reason": f.reason or "", "note": f.note or "",
+        "created_by": f.created_by or "",
+        "updated_at": f.created_at.isoformat() if f.created_at else ""
     }
 
 
@@ -1428,32 +1471,56 @@ def _fines_rows(db, start=None, end=None, branch=None, status=None, q=None):
     return query.order_by(Attendance.attendance_date.desc(), Employee.name).all()
 
 
-def _fines_payload(rows, branch_rows=None, look=None):
+def _manual_fine_rows(db, start=None, end=None, branch=None, q=None):
+    """الغرامات اليدوية (من غير حضور) مع بيانات الموظف."""
+    query = (db.query(ManualFine, Employee).join(Employee, ManualFine.employee_id == Employee.id))
+    if start:
+        query = query.filter(ManualFine.fine_date >= start)
+    if end:
+        query = query.filter(ManualFine.fine_date <= end)
+    if branch in BRANCHES:
+        query = query.filter(Employee.branch == branch)
+    if q:
+        like = f"%{q.strip()}%"
+        query = query.filter(or_(Employee.name.ilike(like), Employee.employee_code.ilike(like)))
+    return query.order_by(ManualFine.fine_date.desc(), Employee.name).all()
+
+
+def _fines_payload(rows, branch_rows=None, look=None, manual_rows=None, manual_branch_rows=None):
     """تجميع الغرامات: إجماليات الفرعين + تفصيل شهري + إجمالي كل موظف + السجل الكامل بالتفاصيل.
 
     branch_rows: صفوف إجماليات الفرعين لوحدها. لما الفلتر يكون على فرع واحد بنمرّر
     هنا كل الصفوف بتاعة الفترة (من غير فلتر الفرع) عشان عدّادات مفتاح الفروع تفضل
-    شايفة الفرعين، بينما الباقي (الشهور/الموظفين/السجل/الإجماليات) بيفضل مخصوص بالفلتر."""
-    by_branch = {b: {"branch": b, "count": 0, "total": 0.0, "late": 0, "absent": 0,
-                     "late_total": 0.0, "absent_total": 0.0} for b in BRANCHES}
+    شايفة الفرعين، بينما الباقي (الشهور/الموظفين/السجل/الإجماليات) بيفضل مخصوص بالفلتر.
+    manual_rows: الغرامات اليدوية (نوع جديد «Manual») بتدخل في نفس التجميع."""
+    by_branch = {b: {"branch": b, "count": 0, "total": 0.0, "late": 0, "absent": 0, "manual": 0,
+                     "late_total": 0.0, "absent_total": 0.0, "manual_total": 0.0} for b in BRANCHES}
     for a, e in (branch_rows if branch_rows is not None else rows):
         fine = round(float(a.fine or 0), 2)
         kind = "late" if a.status == "Late" else "absent"
         b = by_branch.setdefault(e.branch, {"branch": e.branch, "count": 0, "total": 0.0, "late": 0, "absent": 0,
-                                            "late_total": 0.0, "absent_total": 0.0})
+                                            "manual": 0, "late_total": 0.0, "absent_total": 0.0, "manual_total": 0.0})
         b["count"] += 1
         b["total"] = round(b["total"] + fine, 2)
         b[kind] += 1
         b[kind + "_total"] = round(b[kind + "_total"] + fine, 2)
+    for f, e in (manual_branch_rows if manual_branch_rows is not None else (manual_rows or [])):
+        fine = round(float(f.amount or 0), 2)
+        b = by_branch.setdefault(e.branch, {"branch": e.branch, "count": 0, "total": 0.0, "late": 0, "absent": 0,
+                                            "manual": 0, "late_total": 0.0, "absent_total": 0.0, "manual_total": 0.0})
+        b["count"] += 1
+        b["total"] = round(b["total"] + fine, 2)
+        b["manual"] += 1
+        b["manual_total"] = round(b["manual_total"] + fine, 2)
     by_month, by_employee, by_week, items = {}, {}, {}, []
-    total = late_total = absent_total = 0.0
+    total = late_total = absent_total = manual_total = 0.0
     for a, e in rows:
         fine = round(float(a.fine or 0), 2)
         late = a.status == "Late"
         shift_name = look.get(e, a.attendance_date).shift if look else e.shift
         wstart = week_start_of(a.attendance_date)
-        wk = by_week.setdefault(wstart, dict(week_info(wstart), count=0, total=0.0, late=0, absent=0,
-                                             late_total=0.0, absent_total=0.0))
+        wk = by_week.setdefault(wstart, dict(week_info(wstart), count=0, total=0.0, late=0, absent=0, manual=0,
+                                             late_total=0.0, absent_total=0.0, manual_total=0.0))
         wk["count"] += 1
         wk["total"] = round(wk["total"] + fine, 2)
         wk["late" if late else "absent"] += 1
@@ -1463,8 +1530,8 @@ def _fines_payload(rows, branch_rows=None, look=None):
         late_total += fine if late else 0.0
         absent_total += 0.0 if late else fine
         mkey = a.attendance_date.strftime("%Y-%m")
-        m = by_month.setdefault(mkey, {"month": mkey, "count": 0, "total": 0.0, "late": 0, "absent": 0,
-                                       "late_total": 0.0, "absent_total": 0.0})
+        m = by_month.setdefault(mkey, {"month": mkey, "count": 0, "total": 0.0, "late": 0, "absent": 0, "manual": 0,
+                                       "late_total": 0.0, "absent_total": 0.0, "manual_total": 0.0})
         m["count"] += 1
         m["total"] = round(m["total"] + fine, 2)
         m[kind] += 1
@@ -1472,7 +1539,7 @@ def _fines_payload(rows, branch_rows=None, look=None):
         emp = by_employee.setdefault(e.id, {"id": e.id, "name": e.name, "employee_code": e.employee_code or "",
                                             "branch": e.branch, "shift": shift_name,
                                             "employment_type": e.employment_type, "count": 0, "total": 0.0,
-                                            "late": 0, "absent": 0})
+                                            "late": 0, "absent": 0, "manual": 0})
         emp["count"] += 1
         emp["total"] = round(emp["total"] + fine, 2)
         emp[kind] += 1
@@ -1484,9 +1551,47 @@ def _fines_payload(rows, branch_rows=None, look=None):
             "status": a.status, "fine": fine, "reason": a.reason or "", "note": a.note or "",
             "updated_at": a.updated_at.isoformat() if a.updated_at else "",
         })
+    # الغرامات اليدوية: نفس التجميع بالظبط، بس بنوع «Manual»
+    for f, e in (manual_rows or []):
+        fine = round(float(f.amount or 0), 2)
+        shift_name = look.get(e, f.fine_date).shift if look else e.shift
+        wstart = week_start_of(f.fine_date)
+        wk = by_week.setdefault(wstart, dict(week_info(wstart), count=0, total=0.0, late=0, absent=0, manual=0,
+                                             late_total=0.0, absent_total=0.0, manual_total=0.0))
+        wk["count"] += 1
+        wk["total"] = round(wk["total"] + fine, 2)
+        wk["manual"] += 1
+        wk["manual_total"] = round(wk["manual_total"] + fine, 2)
+        total += fine
+        manual_total += fine
+        mkey = f.fine_date.strftime("%Y-%m")
+        m = by_month.setdefault(mkey, {"month": mkey, "count": 0, "total": 0.0, "late": 0, "absent": 0, "manual": 0,
+                                       "late_total": 0.0, "absent_total": 0.0, "manual_total": 0.0})
+        m["count"] += 1
+        m["total"] = round(m["total"] + fine, 2)
+        m["manual"] += 1
+        m["manual_total"] = round(m["manual_total"] + fine, 2)
+        emp = by_employee.setdefault(e.id, {"id": e.id, "name": e.name, "employee_code": e.employee_code or "",
+                                            "branch": e.branch, "shift": shift_name,
+                                            "employment_type": e.employment_type, "count": 0, "total": 0.0,
+                                            "late": 0, "absent": 0, "manual": 0})
+        emp["count"] += 1
+        emp["total"] = round(emp["total"] + fine, 2)
+        emp["manual"] += 1
+        items.append({
+            "id": f"m{f.id}", "manual_id": f.id, "employee_id": e.id, "name": e.name,
+            "employee_code": e.employee_code or "", "branch": e.branch, "shift": shift_name,
+            "employment_type": e.employment_type, "week": wk["number"], "week_start": wstart.isoformat(),
+            "date": f.fine_date.isoformat(), "weekday": f.fine_date.strftime("%A"),
+            "status": "Manual", "fine": fine, "reason": f.reason or "", "note": f.note or "",
+            "updated_at": f.created_at.isoformat() if f.created_at else "",
+        })
+    items.sort(key=lambda x: x["date"], reverse=True)
     return {
         "count": len(items), "total": round(total, 2),
         "late_total": round(late_total, 2), "absent_total": round(absent_total, 2),
+        "manual_total": round(manual_total, 2),
+        "manual_count": sum(1 for i in items if i["status"] == "Manual"),
         "avg": round(total / len(items), 2) if items else 0.0,
         "max": round(max((i["fine"] for i in items), default=0.0), 2),
         "by_branch": [by_branch[b] for b in BRANCHES],
@@ -1502,16 +1607,21 @@ def _fines_payload(rows, branch_rows=None, look=None):
 def list_fines(start: Optional[date] = None, end: Optional[date] = None, branch: Optional[str] = None,
                status: Optional[str] = None, q: Optional[str] = None,
                _: bool = Depends(require_auth), db: Session = Depends(get_db)):
-    """كل غرامات الفرعين (تأخير وغياب) بكل تفاصيلها: الموظف والفرع والشيفت والنوع واليوم والغرامة والسبب والملاحظة."""
+    """كل غرامات الفرعين (تأخير وغياب ويدوية) بكل تفاصيلها: الموظف والفرع والشيفت والنوع واليوم والغرامة والسبب والملاحظة."""
     if start and end and end < start:
         raise HTTPException(400, "تاريخ النهاية يجب ألا يسبق تاريخ البداية")
+    # فلتر النوع: Late/Absent = غرامات الحضور بس، Manual = اليدوية بس، وفاضي = الكل
+    att_status = status if status in STATUSES else None
+    only_manual = status == "Manual"
     # استعلام واحد بس، وفلتر الفرع بيتطبّق في الذاكرة: نفس النتيجة نفس ترتيب الصفوف،
     # وعدّادات الفروع تفضل شايفة الفرعين وإنت واقف على فرع واحد
-    all_rows = _fines_rows(db, start, end, None, status, q)
+    all_rows = [] if only_manual else _fines_rows(db, start, end, None, att_status, q)
     rows = [r for r in all_rows if r[1].branch == branch] if branch in BRANCHES else all_rows
-    payload = _fines_payload(rows, all_rows, WeekLookup(db))
+    all_manual = [] if att_status else _manual_fine_rows(db, start, end, None, q)
+    manual_rows = [r for r in all_manual if r[1].branch == branch] if branch in BRANCHES else all_manual
+    payload = _fines_payload(rows, all_rows, WeekLookup(db), manual_rows, all_manual)
     return {"start": start.isoformat() if start else "", "end": end.isoformat() if end else "",
-            "branch": branch if branch in BRANCHES else "", "status": status if status in STATUSES else "", **payload}
+            "branch": branch if branch in BRANCHES else "", "status": status if status in STATUSES or status == "Manual" else "", **payload}
 
 
 @app.get("/api/fines/export.csv")
@@ -1519,13 +1629,72 @@ def export_fines(start: Optional[date] = None, end: Optional[date] = None, branc
                  status: Optional[str] = None, q: Optional[str] = None,
                  _: bool = Depends(require_auth), db: Session = Depends(get_db)):
     rows = _fines_rows(db, start, end, branch, status, q)
+    manual = [] if status in STATUSES else _manual_fine_rows(db, start, end, branch, q)
     look = WeekLookup(db)
+    out = [[week_number(week_start_of(a.attendance_date))[1], a.attendance_date.isoformat(), e.branch,
+            e.employee_code or "", e.name, e.employment_type, look.get(e, a.attendance_date).shift, a.status,
+            f"{float(a.fine or 0):.2f}", a.reason or "", a.note or ""] for a, e in rows]
+    out += [[week_number(week_start_of(f.fine_date))[1], f.fine_date.isoformat(), e.branch,
+             e.employee_code or "", e.name, e.employment_type, look.get(e, f.fine_date).shift, "Manual",
+             f"{float(f.amount or 0):.2f}", f.reason or "", f.note or ""] for f, e in manual]
     return csv_response(
         ["Week", "Date", "Branch", "Employee Code", "Name", "Type", "Shift", "Status", "Fine (EGP)", "Reason", "Note"],
-        [[week_number(week_start_of(a.attendance_date))[1], a.attendance_date.isoformat(), e.branch,
-          e.employee_code or "", e.name, e.employment_type, look.get(e, a.attendance_date).shift, a.status,
-          f"{float(a.fine or 0):.2f}", a.reason or "", a.note or ""] for a, e in rows],
+        out,
         f"bankai_fines_{start or 'all'}_{end or 'all'}.csv")
+
+
+# ---------------------------------------------------------------- غرامات يدوية (من غير حضور)
+@app.get("/api/fines/manual")
+def list_manual_fines(employee_id: Optional[int] = None, start: Optional[date] = None,
+                      end: Optional[date] = None, _: bool = Depends(require_auth),
+                      db: Session = Depends(get_db)):
+    """الغرامات اليدوية بس — بتستخدمها نافذة «غرامة» عشان تشوف سجل موظف واحد."""
+    rows = _manual_fine_rows(db, start, end, None, None)
+    if employee_id:
+        rows = [(f, e) for f, e in rows if e.id == employee_id]
+    return {"fines": [manual_fine_dict(f, e.name, e.branch, e.employee_code or "") for f, e in rows],
+            "count": len(rows),
+            "total": round(sum(float(f.amount or 0) for f, _ in rows), 2)}
+
+
+@app.post("/api/fines/manual")
+def add_manual_fine(data: ManualFineIn, request: Request, role: str = Depends(require_admin),
+                    db: Session = Depends(get_db)):
+    """تسجيل غرامة يدوية لموظف في أي وقت — من غير ما يتسجّل حضور ولا يمس التقارير دي."""
+    e = db.query(Employee).filter(Employee.id == data.employee_id).first()
+    if not e:
+        raise HTTPException(404, "الموظف غير موجود")
+    if not e.active:
+        raise HTTPException(400, "الموظف موقوف — مش هينفع تغرّم عليه")
+    if data.amount <= 0:
+        raise HTTPException(400, "قيمة الغرامة لازم تكون أكبر من صفر")
+    if data.fine_date > today_local():
+        raise HTTPException(400, "تاريخ الغرامة مش ممكن يكون في المستقبل")
+    if not (data.reason or "").strip():
+        raise HTTPException(400, "اكتب سبب الغرامة")
+    f = ManualFine(employee_id=e.id, fine_date=data.fine_date, amount=round(float(data.amount), 2),
+                   reason=(data.reason or "").strip(), note=(data.note or "").strip(),
+                   created_by=who_role(role))
+    db.add(f)
+    db.commit()
+    db.refresh(f)
+    publish_event("fines", fine_kind="manual", ids=[e.id], names=[e.name], count=1,
+                  by=who_role(role), client=client_tag(request))
+    return manual_fine_dict(f, e.name, e.branch, e.employee_code or "")
+
+
+@app.delete("/api/fines/manual/{fine_id}")
+def delete_manual_fine(fine_id: int, request: Request, role: str = Depends(require_admin),
+                       db: Session = Depends(get_db)):
+    f = db.query(ManualFine).filter(ManualFine.id == fine_id).first()
+    if not f:
+        raise HTTPException(404, "الغرامة مش موجودة")
+    e = db.query(Employee).filter(Employee.id == f.employee_id).first()
+    db.delete(f)
+    db.commit()
+    publish_event("fines", fine_kind="manual-delete", ids=[f.employee_id],
+                  names=[e.name if e else ""], count=1, by=who_role(role), client=client_tag(request))
+    return {"deleted": True, "id": fine_id}
 
 
 # ---------------------------------------------------------------- schedule (جدول الشيفتات)
