@@ -525,6 +525,17 @@
 <dialog id="schImpDialog" class="dlg xwide">
   <div class="dlg-h"><div><h3>استيراد الجدول من Excel</h3><p>الشيت بيتقرا تلقائي (فول تايم + بارت تايم). هتشوف المعاينة الأول ومفيش حاجة بتتحفظ إلا لما تأكّد.</p></div><button type="button" class="btn icon sm" id="schImpClose" aria-label="إغلاق"><svg class="i"><use href="#i-x"/></svg></button></div>
   <div class="dlg-b">
+    <div class="imp-week" id="schImpWeekBox">
+      <div class="imp-week-h">
+        <b><svg class="i"><use href="#i-cal"/></svg> <span data-i18n="الشيت هيتطبّق على أنهي أسبوع؟">الشيت هيتطبّق على أنهي أسبوع؟</span></b>
+        <span class="muted" id="schImpWeekNote" data-i18n="الأسبوع المفتوح افتراضيًا">الأسبوع المفتوح افتراضيًا</span>
+      </div>
+      <div class="row">
+        <select id="schImpWeek" class="sel" style="flex:1;min-width:220px" aria-label="أسبوع الاستيراد" data-i18n-aria="أسبوع الاستيراد"></select>
+        <input type="date" id="schImpWeekDate" class="inp hidden" aria-label="اختر أي يوم في الأسبوع الجديد" data-i18n-aria="اختر أي يوم في الأسبوع الجديد">
+      </div>
+      <div class="imp-week-info" id="schImpWeekInfo"></div>
+    </div>
     <div class="row" style="margin-bottom:12px">
       <label class="btn" for="schImpFile"><svg class="i"><use href="#i-upload"/></svg>اختيار ملف Excel (.xlsx)</label>
       <input type="file" id="schImpFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="sr">

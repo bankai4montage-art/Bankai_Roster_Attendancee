@@ -536,6 +536,15 @@ dialog.dlg.xwide{width:min(1040px,calc(100% - 20px))}
 .simp-shifts{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;font-size:12.5px;color:var(--ink2)}
 .simp-opt{margin:0 0 12px;padding:10px 14px;border:1px dashed var(--line3);border-radius:var(--r);font-size:13px}
 .simp-opt details{margin-top:6px;color:var(--ink2)}
+/* اختيار أسبوع الاستيراد */
+.imp-week{border:1px solid var(--brand-line);background:var(--brand-bg);border-radius:var(--r);padding:12px 14px;margin-bottom:14px}
+.imp-week-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:13.5px;color:var(--brand-d)}
+.imp-week-h b{display:inline-flex;align-items:center;gap:7px}
+.imp-week-h .i{width:16px;height:16px}
+.imp-week .row{gap:10px;align-items:center}
+.imp-week .sel,.imp-week .inp{background:var(--card);border-color:var(--brand-line)}
+.imp-week-info{margin-top:10px;font-size:12.5px;line-height:1.75;color:var(--ink2);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.imp-week-info .tag{font-size:11px}
 .simp-tbl{max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:var(--r)}
 .simp-tbl table{width:100%;border-collapse:collapse;min-width:760px}
 .simp-tbl th{position:sticky;top:0;background:var(--surf2);z-index:1;text-align:start;padding:9px 12px;font-size:12.5px;font-weight:700;color:var(--ink2);border-bottom:1px solid var(--line)}

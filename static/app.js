@@ -23,7 +23,8 @@ const weekNoOf = ws => {
 const weekLabel = ws => `Week ${weekNoOf(ws)}`;
 const weekRangeText = ws => `${fmtDay(ws, { day: "numeric", month: "short" })} – ${fmtDay(addDays(ws, 6), { day: "numeric", month: "short", year: "numeric" })}`;
 const curLocale = () => (S.lang === "en" ? "en-US" : "ar-EG-u-nu-latn");
-const fmtDay = (s, opts) => parseISO(s).toLocaleDateString(curLocale(), opts);
+/* نص مزدوج اللغة للقطع اللي بتترسم في JS */
+const bi = (ar, en) => (S.lang === "en" ? en : ar);const fmtDay = (s, opts) => parseISO(s).toLocaleDateString(curLocale(), opts);
 const anyDrafts = () => S.draft.size + (S.sch ? S.sch.draft.size : 0);
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 const on = (id, ev, fn) => $(id).addEventListener(ev, fn);
@@ -221,6 +222,11 @@ Object.assign(I18N.en, {
   "استيراد موظفين": "Import employees", "انسخ الجدول من Excel والصقه هنا، أو ارفع ملف CSV.": "Paste the sheet from Excel, or upload a CSV file.",
   "الأعمدة المقبولة: الاسم، الكود، الفرع (QCD 1 / QCD 2)، الشيفت، النوع (FT / PT)، الإجازة، الموبايل. لو الصف الأول عناوين بيتعرف عليها تلقائيًا، ولو مفيش بيتقرأ بنفس الترتيب ده.": "Accepted columns: name, code, branch (QCD 1 / QCD 2), shift, type (FT / PT), day-off, mobile. A header row is auto-detected; otherwise columns are read in that order.",
   "استيراد": "Import", "إغلاق": "Close", "استيراد الجدول من Excel": "Import shifts from Excel",
+  "الشيت هيتطبّق على أنهي أسبوع؟": "Which week should the sheet apply to?",
+  "الأسبوع المفتوح افتراضيًا": "The open week by default",
+  "أسبوع جديد": "New week",
+  "أسبوع الاستيراد": "Import week",
+  "اختر أي يوم في الأسبوع الجديد": "Pick any day in the new week",
   "الشيت بيتقرا تلقائي (فول تايم + بارت تايم). هتشوف المعاينة الأول ومفيش حاجة بتتحفظ إلا لما تأكّد.": "The sheet is auto-read (full-time + part-time). Preview first — nothing saves until you confirm.",
   "لا توجد تسجيلات": "No entries", "في إجازة اليوم": "On leave today",
   "الموظف اللي يوافق يوم إجازته الأسبوعية بيختفي من قائمة الحضور": "Employees whose weekly day-off matches are hidden from today's list",
@@ -292,6 +298,7 @@ Object.assign(I18N.en, {
   "نقل لشيفت آخر أو لفرع تاني": "Move to another shift or branch",
   "نقل…": "Move…",
   "حاضر للباقي": "Present the rest",
+  "دوام كامل": "Full Time", "دوام جزئي": "Part Time", "بدون بريك": "No break",
 });
 
 /* خريطة عكسية: من إجابات EN رجّع عربي عند الرجوع للوضع العربي */
@@ -326,6 +333,7 @@ const RO_TRANS = [
   [/^\u062a\u062d\u062f\u064a\u062f (.+)$/g, (m,name) => "Select " + name],
   [/^\u0646\u0642\u0644 \u0644\u0641\u0631\u0639 (.+) \u2014 \u0628\u0646\u0641\u0633 \u0627\u0644\u0634\u064a\u0641\u062a \u0648\u064a\u0648\u0645 \u0627\u0644\u0625\u062c\u0627\u0632\u0629 \u0648\u0627\u0644\u0628\u0631\u064a\u0643$/g, (m,b) => "Move to " + b + " — same shift, day-off & break"],
   [/^\u0646\u0642\u0644 (.+) \u0644\u0641\u0631\u0639 (.+)$/g, (m,n,b) => "Move " + n + " to " + b],
+  [/^\u0646\u0642\u0644 \u0644\u0641\u0631\u0639 (.+)$/g, (m,b) => "Move to branch " + b],
   // عدّادات دايلوج السجل والرسوم البيانية: "تسجيلات: 4" / "حاضر: 5" / "حاضر 1 · متأخر 2"
   [/(\u062a\u0633\u062c\u064a\u0644\u0627\u062a|\u062d\u0636\u0648\u0631|\u062d\u0627\u0636\u0631|\u0645\u062a\u0623\u062e\u0631|\u063a\u0627\u0626\u0628|\u0628\u0639\u0630\u0631): (\d+)/g, (m,w,n) => ({ "\u062a\u0633\u062c\u064a\u0644\u0627\u062a": "Records", "\u062d\u0636\u0648\u0631": "Present", "\u062d\u0627\u0636\u0631": "Present", "\u0645\u062a\u0623\u062e\u0631": "Late", "\u063a\u0627\u0626\u0628": "Absent", "\u0628\u0639\u0630\u0631": "Excused" }[w] + ": " + n)],
   [/(\u062d\u0627\u0636\u0631|\u0645\u062a\u0623\u062e\u0631|\u063a\u0627\u0626\u0628|\u0628\u0639\u0630\u0631) (\d+)/g, (m,w,n) => ({ "\u062d\u0627\u0636\u0631": "Present", "\u0645\u062a\u0623\u062e\u0631": "Late", "\u063a\u0627\u0626\u0628": "Absent", "\u0628\u0639\u0630\u0631": "Excused" }[w] + " " + n)],
@@ -346,6 +354,28 @@ const RO_TRANS = [
   [/\u0645\u0648\u0642\u0648\u064f\u0641$|\u0645\u0648\u0642\u0648\u0641$/g, (m) => "suspended"],
   [/\u062c\u062f\u0648\u0644 \u0627\u0644\u0634\u064a\u0641\u062a\u0627\u062a/g, () => "Shift schedule"],
 ];
+/* ترجمة عكسية (EN -> AR) — للنصوص المركّبة اللي بتترجم بـ regex.
+   الـ RO_TRANS بيرجمها العربي -> الإنجليزي، والقاموس بيرجم الكلمات المفردة.
+   لكن النص المركّب زي «On leave today (3)» مالوش مفتاح في القاموس، فلازم
+   نمشي عليه بالـ regex في الاتجاه العكس — وإلا فضل إنجليزي بعد الرجوع عربي. */
+const RO_TRANS_INV = [
+  [/^On leave today \((\d+)\)$/g, (m,n) => "في إجازة اليوم (" + n + ")"],
+  [/^(\d+) unsaved entry marks$/g, (m,n) => n + " تسجيل لم يُحفظ بعد"],
+  [/^(\d+) employees with unsaved changes$/g, (m,n) => n + " موظف عليهم تعديلات لم تُحفظ بعد"],
+  [/^(\d+) active · (\d+) suspended$/g, (m,a,b) => a + " نشط · " + b + " موقوف"],
+  [/^Shift schedule — (.+) — Week (\d+)$/g, (m,b,w) => "جدول الشيفتات — " + b + " — الأسبوع " + w],
+  [/^Move to branch (.+)$/g, (m,b) => "نقل لفرع " + b],
+  [/^Off: (\d+)$/g, (m,n) => "إجازة: " + n],
+];
+/* يرجّع النص العربي equivalent لو النص ده إنجليزي مركّب */
+function toArabicText(s) {
+  try {
+    let t = String(s || "");
+    for (const [re, fn] of RO_TRANS_INV) t = t.replace(re, fn);
+    return t;
+  } catch (e) { return s; }
+}
+
 function translateText(s) {
   try {
     if (S.lang !== "en") return s;
@@ -418,8 +448,49 @@ function setLang(lang) {
   S.lang = lang;
   try { sessionStorage.setItem("bankaicode_lang", lang); } catch (e) {}
   applyLang();
+  refreshLangView();
   const btn = $("js-lang") || qs(".js-lang");
   if (btn) btn.setAttribute("aria-label", lang === "ar" ? "Switch to English" : "تغيير للعربية");
+}
+
+/* بعد تبديل اللغة: بنعيد رسم الصفحة الحالية. السبب: التواريخ والأرقام
+   (شريط الأسبوع، جداول الغرامات والتقارير) بتترجم وقت الرسم حسب لغة الصفحة،
+   فلو ما أعدنا الرسم كانت هتفضل باللغة القديمة. */
+function refreshLangView() {
+  try { updateWeekBar(); } catch (e) {}
+  try { updateTodayPill(); } catch (e) {}
+  try { syncAttControls(); } catch (e) {}
+  try { updateSaveBar(); updateSchSaveBar(); } catch (e) {}
+  try { if (S.sch.data) renderSchedule(); } catch (e) {}
+  // دايلوج استيراد الشيت: النصوص اللي بتترسم بالـJS (الأسبوع/الخيارات/الزر) بتتعاد بلغة الصفحة
+  try {
+    if (S.simp && $("schImpDialog") && $("schImpDialog").open) { simpWeeksRender(); if (S.simp.plan) simpRender(); }
+  } catch (e) {}
+  const p = S.page;
+  if (!p || !S.shown) return;
+  try {
+    if (p === "dashboard") loadDashboard();
+    else if (p === "attendance") { renderAttendance(); }
+    else if (p === "schedule") { if (S.sch.data) renderSchedule(); }
+    else if (p === "employees") renderEmployees();
+    else if (p === "reports") { if (S.rep.sum) renderReport(); renderReportRows(); }
+    else if (p === "fines") loadFines();
+  } catch (e) { /* رسم اختياري — لو فشل ما نوقفش التبديل */ }
+}
+
+/* تاريخ النهارده في شريط الصفحة — بلغة الصفحة (عربي/إنجليزي) */
+function updateTodayPill() {
+  const el = $("todayPill"); if (!el) return;
+  el.textContent = new Date().toLocaleDateString(curLocale(),
+    { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
+
+/* مثال الأعمدة في دايلوج الاستيراد — بلغة الصفحة */
+function applyImportPlaceholder() {
+  const el = $("impText"); if (!el) return;
+  el.placeholder = S.lang === "en"
+    ? "Name\tCode\tBranch\tShift\tType\tDay off\tMobile\nAhmed Mohamed\t1001\tQCD 1\t12 AM - 8 AM\tFT\tFriday\t01012345678"
+    : "الاسم\tالكود\tالفرع\tالشيفت\tالنوع\tالإجازة\tالموبايل\nأحمد محمد\t1001\tQCD 1\t12 AM - 8 AM\tFT\tالجمعة\t01012345678";
 }
 
 /* تطبيق الترجمة على كل العناصر */
@@ -463,30 +534,36 @@ function applyLang() {
     if (dict[key]) el.setAttribute("aria-label", dict[key]);
   });
   // العناصر اللي متعرفش data-i18n بس نصها مطابق للمفتاح (fallback للنصوص الثابتة)
-  document.querySelectorAll("button, span, h1, h2, h3, h4, h5, h6, p, label, th, td, summary, option, legend, figcaption, small").forEach(el => {
+  document.querySelectorAll("a, button, span, div, p, label, h1, h2, h3, h4, h5, h6, b, strong, em, li, dd, dt, th, td, summary, option, legend, figcaption, small").forEach(el => {
+    if (el.hasAttribute("data-i18n") || el.closest("[data-i18n]")) return;
     const txt = el.textContent.trim();
-    if (txt && fb[txt] && !el.hasAttribute("data-i18n") && !el.closest("[data-i18n]")) {
-      // لو العنصر مش فيه أيقونة أو عناصرNested، غيره
-      // ورقة بس: العنصر اللي جواه input/button/أيقونة نلمّوش نصه
-      if (!el.children.length && !el.querySelector("svg, i, .i, .av")) {
-        el.textContent = fb[txt];
-      } else {
-        // عنصر فيه أيقونة (زي «تصدير CSV»): نرجّع النص اللي جواه بس ونسيب الأيقونة
-        // زي ما هي — من غير ما نمسس الأيقونة ولا نكسر التنسيق.
-        const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
-        let n;
-        while ((n = w.nextNode())) {
-          const owner = n.parentNode;
-          if (owner && owner.hasAttribute && owner.hasAttribute("data-i18n")) continue;
-          const t = n.nodeValue.trim();
-          if (t && fb[t]) n.nodeValue = n.nodeValue.replace(t, fb[t]);
-        }
-      }
+    if (!txt) return;
+    // النص العربي المقابل: من القاموس ( fb ) أو من الـ regex العكسي (نص مركّب)
+    const ar = fb[txt] || toArabicText(txt);
+    // 1) عنصر نصه بس (من غير أيقونة ولا عناصر جوه): نغيّر النص كله
+    if (!el.children.length && !el.querySelector("svg, i, .i, .av")) {
+      if (ar && ar !== txt) el.textContent = ar;
+      return;
+    }
+    // 2) عنصر فيه أيقونة أو عناصر جوه (زي زرار «تصدير CSV» أو label فيه select):
+    //    نرجّع كل نص جواه لوحده من غير ما نمسس الأيقونة ولا التنسيق.
+    //    لازم نمشي على كل node جواه: لو العنصر كله نصه مركّب (زي label فيه select
+    //    وOptions بتاعته) مش هيطابق مفتاح واحد — فمطابقة الـ node هو الحل.
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+    let n;
+    while ((n = w.nextNode())) {
+      const owner = n.parentNode;
+      if (owner && owner.hasAttribute && owner.hasAttribute("data-i18n")) continue;
+      const t = n.nodeValue.trim();
+      if (!t) continue;
+      const back = fb[t] || toArabicText(t);
+      if (back && back !== t) n.nodeValue = n.nodeValue.replace(t, back);
     }
   });
   // تحديث placeholder للبحث
   const searchInp = $("navSearch") || qs("#navSearch");
   if (searchInp && dict["البحث عن موظف"]) searchInp.placeholder = dict["البحث عن موظف"];
+  applyImportPlaceholder();
   // تحديث زرار اللغة
   const langBtn = $("js-lang") || qs(".js-lang");
   if (langBtn) langBtn.setAttribute("aria-label", S.lang === "ar" ? "Switch to English" : "تغيير للعربية");
@@ -686,7 +763,7 @@ qsa(".js-lang").forEach(b => b.addEventListener("click", () => toggleLang()));
 
 function showApp() {
   $("loginView").classList.add("hidden"); $("appView").classList.remove("hidden");
-  $("todayPill").textContent = new Date().toLocaleDateString("ar-EG-u-nu-latn", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  updateTodayPill();
   if (window.syncNavInd) window.syncNavInd();
 }
 
@@ -1135,7 +1212,7 @@ function updateAttSummary() {
 function renderOff() {
   const off = (S.roster?.off_employees || []).filter(e => !S.att.branch || e.branch === S.att.branch);
   $("attOff").classList.toggle("hidden", !off.length);
-  $("attOffSum").textContent = `في إجازة اليوم (${off.length})`;
+  $("attOffSum").textContent = S.lang === "en" ? `On leave today (${off.length})` : `في إجازة اليوم (${off.length})`;
   $("attOffList").innerHTML = off.map(e => `<span class="tag">${esc(e.name)} · ${esc(e.branch)}</span>`).join("");
 }
 
@@ -1184,7 +1261,7 @@ function markPresent(arr) {
 function updateSaveBar() {
   const n = S.draft.size;
   $("saveBar").classList.toggle("hidden", n === 0);
-  $("saveMsg").textContent = `${n} تسجيل لم يُحفظ بعد`;
+  $("saveMsg").textContent = S.lang === "en" ? `${n} unsaved entry marks` : `${n} تسجيل لم يُحفظ بعد`;
   /* bump خفيف على العدّاد كل مرة العدد يتغيّر (الشريط نفسه ليه حركة دخول أصلًا) */
   if (n) pulse($("saveMsg"), "bump");
 }
@@ -1361,7 +1438,7 @@ function renderEmployees() {
     return `<tr class="${sel ? "sel" : ""}" data-id="${e.id}"><td class="c"><input type="checkbox" data-sel ${sel ? "checked" : ""} aria-label="تحديد ${esc(e.name)}"></td>
       <td class="who">${whoHTML(e.name, `<button class="link" data-hist="${e.id}">${esc(e.name)}</button><small>${esc(e.employee_code || "بدون كود")}</small>`)}</td>
       <td class="br">${esc(e.branch)}${isAdmin() ? ` <button class="link br-mv" data-move="${e.id}" title="نقل لفرع ${esc(otherBranchOf(e.branch))} — بنفس الشيفت ويوم الإجازة والبريك" aria-label="نقل ${esc(e.name)} لفرع ${esc(otherBranchOf(e.branch))}">نقل</button>` : ""}</td><td>${sh(e.shift)}</td>
-      <td><span class="tag ${e.employment_type === "FT" ? "brand" : ""}">${e.employment_type === "FT" ? "Full Time" : "Part Time"}</span></td>
+      <td><span class="tag ${e.employment_type === "FT" ? "brand" : ""}">${e.employment_type === "FT" ? "دوام كامل" : "دوام جزئي"}</span></td>
       <td>${WD_AR[e.day_off] || e.day_off}</td>
       <td>${e.phone ? `<a class="num" href="tel:${esc(e.phone)}">${esc(e.phone)}</a>` : `<span class="muted">—</span>`}</td>
       <td><span class="tag ${e.active ? "ok" : "off"}">${e.active ? "نشط" : "موقوف"}</span></td>
@@ -1983,9 +2060,9 @@ function schCard(name, list, all) {
   const def = S.sch.defaults[name] || { type: "FT", day: "" };
   return `<section class="shcard" data-shift="${esc(name)}"><header class="shhead">${schHead(name, list)}</header>
     <div class="shwrap">${schTable(name, list, all)}</div>
-    <div class="pastebox hidden"><textarea class="inp paste-ta" placeholder="اسم في كل سطر. ممكن تلصق عمود من Excel. ولو كتبت PT بعد الاسم (تاب أو فاصلة) بيتسجل بارت تايم."></textarea><div class="row" style="margin-top:8px"><button class="btn primary sm paste-go">إضافة كل الأسماء</button><button class="btn sm paste-cancel">إلغاء</button></div></div>
+    <div class="pastebox hidden"><textarea class="inp paste-ta" placeholder="${S.lang === "en" ? "One name per line. You can paste a column from Excel. If you write PT after the name (tab or comma) it is recorded as part-time." : "اسم في كل سطر. ممكن تلصق عمود من Excel. ولو كتبت PT بعد الاسم (تاب أو فاصلة) بيتسجل بارت تايم."}"></textarea><div class="row" style="margin-top:8px"><button class="btn primary sm paste-go">إضافة كل الأسماء</button><button class="btn sm paste-cancel">إلغاء</button></div></div>
     ${isAdmin() ? `<div class="addrow no-print"><input class="inp add-name" list="schNames" placeholder="اكتب اسم موظف واضغط Enter لإضافته" autocomplete="off" aria-label="اسم موظف جديد">
-      <select class="sel add-type" aria-label="النوع"><option value="FT" ${def.type === "FT" ? "selected" : ""}>Full Time</option><option value="PT" ${def.type === "PT" ? "selected" : ""}>Part Time</option></select>
+      <select class="sel add-type" aria-label="النوع"><option value="FT" ${def.type === "FT" ? "selected" : ""}>دوام كامل</option><option value="PT" ${def.type === "PT" ? "selected" : ""}>دوام جزئي</option></select>
       <select class="sel add-day" aria-label="يوم الإجازة"><option value="">إجازة: تلقائي</option>${WEEKDAYS.map(d => `<option value="${d}" ${def.day === d ? "selected" : ""}>${WD_AR[d]}</option>`).join("")}</select>
       <button class="btn primary add-go"><svg class="i"><use href="#i-plus"/></svg>إضافة</button></div>` : ""}</section>`;
 }
@@ -2005,7 +2082,9 @@ function renderSchedule() {
   $("autoScope").value = names.includes(scope) ? scope : "";
   $("schShifts").innerHTML = names.length ? names.map(n => schCard(n, groups.get(n), names)).join("") : `<div class="empty"><b>مفيش شيفتات في ${esc(S.sch.branch)} لسه</b>أضف أول شيفت من القسم اللي تحت، وبعدها ابدأ إضافة الموظفين.</div>`;
   renderTotals(emps);
-  $("schPrintTitle").textContent = `جدول الشيفتات — ${S.sch.branch} — ${weekLabel(S.week)}`;
+  $("schPrintTitle").textContent = S.lang === "en"
+    ? `Shift schedule — ${S.sch.branch} — ${weekLabel(S.week)}`
+    : `جدول الشيفتات — ${S.sch.branch} — ${weekLabel(S.week)}`;
   $("schPrintSub").textContent = weekRangeText(S.week);
 }
 function schRefreshShift(name) {
@@ -2026,7 +2105,7 @@ function schSet(id, patch) {
 function updateSchSaveBar() {
   const n = S.sch.draft.size;
   $("schSaveBar").classList.toggle("hidden", n === 0);
-  $("schSaveMsg").textContent = `${n} موظف عليهم تعديلات لم تُحفظ بعد`;
+  $("schSaveMsg").textContent = S.lang === "en" ? `${n} employees with unsaved changes` : `${n} موظف عليهم تعديلات لم تُحفظ بعد`;
 }
 async function schSave(silent = false) {
   if (!S.sch.draft.size) return true;
@@ -2065,12 +2144,119 @@ on("schSearch", "input", debounce(() => { S.sch.q = $("schSearch").value; render
 const SIMP_F = { shift: "الشيفت", employment_type: "النوع", day_off: "الإجازة", break_start: "البريك", branch: "الفرع", active: "الحالة", off_locked: "تثبيت الإجازة" };
 const SIMP_ST = { create: ["جديد", "ok"], update: ["تعديل", "brand"], same: ["بدون تغيير", "off"], review: ["مراجعة", "warn"], skip: ["متخطّى", "bad"] };
 const SIMP_RS = { similar: "اسم قريب من موظف موجود", other_branch: "الاسم موجود في فرع تاني", ambiguous: "أكتر من موظف بنفس الاسم" };
-S.simp = { b64: "", name: "", plan: null, decisions: {}, filter: "", deact: false, ack: false };
+S.simp = { b64: "", name: "", plan: null, decisions: {}, filter: "", deact: false, ack: false,
+           week: "", weeks: null, isNew: false, busy: false };
 
 function simpFmt(f, v) { return f === "day_off" ? (WD_AR[v] || v) : f === "employment_type" ? (v === "FT" ? "فول تايم" : "بارت تايم") : v; }
+
+/* ---------------- اختيار أسبوع الاستيراد ---------------- */
+
+/** يجيب الأسابيع الموجودة (مرة كل فتح للدايلوج). */
+async function simpWeeksLoad() {
+  const m = S.simp;
+  try {
+    const r = await api("/api/schedule/weeks");
+    m.weeks = r.weeks || [];
+    m.today = r.today || null;
+  } catch (e) {
+    m.weeks = m.weeks || [];
+  }
+}
+
+/** هل الأسبوع ده موجود فعلًا (ليه صفوف)؟ */
+function simpWeekExists(ws) {
+  return (S.simp.weeks || []).some(w => w.start === ws);
+}
+
+/** أقرب أسبوع قبله (أو بعده لو مفيش) — ده اللي الأسبوع الجديد بيتنسخ منه. */
+function simpWeekSource(ws) {
+  const starts = (S.simp.weeks || []).map(w => w.start).sort();
+  const before = starts.filter(s => s < ws).pop();
+  return before || starts.find(s => s > ws) || "";
+}
+
+function simpWeekInfoHtml() {
+  const m = S.simp, ws = m.week;
+  if (!ws) return "";
+  const label = weekLabel(ws), range = weekRangeText(ws);
+  if (m.isNew) {
+    const src = simpWeekSource(ws);
+    const tag = m.createdNow
+      ? `<span class="tag ok">${bi("أسبوع جديد ✔", "New week ✔")}</span>`
+      : `<span class="tag brand">${bi("أسبوع جديد", "New week")}</span>`;
+    const how = m.createdNow ? bi("اتعمل", "created") : bi("هيتعمل", "will be created");
+    const srcTxt = src
+      ? `<b>${esc(weekLabel(src))}</b> (${esc(weekRangeText(src))})`
+      : bi("بيانات الموظفين الحالية", "the current employee data");
+    return `${tag}<b>${esc(label)}</b> · <span class="num">${esc(range)}</span>
+      <span class="muted">— ${how} ${bi("بنفس طريقة الأسابيع: نسخة من", "the same way as the other weeks: a copy of")} ${srcTxt}${bi("، وتقدر تعدّله بعده عادي.", ", and you can edit it afterwards as usual.")}</span>`;
+  }
+  const w = (m.weeks || []).find(x => x.start === ws);
+  return `<span class="tag ok">${bi("موجود", "Exists")}</span> <b>${esc(label)}</b> · <span class="num">${esc(range)}</span>
+    <span class="muted">${w ? `— ${w.employees} ${bi("موظف", "employees")}` : ""}</span>`;
+}
+
+function simpWeeksRender() {
+  const m = S.simp;
+  const starts = new Set((m.weeks || []).map(w => w.start));
+  starts.add(S.week);                                  // الأسبوع المفتوح دايمًا موجود كخيار
+  if (m.today && m.today.start) starts.add(m.today.start);
+  if (m.week) starts.add(m.week);
+  const list = [...starts].sort();
+
+  const sel = $("schImpWeek");
+  sel.innerHTML = list.map(ws => {
+    const w = (m.weeks || []).find(x => x.start === ws);
+    const bits = [weekLabel(ws), weekRangeText(ws)];
+    if (ws === S.week) bits.push(bi("المفتوح", "Open"));
+    else if (w) bits.push(`${w.employees} ${bi("موظف", "employees")}`);
+    return `<option value="${ws}" ${ws === m.week ? "selected" : ""}>${esc(bits.join(" · "))}</option>`;
+  }).join("") + `<option value="__new__" ${m.isNew ? "selected" : ""}>${bi("➕ أسبوع جديد…", "➕ New week…")}</option>`;
+
+  $("schImpWeekDate").classList.toggle("hidden", !m.isNew);
+  if (m.isNew) $("schImpWeekDate").value = m.week || "";
+  $("schImpWeekNote").textContent = m.isNew ? bi("أسبوع جديد", "New week") : bi("الأسبوع المفتوح افتراضيًا", "The open week by default");
+  $("schImpWeekInfo").innerHTML = simpWeekInfoHtml();
+}
+
+/** يختار أسبوع ويحدّث المعاينة لو فيه ملف متحمّل. */
+async function simpPickWeek(ws, isNew) {
+  const m = S.simp;
+  m.week = ws;
+  m.isNew = !!isNew;
+  m.createdNow = false;
+  simpWeeksRender();
+  if (m.b64) await simpPreview();
+}
+
+/** إعادة حساب المعاينة (بعد تغيير الأسبوع أو قرار). */
+async function simpPreview() {
+  const m = S.simp;
+  if (!m.b64 || m.busy) return;
+  m.busy = true;
+  $("schImpBody").innerHTML = '<p class="muted">جاري قراءة الشيت…</p>';
+  $("schImpRun").disabled = true;
+  try {
+    m.plan = await simpRun(false);
+    m.decisions = {};
+    const pw = m.plan && m.plan.week;
+    if (pw && pw.start) {
+      // خلّي قائمة الأسابيع محدّثة: المعاينة نفسها بتعمل الأسبوع الجديد
+      if (!(m.weeks || []).some(w => w.start === pw.start)) {
+        m.weeks = [...(m.weeks || []), { ...pw, employees: 0 }].sort((a, b) => (a.start < b.start ? -1 : 1));
+      }
+      if (m.plan.week_created) m.createdNow = true;
+      if (m.plan.week_created) await simpWeeksLoad();   // نجيب العدد الحقيقي للموظفين بعد إنشاء الأسبوع
+    }
+    simpRender();
+  } catch (e) {
+    $("schImpBody").innerHTML = `<div class="empty"><b>${esc(e.message)}</b></div>`;
+  } finally { m.busy = false; }
+}
+
 async function simpRun(apply) {
   const m = S.simp;
-  return api("/api/schedule/import", { method: "POST", body: { week: S.week, branch: S.sch.branch, filename: m.name, file_b64: m.b64, decisions: m.decisions, deactivate_missing: m.deact, apply } });
+  return api("/api/schedule/import", { method: "POST", body: { week: m.week || S.week, branch: S.sch.branch, filename: m.name, file_b64: m.b64, decisions: m.decisions, deactivate_missing: m.deact, apply } });
 }
 function simpRender() {
   const m = S.simp, p = m.plan; if (!p) return;
@@ -2099,10 +2285,13 @@ function simpRender() {
     ${p.missing.length ? `<div class="simp-opt"><label class="check"><input type="checkbox" id="simpDeact" ${m.deact ? "checked" : ""}> أوقف الموظفين اللي موجودين في السيستم ومش في الشيت (${p.missing.length})</label><details><summary>عرض الأسماء</summary>${p.missing.map(x => esc(x.name)).join("، ")}</details></div>` : ""}
     <div class="simp-tbl"><table><thead><tr><th>سطر</th><th>الاسم</th><th>النوع</th><th>الشيفت</th><th>البريك</th><th>الإجازة</th><th>الحالة</th></tr></thead><tbody>${tr}</tbody></table></div>
     ${rows.length > 500 ? `<p class="muted" style="margin-top:6px">معروض أول 500 صف فقط (الاستيراد بيشمل الكل).</p>` : ""}`;
+  $("schImpWeekInfo").innerHTML = simpWeekInfoHtml();   // يوضّح لو الأسبوع اتعمل دلوقتي
   const todo = s.create + s.update + s.review - p.items.filter(i => i.status === "review" && i.decision === "skip").length;
   const run = $("schImpRun");
   run.disabled = !(todo > 0 || m.deact) || (p.branch_mismatch && !m.ack);
-  run.textContent = todo > 0 ? `استورد ${todo} موظف${s.same ? ` (و${s.same} بدون تغيير)` : ""}` : "مفيش حاجة تتغيّر";
+  run.textContent = todo > 0
+    ? `${bi("استورد", "Import")} ${todo} ${bi("موظف", "employees")}${s.same ? bi(` (و${s.same} بدون تغيير)`, ` (${s.same} unchanged)`) : ""} ${bi("في", "into")} ${weekLabel(m.week)}`
+    : (m.isNew ? bi("الأسبوع جاهز — مفيش تغييرات", "Week ready — no changes") : bi("مفيش حاجة تتغيّر", "Nothing to change"));
 }
 async function simpLoad(file) {
   const m = S.simp;
@@ -2110,19 +2299,38 @@ async function simpLoad(file) {
   if (file.size > 4_000_000) { toast("الملف كبير جدًا", "err"); return; }
   const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1] || ""); r.onerror = rej; r.readAsDataURL(file); });
   Object.assign(m, { b64, name: file.name, plan: null, decisions: {}, filter: "", deact: false, ack: false });
-  $("schImpName").textContent = file.name; $("schImpBody").innerHTML = '<p class="muted">جاري القراءة…</p>'; $("schImpRun").disabled = true;
-  try { m.plan = await simpRun(false); simpRender(); }
-  catch (e) { $("schImpBody").innerHTML = `<div class="empty"><b>${esc(e.message)}</b></div>`; }
+  $("schImpName").textContent = file.name;
+  await simpPreview();
 }
-on("schImport", "click", () => {
+on("schImport", "click", async () => {
   if (S.sch.draft.size && !confirm("عندك تغييرات لم تُحفظ في الجدول، والاستيراد هيتجاهلها. تكمّل؟")) return;
-  Object.assign(S.simp, { b64: "", name: "", plan: null, decisions: {}, filter: "", deact: false, ack: false });
+  Object.assign(S.simp, { b64: "", name: "", plan: null, decisions: {}, filter: "", deact: false, ack: false,
+                          week: S.week, isNew: false });
   $("schImpName").textContent = ""; $("schImpFile").value = ""; $("schImpMismatch").classList.add("hidden");
-  $("schImpBody").innerHTML = `<div class="empty"><b>اختار ملف الشيت</b>الأعمدة المتوقعة: FULL TIME / SHIFT / BREAK / DAY OFF ثم PART TIME / SHIFT / DAY OFF. الاستيراد هيكون على فرع <b>${esc(S.sch.branch)}</b>.</div>`;
+  $("schImpBody").innerHTML = `<div class="empty"><b>اختار ملف الشيت</b>الأعمدة المتوقعة: FULL TIME / SHIFT / BREAK / DAY OFF ثم PART TIME / SHIFT / DAY OFF. الاستيراد هيكون على فرع <b>${esc(S.sch.branch)}</b> — والأسبوع اللي تختاره فوق.</div>`;
   $("schImpRun").disabled = true; $("schImpRun").textContent = "استيراد";
+  simpWeeksRender();
   $("schImpDialog").showModal();
+  await simpWeeksLoad();
+  simpWeeksRender();
 });
 on("schImpFile", "change", e => { const f = e.target.files[0]; if (f) simpLoad(f); });
+on("schImpWeek", "change", e => {
+  const v = e.target.value;
+  if (v === "__new__") {
+    // أول أسبوع جديد مقترح = الأسبوع اللي بعد آخر أسبوع موجود
+    const starts = (S.simp.weeks || []).map(w => w.start).sort();
+    const next = addDays(starts.length ? starts[starts.length - 1] : S.week, 7);
+    simpPickWeek(next, true);
+  } else {
+    simpPickWeek(v, false);
+  }
+});
+on("schImpWeekDate", "change", e => {
+  if (!e.target.value) return;
+  const ws = weekStartOf(e.target.value);
+  simpPickWeek(ws, !simpWeekExists(ws));
+});
 on("schImpClose", "click", () => $("schImpDialog").close());
 on("schImpCancel", "click", () => $("schImpDialog").close());
 on("schImpBody", "click", e => { const b = e.target.closest("[data-f]"); if (b) { S.simp.filter = b.dataset.f; simpRender(); } });
@@ -2137,11 +2345,16 @@ on("schImpBody", "change", async e => {
 on("schImpMismatch", "change", e => { if (e.target.id === "simpAck") { S.simp.ack = e.target.checked; simpRender(); } });
 on("schImpRun", "click", async () => {
   const m = S.simp, btn = $("schImpRun"); btn.disabled = true; btn.textContent = "جاري الاستيراد…";
+  const wasNew = !!m.isNew;
   try {
     const r = await simpRun(true), a = r.applied;
+    const target = (r.week && r.week.start) || m.week;
     $("schImpDialog").close();
-    toast(`تم الاستيراد: ${a.created} جديد، ${a.updated} تعديل${a.same ? "، " + a.same + " بدون تغيير" : ""}${a.deactivated ? "، " + a.deactivated + " موقوف" : ""} — اتأكدت من ${a.verified} موظف`);
-    await refreshEmployees(); S.sch.draft.clear(); await loadSchedule();
+    const sep = bi("، ", ", ");
+    toast(`${bi("تم الاستيراد على", "Imported into")} ${r.week ? r.week.label : weekLabel(target)}${wasNew ? bi(" (أسبوع جديد)", " (new week)") : ""}: ${a.created} ${bi("جديد", "new")}${sep}${a.updated} ${bi("تعديل", "updated")}${a.same ? sep + a.same + " " + bi("بدون تغيير", "unchanged") : ""}${a.deactivated ? sep + a.deactivated + " " + bi("موقوف", "suspended") : ""} — ${bi("اتأكدت من", "verified")} ${a.verified} ${bi("موظف", "employees")}`);
+    await refreshEmployees(); S.sch.draft.clear();
+    if (target && target !== S.week) setWeek(target);   // نفتح الأسبوع اللي استوردنا فيه
+    else await loadSchedule();
   } catch (e) { toast(e.message, "err"); simpRender(); }
 });
 on("schExport", "click", () => download(`/api/schedule/export.csv?branch=${encodeURIComponent(S.sch.branch)}&${wq()}`, `bankai_schedule_${weekLabel(S.week).replace(" ", "")}_${S.sch.branch.replace(" ", "")}.csv`).catch(e => toast(e.message, "err")));

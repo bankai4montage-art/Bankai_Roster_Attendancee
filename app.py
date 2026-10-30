@@ -1987,6 +1987,21 @@ def _check_branch(branch):
         raise HTTPException(400, "الفرع يجب أن يكون QCD 1 أو QCD 2")
 
 
+@app.get("/api/schedule/weeks")
+def schedule_weeks(_: bool = Depends(require_auth), db: Session = Depends(get_db)):
+    """كل الأسابيع اللي ليها جدول + أسبوع النهارده — اللي المستخدم بيختار منهم
+    الأسبوع اللي هيتطبّق عليه الشيت وقت الاستيراد."""
+    rows = db.execute(select(WeekSchedule.week_start, func.count(WeekSchedule.id))
+                      .group_by(WeekSchedule.week_start)
+                      .order_by(WeekSchedule.week_start)).all()
+    weeks = []
+    for ws, cnt in rows:
+        info = week_info(ws)
+        info["employees"] = int(cnt or 0)
+        weeks.append(info)
+    return {"weeks": weeks, "today": week_info(week_param(None))}
+
+
 @app.get("/api/schedule")
 def get_schedule(branch: str, week: Optional[date] = None, _: bool = Depends(require_auth),
                  db: Session = Depends(get_db)):
@@ -2783,13 +2798,14 @@ def schedule_import(data: ScheduleImportIn, request: Request, role: str = Depend
     if len(rows) > 3000:
         raise HTTPException(400, "عدد الصفوف كبير جدًا")
     ws = week_param(data.week)
+    was_new_week = not peek_week(db, ws)   # الأسبوع ده لسه مفتوحش قبل كده؟
     plan = plan_schedule_import(db, data.branch, rows, data.decisions, data.deactivate_missing, ws)
     hint = None
     m = re.search(r"qcd\s*[-_]?\s*([12])", f"{data.filename} {' '.join(sheets)}", re.I)
     if m:
         hint = f"QCD {m.group(1)}"
     plan.update({"branch": data.branch, "week": week_info(ws), "sheets": sheets, "notes": notes, "branch_hint": hint,
-                 "branch_mismatch": bool(hint and hint != data.branch)})
+                 "branch_mismatch": bool(hint and hint != data.branch), "week_created": was_new_week})
     if not data.apply:
         return plan
     # ---------- apply (كله في transaction واحدة)
