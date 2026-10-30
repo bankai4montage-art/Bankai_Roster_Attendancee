@@ -295,6 +295,8 @@ Object.assign(I18N.en, {
   // غرامة يدوية (من غير حضور)
   "تسجيل غرامة": "Add fine", "يدوية": "Manual", "غرامات يدوية": "Manual fines",
   "تسجيل غرامة (من غير حضور)": "Add a fine (no attendance needed)",
+  "المبلغ (ج) *": "Amount (EGP) *", "تاريخ الغرامة *": "Fine date *",
+  "سبب الغرامة *": "Fine reason *", "ملاحظة (اختياري)": "Note (optional)",
   "تاريخ الغرامة": "Fine date", "سبب الغرامة": "Fine reason", "حفظ الغرامة": "Save fine",
   "تفاصيل إضافية": "Extra details", "اختياري": "optional", "(ج)": "(EGP)",
   "كل الغرامات": "All fines", "يدوية بس": "Manual only",
@@ -444,11 +446,22 @@ function applyLang() {
   document.querySelectorAll("[data-i18n]").forEach(el => {
     const key = el.getAttribute("data-i18n");
     if (dict[key]) el.textContent = dict[key];
+    // في وضع العربية: قيمة data-i18n هي النص العربي الأصلي. لو المفتاح مش في
+    // قاموس AR (زي النصوص الديناميكية) نرجّعه كده، وإلا النص الإنجليزي هيفضل
+    // متعلّق في الصفحة بعد الرجوع للعربي.
+    else if (isAr) el.textContent = key;
   });
   // الـ placeholders
   document.querySelectorAll("[data-i18n-placeholder]").forEach(el => {
     const key = el.getAttribute("data-i18n-placeholder");
     if (dict[key]) el.placeholder = dict[key];
+    else if (isAr) el.placeholder = key;
+  });
+  // placeholders من غير data-i18n: رجّعها لو كانت اتحوّلت لإنجليزي
+  document.querySelectorAll("[placeholder]").forEach(el => {
+    if (el.hasAttribute("data-i18n-placeholder")) return;
+    const v = el.getAttribute("placeholder");
+    if (v && fb[v]) el.setAttribute("placeholder", fb[v]);
   });
   // الـ titles
   document.querySelectorAll("[data-i18n-title]").forEach(el => {
@@ -468,6 +481,17 @@ function applyLang() {
       // ورقة بس: العنصر اللي جواه input/button/أيقونة نلمّوش نصه
       if (!el.children.length && !el.querySelector("svg, i, .i, .av")) {
         el.textContent = fb[txt];
+      } else {
+        // عنصر فيه أيقونة (زي «تصدير CSV»): نرجّع النص اللي جواه بس ونسيب الأيقونة
+        // زي ما هي — من غير ما نمسس الأيقونة ولا نكسر التنسيق.
+        const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+        let n;
+        while ((n = w.nextNode())) {
+          const owner = n.parentNode;
+          if (owner && owner.hasAttribute && owner.hasAttribute("data-i18n")) continue;
+          const t = n.nodeValue.trim();
+          if (t && fb[t]) n.nodeValue = n.nodeValue.replace(t, fb[t]);
+        }
       }
     }
   });
@@ -1412,8 +1436,9 @@ async function openFineDialog(id) {
   $("mfEmpId").value = e.id;
   $("mfError").textContent = "";
   $("mfDate").value = (S.page === "attendance" ? S.att.date : todayISO());
-  $("mfTitle").textContent = S.lang === "en" ? "Add fine" : "تسجيل غرامة";
-  $("mfSub").textContent = `${e.name} · ${e.branch} · ${e.employee_code || "بدون كود"}`;
+  $("mfTitle").textContent = (S.lang === "en" ? I18N.en : I18N.ar)["تسجيل غرامة"] || "تسجيل غرامة";
+  const noCode = S.lang === "en" ? (I18N.en["بدون كود"] || "No code") : "بدون كود";
+  $("mfSub").textContent = `${e.name} · ${e.branch} · ${e.employee_code || noCode}`;
   $("fineDialog").showModal();
   $("mfAmount").focus();
   await loadManualFines(e.id);
