@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlalchemy import (create_engine, Column, Integer, String, Boolean, Date, DateTime, Float,
-                        ForeignKey, UniqueConstraint, func, case, or_, inspect, text,
+                        ForeignKey, UniqueConstraint, Index, func, case, or_, inspect, text,
                         bindparam, select)
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship
@@ -33,6 +33,12 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./bankai.db")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "ChangeThisPassword123!")
 # كلمة مرور المشرفين: مشاهدة كل حاجة + تعديل الحضور اليومي فقط. فاضية = الخاصية مقفولة.
 SUPERVISOR_PASSWORD = os.getenv("SUPERVISOR_PASSWORD", "")
+# مشرف لكل فرع (اختياري): "QCD 1=باسورد;QCD 2=باسورد".
+# لما يتحدد، المشرف المسجّل بكلمة مرور فرع يقدر يوافق/يرفض طلبات حضور DAS
+# التابعة **لفرعه فقط** — والمشرف العام (بلا فرع) يفضل مشاهدة من غير قرارات.
+# التعريف الفعلي بعد norm_branch — هو baseline SUPERVISOR_BRANCH_PASSWORDS.
+BRANCH_SUPERVISOR_PASSWORDS_RAW = os.getenv("SUPERVISOR_BRANCH_PASSWORDS", "")
+BRANCH_SUPERVISOR_PASSWORDS = {}  # بيتعبّى بعد تعريف norm_branch
 # المفتاح السري لتوقيع جلسات الدخول. لو مش متحدد بيتولد من كلمة المرور فتفضل الجلسات شغالة بعد إعادة التشغيل.
 SECRET_KEY = (os.getenv("SECRET_KEY") or os.getenv("ADMIN_TOKEN")
               or hashlib.sha256(("bankai|" + ADMIN_PASSWORD).encode()).hexdigest())
@@ -90,6 +96,7 @@ class Attendance(Base):
     fine = Column(Float, nullable=False, default=0)
     reason = Column(String(500), nullable=True, default="")
     note = Column(String(500), nullable=True, default="")
+    recorded_by = Column(String(60), nullable=True, default="")  # مين كتب تسجيل الحضور (الأدمن/المشرف/DAS)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
     employee = relationship("Employee")
     __table_args__ = (UniqueConstraint("employee_id", "attendance_date", name="uq_employee_attendance_day"),)
@@ -108,6 +115,7 @@ class Fine(Base):
     amount = Column(Float, nullable=False, default=0)
     reason = Column(String(500), nullable=True, default="")
     note = Column(String(500), nullable=True, default="")
+    created_by = Column(String(60), nullable=True, default="")   # مين سجّل الغرامة (الأدمن/المشرف)
     created_at = Column(DateTime, default=utcnow)
     employee = relationship("Employee")
 
@@ -147,6 +155,8 @@ Base.metadata.create_all(bind=engine)
 def ensure_columns():
     """ترقية خفيفة لقاعدة البيانات القديمة: إضافة الأعمدة الجديدة لو ناقصة (بدون مسح أي بيانات)."""
     cols = {c["name"] for c in inspect(engine).get_columns("employees")}
+    att_cols = {c["name"] for c in inspect(engine).get_columns("attendance")}
+    fine_cols = {c["name"] for c in inspect(engine).get_columns("fines")}
     with engine.begin() as conn:
         if "phone" not in cols:
             conn.execute(text("ALTER TABLE employees ADD COLUMN phone VARCHAR(30)"))
@@ -157,6 +167,11 @@ def ensure_columns():
         if "off_locked" not in cols:
             false = "0" if DATABASE_URL.startswith("sqlite") else "FALSE"
             conn.execute(text(f"ALTER TABLE employees ADD COLUMN off_locked BOOLEAN NOT NULL DEFAULT {false}"))
+        # مين سجّل/قرّر — للأدمن والمشرفين وDAS
+        if "recorded_by" not in att_cols:
+            conn.execute(text("ALTER TABLE attendance ADD COLUMN recorded_by VARCHAR(60)"))
+        if "created_by" not in fine_cols:
+            conn.execute(text("ALTER TABLE fines ADD COLUMN created_by VARCHAR(60)"))
 
 
 ensure_columns()
@@ -176,11 +191,11 @@ def migrate_manual_fines():
             if (conn.execute(text("SELECT COUNT(*) FROM fines")).scalar() or 0) > 0:
                 return
             conn.execute(text(
-                "INSERT INTO fines (employee_id, fine_date, amount, reason, note, created_at) "
+                "INSERT INTO fines (employee_id, fine_date, amount, reason, note, created_by, created_at) "
                 "SELECT employee_id, fine_date, amount, reason, "
                 "CASE WHEN note IS NULL OR note = '' AND created_by IS NOT NULL AND created_by <> '' "
                 "     THEN 'سجّلها: ' || created_by ELSE note END, "
-                "COALESCE(created_at, CURRENT_TIMESTAMP) "
+                "created_by, COALESCE(created_at, CURRENT_TIMESTAMP) "
                 "FROM manual_fines"))
     except Exception:
         pass      # الترحيل مش شرط ناجح — لو فشل التطبيق يفضل شغّال بالجدول الجديد زي ما هو
@@ -381,11 +396,24 @@ def make_token(role: str) -> str:
 
 
 def token_role(token: str) -> Optional[str]:
-    """يرجع الدور (admin/supervisor) لو التوكن سليم، وإلا None. التوكنات القديمة (بدون دور) بتبقى غير صالحة."""
+    """يرجع الدور لو التوكن سليم، وإلا None.
+
+    الأدوار:_admin / supervisor (مشرف عام) / supervisor:فرع (كلمة مرور فرع) /
+    supervisor:الاسم:فرع (حساب مشرف بالاسم). التوكنات القديمة بتبقى غير صالحة."""
     try:
         role, exp, sig = token.split(".", 2)
-        if role not in ("admin", "supervisor"):
+        if not (role == "admin" or role == "supervisor" or role.startswith("supervisor:")):
             return None
+        if role.startswith("supervisor:"):
+            parts = role.split(":")
+            if len(parts) == 2:
+                if parts[1] not in BRANCHES:
+                    return None
+            elif len(parts) == 3:
+                if parts[2] not in BRANCHES or len(parts[1]) > 60 or not parts[1]:
+                    return None
+            else:
+                return None
         return role if (hmac.compare_digest(sig, _sign(role + "|" + exp)) and int(exp) > time.time()) else None
     except Exception:
         return None
@@ -537,6 +565,7 @@ def attendance_dict(a):
         "id": a.id, "employee_id": a.employee_id,
         "attendance_date": a.attendance_date.isoformat(), "status": a.status,
         "fine": a.fine, "reason": a.reason or "", "note": a.note or "",
+        "recorded_by": a.recorded_by or "",
         "updated_at": a.updated_at.isoformat() if a.updated_at else ""
     }
 
@@ -565,6 +594,81 @@ _AR_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
 def norm_branch(v):
     s = str(v or "").translate(_AR_DIGITS).strip().lower().replace(" ", "")
     return {"qcd1": "QCD 1", "1": "QCD 1", "qcd2": "QCD 2", "2": "QCD 2"}.get(s)
+
+
+def _parse_branch_supervisor_passwords():
+    """تفسير SUPERVISOR_BRANCH_PASSWORDS بصيغة "QCD 1=باس;QCD 2=باس" (بنفصل بالفاصلة أو ;)."""
+    out = {}
+    for part in re.split(r"[;,]+", BRANCH_SUPERVISOR_PASSWORDS_RAW or ""):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        b, pw = part.split("=", 1)
+        branch = norm_branch(b)
+        pw = pw.strip()
+        if branch and pw:
+            out[branch] = pw
+    return out
+
+
+BRANCH_SUPERVISOR_PASSWORDS = _parse_branch_supervisor_passwords()
+
+
+def _parse_supervisor_accounts():
+    """حسابات المشرفين بالاسم: "الاسم:الباسورد:الفرع" مفصولة بـ ; أو ,.
+
+    مثال: SUPERVISOR_ACCOUNTS=HAMED:pass1:QCD 2;Karim:pass2:QCD 2;Elsuid:pass3:QCD 1
+    كل حساب بيدي توكن مرتبط بالاسم وبالفرع — المشرف يشوف ويقرّر على فرعه فقط،
+    وكل حاجة يعملها (حضور/موافقة/غرامة) بتتسجل باسمه. الأسماء اللي فيها ":" أو "|" مش مسموحة."""
+    out = {}
+    for part in re.split(r"[;,]+", os.getenv("SUPERVISOR_ACCOUNTS", "")):
+        part = part.strip()
+        if not part:
+            continue
+        bits = part.split(":")
+        if len(bits) != 3:
+            continue
+        name, pw, br = (b.strip() for b in bits)
+        branch = norm_branch(br)
+        if not (name and pw and branch) or ":" in name or "|" in name:
+            continue
+        out[pw] = {"name": name, "branch": branch}
+    return out
+
+
+BRANCH_SUPERVISOR_ACCOUNTS = _parse_supervisor_accounts()
+
+
+def role_branch(role: str) -> Optional[str]:
+    """فرع المشرف لو الدور مقيّد بفرع، وإلا None (الأدمن والمشرف العام لأي حاجة)."""
+    if not role or not role.startswith("supervisor:"):
+        return None
+    parts = role.split(":")
+    if len(parts) == 2:
+        return parts[1] if parts[1] in BRANCHES else None
+    if len(parts) == 3:
+        return parts[2] if parts[2] in BRANCHES else None
+    return None
+
+
+def role_name(role: str) -> str:
+    """اسم المشرف لو الدور جاي من حساب مشرف بالاسم، وإلا نص فاضي."""
+    if role and role.startswith("supervisor:"):
+        parts = role.split(":")
+        if len(parts) == 3:
+            return parts[1]
+    return ""
+
+
+def supervisor_scope(role: str) -> Optional[str]:
+    """فرع المشرف الحالي لفلترة البيانات (None = مش مقيّد بفرع)."""
+    return role_branch(role)
+
+
+def _has_branch_supervisors() -> bool:
+    """هل في حسابات مشرفين مرتبطة بفروع (حسابات بالاسم أو كلمات مرور الفرع)."""
+    return bool(BRANCH_SUPERVISOR_ACCOUNTS or BRANCH_SUPERVISOR_PASSWORDS)
+
 
 
 def norm_type(v):
@@ -661,7 +765,17 @@ EVENTS = EventBus()
 
 
 def who_role(role: str) -> str:
-    return "أدمن" if role == "admin" else "مشرف"
+    """اسم/وصف حقيقي لصاحب العملية — بيظهر في القرارات والتسجيلات والغرامات."""
+    if role == "admin":
+        return "أدمن"
+    name, branch = role_name(role), role_branch(role)
+    if name and branch:
+        return f"مشرف {name} — {branch}"
+    if branch:
+        return f"مشرف {branch}"
+    return "مشرف"
+
+
 
 
 def client_tag(request: Request) -> str:
@@ -716,9 +830,22 @@ def login(data: LoginIn, request: Request):
         raise HTTPException(429, f"محاولات كثيرة خاطئة. حاول مرة أخرى بعد {minutes} دقيقة.")
     if secrets.compare_digest(data.password.encode(), ADMIN_PASSWORD.encode()):
         role = "admin"
-    elif SUPERVISOR_PASSWORD and secrets.compare_digest(data.password.encode(), SUPERVISOR_PASSWORD.encode()):
-        role = "supervisor"
     else:
+        role = None
+        # حسابات المشرفين بالاسم — توكن مرتبط بالاسم وبالفرع معًا
+        for pw, acc in BRANCH_SUPERVISOR_ACCOUNTS.items():
+            if secrets.compare_digest(data.password.encode(), pw.encode()):
+                role = f"supervisor:{acc['name']}:{acc['branch']}"
+                break
+        if role is None:
+            # مشرف مرتبط بفرع بدون اسم (الشكل القديم)
+            for branch, pw in BRANCH_SUPERVISOR_PASSWORDS.items():
+                if secrets.compare_digest(data.password.encode(), pw.encode()):
+                    role = f"supervisor:{branch}"
+                    break
+        if role is None and SUPERVISOR_PASSWORD and secrets.compare_digest(data.password.encode(), SUPERVISOR_PASSWORD.encode()):
+            role = "supervisor"
+    if role is None:
         fails += 1
         if fails >= MAX_FAILS:
             _login_state[ip] = [0, now + LOCK_SECONDS]
@@ -731,7 +858,8 @@ def login(data: LoginIn, request: Request):
 
 @app.get("/api/me")
 def me(role: str = Depends(require_auth)):
-    return {"app": APP_NAME, "authenticated": True, "role": role}
+    return {"app": APP_NAME, "authenticated": True, "role": role, "name": role_name(role),
+            "branch": role_branch(role) or ""}
 
 
 @app.get("/api/events")
@@ -768,11 +896,12 @@ def update_settings(data: SettingsIn, request: Request, role: str = Depends(requ
 # ---------------------------------------------------------------- employees
 @app.get("/api/employees")
 def list_employees(branch: Optional[str] = None, active_only: bool = False, week: Optional[date] = None,
-                   _: bool = Depends(require_auth), db: Session = Depends(get_db)):
-    """موظفين الأسبوع المختار (الشيفت والإجازة والبريك بتاعة الأسبوع ده)."""
+                   role: str = Depends(require_auth), db: Session = Depends(get_db)):
+    """موظفين الأسبوع المختار (الشيفت والإجازة والبريك بتاعة الأسبوع ده) — مشرف الفرع يشوف فرعه بس."""
     ws = week_param(week)
     smap = ensure_week(db, ws)
     q = db.query(Employee)
+    branch = supervisor_scope(role) or branch
     if branch in BRANCHES:
         q = q.filter(Employee.branch == branch)
     if active_only:
@@ -1024,10 +1153,13 @@ def import_employees(data: ImportIn, request: Request, week: Optional[date] = No
 
 
 @app.get("/api/employees/export.csv")
-def export_employees(week: Optional[date] = None, _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def export_employees(week: Optional[date] = None, role: str = Depends(require_auth), db: Session = Depends(get_db)):
     ws = week_param(week)
     smap = ensure_week(db, ws)
+    scope = supervisor_scope(role)
     rows = [(e, smap[e.id]) for e in db.query(Employee).all() if e.id in smap]
+    if scope:
+        rows = [(e, s) for e, s in rows if e.branch == scope]
     rows.sort(key=lambda p: (p[0].branch, p[1].shift, p[0].name))
     return csv_response(
         ["name", "employee_code", "branch", "shift", "employment_type", "day_off", "phone", "active"],
@@ -1039,9 +1171,10 @@ def export_employees(week: Optional[date] = None, _: bool = Depends(require_auth
 # ---------------------------------------------------------------- roster & attendance
 @app.get("/api/roster")
 def roster(attendance_date: date = Query(...), branch: Optional[str] = None,
-           _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+           role: str = Depends(require_auth), db: Session = Depends(get_db)):
     weekday = attendance_date.strftime("%A")
     ws = week_start_of(attendance_date)
+    branch = supervisor_scope(role) or branch
     pairs = week_pairs(db, ws, branch)
     working = sorted([(e, s) for e, s in pairs if s.day_off != weekday], key=lambda p: (p[0].branch, p[1].shift, p[0].name))
     off = [(e, s) for e, s in pairs if s.day_off == weekday]
@@ -1072,18 +1205,31 @@ def _parse_stamp(value: str) -> Optional[datetime]:
     return stamp.replace(tzinfo=None) if stamp.tzinfo else stamp
 
 
-def _save_items(db: Session, day: date, items: List[AttendanceItem], _retry: bool = False):
+def _save_items(db: Session, day: date, items: List[AttendanceItem], _retry: bool = False,
+                actor: str = "", scope_branch: Optional[str] = None):
     """حفظ/تعديل/مسح تسجيلات يوم واحد.
 
     كل صف بيتكتب بأعمدته الأربعة كاملة (status/fine/reason/note) في جملة UPDATE
     واحدة، ومعاها شرط على updated_at اللي السيرفر قراه — فلو حد تاني عدّل نفس الصف
     في اللحظة دي، التعديل القديم بيترفض بتعارض واضح بدل ما يخلط قيم من مصدرين.
     الجمل بتتنفّذ مجمّعة (executemany) عشان الحفظ الجماعي يبقى جملة واحدة مش جملة لكل موظف.
+    actor = مين كتب التسجيل (بيتسجّل في recorded_by) وscope_branch = فرع المشرف
+    المرتبط بفرع — الموظفين بره النطاق بيرجعوا خطأ بدل ما يتسجّل عليهم.
     """
     weekday = day.strftime("%A")
     wanted: Dict[int, AttendanceItem] = {}
     for it in items:                       # آخر تسجيل لنفس الموظف في الطلب هو اللي يمشي
         wanted[it.employee_id] = it
+    errors: List[dict] = []
+    if scope_branch:
+        # مشرف فرع: نفس اليوم بس لموظفي فرعه — الباقي خطأ صريح بدل ما يتسجّل غياب غلط
+        emps_pre = {e.id: e for e in db.query(Employee).filter(Employee.id.in_(list(wanted.keys()))).all()}
+        for eid, it in list(wanted.items()):
+            e = emps_pre.get(eid)
+            if e is not None and e.branch != scope_branch:
+                wanted.pop(eid, None)
+                errors.append({"employee_id": eid, "name": e.name,
+                               "detail": f"الموظف بتاع {e.branch} مش في نطاقك — فرعك {scope_branch}"})
     ids = list(wanted.keys())
     emps = {e.id: e for e in db.query(Employee).filter(Employee.id.in_(ids)).all()}
     smap = ensure_week(db, week_start_of(day))
@@ -1093,7 +1239,7 @@ def _save_items(db: Session, day: date, items: List[AttendanceItem], _retry: boo
     row_ids = {r.employee_id: r.id for r in rows}
     stamps = {r.employee_id: r.updated_at for r in rows}
     saved = cleared = 0
-    errors, touched, names = [], [], []
+    touched, names = [], []
     inserts: Dict[int, dict] = {}
     updates: Dict[int, dict] = {}
     updates_no_stamp: Dict[int, dict] = {}
@@ -1134,7 +1280,8 @@ def _save_items(db: Session, day: date, items: List[AttendanceItem], _retry: boo
                 touched.pop()
                 continue
             values = {"row_id": row_id, "employee_id": eid, "status": status, "fine": fine,
-                      "reason": reason, "note": note, "updated_at": utcnow(), "name": e.name}
+                      "reason": reason, "note": note, "recorded_by": actor,
+                      "updated_at": utcnow(), "name": e.name}
             if current is None:            # سجل قديم من غير stamp: بنكتبه من غير شرط
                 updates_no_stamp[eid] = values
             else:
@@ -1144,7 +1291,8 @@ def _save_items(db: Session, day: date, items: List[AttendanceItem], _retry: boo
                 updates[eid] = values
         else:
             inserts[eid] = {"employee_id": eid, "attendance_date": day, "status": status,
-                            "fine": fine, "reason": reason, "note": note, "updated_at": utcnow()}
+                            "fine": fine, "reason": reason, "note": note, "recorded_by": actor,
+                            "updated_at": utcnow()}
         saved += 1
         names.append(e.name)
 
@@ -1163,6 +1311,7 @@ def _save_items(db: Session, day: date, items: List[AttendanceItem], _retry: boo
                 stmt = stmt.where(tbl.c.updated_at == bindparam("expected"))
             stmt = stmt.values(status=bindparam("status"), fine=bindparam("fine"),
                                reason=bindparam("reason"), note=bindparam("note"),
+                               recorded_by=bindparam("recorded_by"),
                                updated_at=bindparam("updated_at"))
             batch = list(batch.values())
             args = [{k: v for k, v in values.items() if k in _PARAM_KEYS} for values in batch]
@@ -1188,7 +1337,7 @@ def _save_items(db: Session, day: date, items: List[AttendanceItem], _retry: boo
             raise
         # حالة نادرة: نفس السجل اتحفظ من مكان تاني في نفس اللحظة. بنعيد المحاولة مرة
         # واحدة — المرة دي الصف بقى موجود فبيمشي في مسار التحديث بدل الإضافة.
-        return _save_items(db, day, list(wanted.values()), _retry=True)
+        return _save_items(db, day, list(wanted.values()), _retry=True, actor=actor, scope_branch=scope_branch)
 
     # بنقرا التسجيلات المتأثرة مرة واحدة بعد الحفظ عشان نبني الرد
     records = {eid: None for eid in touched}
@@ -1196,12 +1345,11 @@ def _save_items(db: Session, day: date, items: List[AttendanceItem], _retry: boo
         for r in db.execute(
                 select(Attendance.id, Attendance.employee_id, Attendance.attendance_date,
                        Attendance.status, Attendance.fine, Attendance.reason,
-                       Attendance.note, Attendance.updated_at).where(
+                       Attendance.note, Attendance.recorded_by, Attendance.updated_at).where(
                     Attendance.attendance_date == day, Attendance.employee_id.in_(touched))).all():
             records[r.employee_id] = attendance_dict(r)
     return {"saved": saved, "cleared": cleared, "errors": errors, "records": records,
             "names": names[:4], "ids": touched}
-
 
 @app.post("/api/attendance")
 def save_attendance(data: AttendanceIn, request: Request, role: str = Depends(require_auth),
@@ -1211,7 +1359,8 @@ def save_attendance(data: AttendanceIn, request: Request, role: str = Depends(re
     item = AttendanceItem(employee_id=data.employee_id, status=data.status, fine=data.fine,
                           reason=data.reason, note=data.note,
                           expected_updated_at=data.expected_updated_at)
-    res = _save_items(db, data.attendance_date, [item])
+    res = _save_items(db, data.attendance_date, [item], actor=who_role(role),
+                      scope_branch=supervisor_scope(role))
     if res["errors"]:
         first = res["errors"][0]
         code = 409 if first.get("conflict") else (404 if first["detail"] == "الموظف غير موجود" else 400)
@@ -1229,7 +1378,8 @@ def save_attendance_bulk(data: AttendanceBulkIn, request: Request, role: str = D
         raise HTTPException(400, "لا توجد تغييرات للحفظ")
     if len(data.items) > 2000:
         raise HTTPException(400, "عدد التسجيلات كبير جدًا في طلب واحد")
-    res = _save_items(db, data.attendance_date, data.items)
+    res = _save_items(db, data.attendance_date, data.items, actor=who_role(role),
+                      scope_branch=supervisor_scope(role))
     if res["saved"] or res["cleared"]:
         publish_event("attendance", date=data.attendance_date.isoformat(), ids=res["ids"],
                       names=res["names"], count=res["saved"] + res["cleared"],
@@ -1240,19 +1390,21 @@ def save_attendance_bulk(data: AttendanceBulkIn, request: Request, role: str = D
 
 # ---------------------------------------------------------------- dashboard
 @app.get("/api/dashboard")
-def dashboard(attendance_date: date = Query(...), _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def dashboard(attendance_date: date = Query(...), role: str = Depends(require_auth), db: Session = Depends(get_db)):
     weekday = attendance_date.strftime("%A")
     ws = week_start_of(attendance_date)
-    pairs = week_pairs(db, ws)
+    scope = supervisor_scope(role)
+    pairs = week_pairs(db, ws, scope)
     smap = {e.id: s for e, s in pairs}
     active = [e for e, _ in pairs]
-    att = {a.employee_id: a for a in db.query(Attendance).filter(Attendance.attendance_date == attendance_date).all()}
+    emp_rows = {a.employee_id: a for a in db.query(Attendance).filter(Attendance.attendance_date == attendance_date).all()}
+    att = {eid: a for eid, a in emp_rows.items() if eid in smap}
 
     def blank():
         return {"scheduled": 0, "present": 0, "late": 0, "absent": 0, "excused": 0, "unmarked": 0, "fines": 0.0}
 
     totals = blank()
-    branches = {b: dict(blank(), shifts={}) for b in BRANCHES}
+    branches = {b: dict(blank(), shifts={}) for b in ([scope] if scope else BRANCHES)}
     off_today = 0
     for e, s in pairs:
         if s.day_off == weekday:
@@ -1274,11 +1426,12 @@ def dashboard(attendance_date: date = Query(...), _: bool = Depends(require_auth
         b["fines"] = round(b["fines"], 2)
         b["shifts"] = [dict(shift=k, **dict(v, fines=round(v["fines"], 2))) for k, v in sorted(b["shifts"].items())]
 
-    # الاتجاه والمتابعة بيتحسبوا على الأسبوع ده بس (من الأحد للسبت)
+    # الاتجاه والمتابعة بيتحسبوا على الأسبوع ده بس (من الأحد للسبت) — وبنطاق الفرع لو مشرف فرع
     we = ws + timedelta(days=6)
+    scoped = [Employee.branch == scope] if scope else []
     trend_rows = (db.query(Attendance.attendance_date, Attendance.status, func.count(Attendance.id))
                   .select_from(Attendance).join(Employee, Attendance.employee_id == Employee.id)
-                  .filter(Employee.active.is_(True), Attendance.attendance_date >= ws,
+                  .filter(Employee.active.is_(True), *scoped, Attendance.attendance_date >= ws,
                           Attendance.attendance_date <= we)
                   .group_by(Attendance.attendance_date, Attendance.status).all())
     trend_map = {}
@@ -1296,7 +1449,7 @@ def dashboard(attendance_date: date = Query(...), _: bool = Depends(require_auth
                        func.sum(case((Attendance.status == "Late", 1), else_=0)).label("late"),
                        func.coalesce(func.sum(Attendance.fine), 0).label("fines"))
               .select_from(Attendance).join(Employee, Attendance.employee_id == Employee.id)
-              .filter(Employee.active.is_(True), Attendance.attendance_date >= ws,
+              .filter(Employee.active.is_(True), *scoped, Attendance.attendance_date >= ws,
                       Attendance.attendance_date <= we)
               .group_by(Employee.id, Employee.name, Employee.branch).all())
     watch = []
@@ -1308,11 +1461,15 @@ def dashboard(attendance_date: date = Query(...), _: bool = Depends(require_auth
                           "absent": absent, "late": late, "fines": round(float(r.fines or 0), 2)})
     watch.sort(key=lambda x: (x["absent"] * 2 + x["late"], x["fines"]), reverse=True)
 
-    wf = db.query(func.coalesce(func.sum(Attendance.fine), 0)).filter(
-        Attendance.attendance_date >= ws, Attendance.attendance_date <= we).scalar()
+    wf = db.query(func.coalesce(func.sum(Attendance.fine), 0)).select_from(Attendance).join(
+        Employee, Attendance.employee_id == Employee.id).filter(
+        *scoped, Attendance.attendance_date >= ws, Attendance.attendance_date <= we).scalar()
     # الغرامات الإدارية المستقلة في نفس الأسبوع (مش مرتبطة بيوم حضور)
-    mf = db.query(func.coalesce(func.sum(Fine.amount), 0)).filter(
-        Fine.fine_date >= ws, Fine.fine_date <= we).scalar()
+    mf_q = db.query(func.coalesce(func.sum(Fine.amount), 0)).filter(
+        Fine.fine_date >= ws, Fine.fine_date <= we)
+    if scope:
+        mf_q = mf_q.join(Employee, Fine.employee_id == Employee.id).filter(Employee.branch == scope)
+    mf = mf_q.scalar()
     return {"date": attendance_date.isoformat(), "weekday": weekday, "week": week_info(ws),
             "week_fines": round(float(wf or 0) + float(mf or 0), 2),
             "week_attendance_fines": round(float(wf or 0), 2),
@@ -1396,8 +1553,9 @@ def _check_range(start, end):
 
 @app.get("/api/reports/summary")
 def report_summary(start: date, end: date, branch: Optional[str] = None,
-                   _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+                   role: str = Depends(require_auth), db: Session = Depends(get_db)):
     _check_range(start, end)
+    branch = supervisor_scope(role) or branch
     by_branch = {}
     for r in _range_query(db, [Employee.branch.label("branch")] + _count_cols(), start, end, branch).group_by(Employee.branch).all():
         by_branch[r.branch] = _counts(r)
@@ -1432,8 +1590,9 @@ def report_summary(start: date, end: date, branch: Optional[str] = None,
 
 @app.get("/api/reports/employees")
 def report_employees(start: date, end: date, branch: Optional[str] = None, q: Optional[str] = None,
-                     _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+                     role: str = Depends(require_auth), db: Session = Depends(get_db)):
     _check_range(start, end)
+    branch = supervisor_scope(role) or branch
     cols = [Employee.id.label("id"), Employee.name.label("name"), Employee.employee_code.label("code"),
             Employee.branch.label("branch"), Employee.shift.label("shift"),
             Employee.employment_type.label("etype"), Employee.active.label("active")] + _count_cols()
@@ -1473,10 +1632,13 @@ def report_employees(start: date, end: date, branch: Optional[str] = None, q: Op
 
 @app.get("/api/reports/employee/{employee_id}")
 def employee_history(employee_id: int, start: Optional[date] = None, end: Optional[date] = None,
-                     _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+                     role: str = Depends(require_auth), db: Session = Depends(get_db)):
     e = db.query(Employee).filter(Employee.id == employee_id).first()
     if not e:
         raise HTTPException(404, "الموظف غير موجود")
+    scope = supervisor_scope(role)
+    if scope and e.branch != scope:
+        raise HTTPException(403, "بيانات الموظفين دي لفرع مش فرعك")
     end = end or utcnow().date()
     start = start or (end - timedelta(days=29))
     _check_range(start, end)
@@ -1503,6 +1665,7 @@ def employee_history(employee_id: int, start: Optional[date] = None, end: Option
             "id": f.id, "employee_id": f.employee_id,
             "attendance_date": f.fine_date.isoformat(), "status": FINE_STATUS,
             "fine": round(float(f.amount or 0), 2), "reason": f.reason or "", "note": f.note or "",
+            "created_by": f.created_by or "",
             "updated_at": f.created_at.isoformat() if f.created_at else "",
             "weekday": f.fine_date.strftime("%A"), "source": "standalone",
         })
@@ -1524,8 +1687,9 @@ def employee_history(employee_id: int, start: Optional[date] = None, end: Option
 
 @app.get("/api/reports/export.csv")
 def export_csv(start: date, end: date, branch: Optional[str] = None,
-               _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+               role: str = Depends(require_auth), db: Session = Depends(get_db)):
     _check_range(start, end)
+    branch = supervisor_scope(role) or branch
     q = db.query(Attendance, Employee).join(Employee, Attendance.employee_id == Employee.id).filter(
         Attendance.attendance_date >= start, Attendance.attendance_date <= end)
     if branch in BRANCHES:
@@ -1545,8 +1709,8 @@ def export_csv(start: date, end: date, branch: Optional[str] = None,
 
 @app.get("/api/reports/employees.csv")
 def export_employees_report(start: date, end: date, branch: Optional[str] = None, q: Optional[str] = None,
-                            _: bool = Depends(require_auth), db: Session = Depends(get_db)):
-    data = report_employees(start, end, branch, q, True, db)
+                            role: str = Depends(require_auth), db: Session = Depends(get_db)):
+    data = report_employees(start, end, role_branch(role) or branch, q, role, db)
     return csv_response(
         ["Branch", "Employee Code", "Name", "Type", "Shift", "Records", "Present", "Late", "Absent", "Excused",
          "Attendance Rate %"],
@@ -1567,9 +1731,9 @@ class FineRow:
     المصدر بيتحدد من الحقل `source`: "attendance" أو "standalone"."""
 
     __slots__ = ("id", "employee_id", "attendance_date", "status", "fine", "reason", "note",
-                 "updated_at", "source")
+                 "updated_at", "source", "by")
 
-    def __init__(self, id, employee_id, day, status, fine, reason, note, updated_at, source):
+    def __init__(self, id, employee_id, day, status, fine, reason, note, updated_at, source, by=""):
         self.id = id
         self.employee_id = employee_id
         self.attendance_date = day
@@ -1579,16 +1743,17 @@ class FineRow:
         self.note = note or ""
         self.updated_at = updated_at
         self.source = source
+        self.by = by or ""
 
     @classmethod
     def from_attendance(cls, a):
         return cls(a.id, a.employee_id, a.attendance_date, a.status, float(a.fine or 0),
-                   a.reason, a.note, a.updated_at, "attendance")
+                   a.reason, a.note, a.updated_at, "attendance", a.recorded_by or "")
 
     @classmethod
     def from_fine(cls, f):
         return cls(f.id, f.employee_id, f.fine_date, FINE_STATUS, float(f.amount or 0),
-                   f.reason, f.note, f.created_at, "standalone")
+                   f.reason, f.note, f.created_at, "standalone", f.created_by or "")
 
 
 def _fine_kind(status: str) -> str:
@@ -1710,6 +1875,7 @@ def _fines_payload(rows, branch_rows=None, look=None):
             "week": wk["number"], "week_start": wstart.isoformat(),
             "date": a.attendance_date.isoformat(), "weekday": a.attendance_date.strftime("%A"),
             "status": a.status, "fine": fine, "reason": a.reason or "", "note": a.note or "",
+            "by": a.by,
             "updated_at": a.updated_at.isoformat() if a.updated_at else "",
             "source": a.source,
         })
@@ -1731,9 +1897,10 @@ def _fines_payload(rows, branch_rows=None, look=None):
 @app.get("/api/fines")
 def list_fines(start: Optional[date] = None, end: Optional[date] = None, branch: Optional[str] = None,
                status: Optional[str] = None, q: Optional[str] = None,
-               _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+               role: str = Depends(require_auth), db: Session = Depends(get_db)):
     """كل غرامات الفرعين (تأخير وغياب وغرامات إدارية) بكل تفاصيلها: الموظف والفرع والشيفت
-    والنوع واليوم والغرامة والسبب والملاحظة."""
+    والنوع واليوم والغرامة والسبب والملاحظة ومين سجّلها."""
+    branch = supervisor_scope(role) or branch
     if start and end and end < start:
         raise HTTPException(400, "تاريخ النهاية يجب ألا يسبق تاريخ البداية")
     # استعلام واحد بس، وفلتر الفرع بيتطبّق في الذاكرة: نفس النتيجة نفس ترتيب الصفوف،
@@ -1748,7 +1915,8 @@ def list_fines(start: Optional[date] = None, end: Optional[date] = None, branch:
 @app.get("/api/fines/export.csv")
 def export_fines(start: Optional[date] = None, end: Optional[date] = None, branch: Optional[str] = None,
                  status: Optional[str] = None, q: Optional[str] = None,
-                 _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+                 role: str = Depends(require_auth), db: Session = Depends(get_db)):
+    branch = supervisor_scope(role) or branch
     rows = _fines_rows(db, start, end, branch, status, q)
     look = WeekLookup(db)
     return csv_response(
@@ -1771,6 +1939,7 @@ def _fine_dict(f, e=None):
         "weekday": f.fine_date.strftime("%A"), "week_start": ws.isoformat(),
         "week": week_number(ws)[1], "status": FINE_STATUS,
         "fine": round(float(f.amount or 0), 2), "reason": f.reason or "", "note": f.note or "",
+        "created_by": f.created_by or "",
         "created_at": f.created_at.isoformat() if f.created_at else "", "source": "standalone",
     }
 
@@ -1778,8 +1947,9 @@ def _fine_dict(f, e=None):
 @app.get("/api/fines/manual")
 def list_manual_fines(employee_id: Optional[int] = None, start: Optional[date] = None,
                       end: Optional[date] = None, branch: Optional[str] = None,
-                      _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+                      role: str = Depends(require_auth), db: Session = Depends(get_db)):
     """الغرامات الإدارية المستقلة بس (من غير تأخير ولا غياب)."""
+    branch = supervisor_scope(role) or branch
     if start and end and end < start:
         raise HTTPException(400, "تاريخ النهاية يجب ألا يسبق تاريخ البداية")
     query = (db.query(Fine, Employee).join(Employee, Fine.employee_id == Employee.id)
@@ -1798,12 +1968,17 @@ def list_manual_fines(employee_id: Optional[int] = None, start: Optional[date] =
 
 
 @app.post("/api/fines/manual")
-def create_manual_fine(data: FineIn, request: Request, role: str = Depends(require_admin),
-                       db: Session = Depends(get_db)):
-    """تسجيل غرامة إدارية على مندوب في أي تاريخ — من غير تسجيل أي حالة حضور."""
+def create_manual_fine(data: FineIn, request: Request,
+                       role: str = Depends(require_auth), db: Session = Depends(get_db)):
+    """تسجيل غرامة إدارية على مندوب في أي تاريخ — من غير تسجيل أي حالة حضور.
+
+    المشرف المرتبط بفرع يسجّل غرامات موظفي فرعه بس، وكل غرامة بتتسجل باسم الساجل."""
     e = db.query(Employee).filter(Employee.id == data.employee_id).first()
     if not e:
         raise HTTPException(404, "الموظف غير موجود")
+    scope = supervisor_scope(role)
+    if scope and e.branch != scope:
+        raise HTTPException(403, f"الغرامات بتاعة {e.branch} مش في نطاقك — فرعك {scope}")
     amount = round(float(data.amount or 0), 2)
     if amount <= 0:
         raise HTTPException(400, "قيمة الغرامة لازم تكون أكبر من صفر")
@@ -1811,7 +1986,7 @@ def create_manual_fine(data: FineIn, request: Request, role: str = Depends(requi
     if not reason:
         raise HTTPException(400, "اكتب سبب الغرامة")
     f = Fine(employee_id=e.id, fine_date=data.fine_date, amount=amount,
-             reason=reason, note=(data.note or "").strip())
+             reason=reason, note=(data.note or "").strip(), created_by=who_role(role))
     db.add(f)
     db.commit()
     db.refresh(f)
@@ -1864,6 +2039,309 @@ def delete_manual_fine(fine_id: int, request: Request, role: str = Depends(requi
     publish_event("fines", action="delete", names=[name], by=who_role(role),
                   client=client_tag(request))
     return {"message": "تم مسح الغرامة الإدارية"}
+
+
+# ---------------------------------------------------------------- طلبات حضور DAS
+# المناديب بيسجّلوا حضور/انصراف من صفحة DAS، والطلب بيجي هنا Pending ومشرف الفرع
+# (أو الأدمن) يوافق عليه أو يرفضه. الروستر هو مصدر الحقيقة: الموافقة بتسجّل حضور
+# رسمي في جدول attendance بنفس قواعد النظام، والتقارير والحسابات ما بتتأثرش.
+#
+# الأمان بين النظامين: كل نداء من DAS لازم يوصل مع هيدر X-DAS-Secret بمفتاح
+# سر سيرفري (DAS_SECRET). المفتاح عمرو ما بيروح لبراوزير، والموظف بيتعرّف من
+# employee_code حصرًا (مش من الاسم لأن الاسم ممكن يتكرر أو يتغيّر)، والوقت
+# المسجّل هو وقت السيرفر نفسه مش وقت جهاز المندوب.
+DAS_SECRET = os.getenv("DAS_SECRET", "")
+DAS_ACTIONS = ("check_in", "check_out")
+DAS_STATUSES = ("Pending", "Approved", "Rejected")
+
+
+class DasRequest(Base):
+    __tablename__ = "das_requests"
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
+    action = Column(String(20), nullable=False)                       # check_in | check_out
+    attendance_date = Column(Date, nullable=False, index=True)        # يوم الشيفت المحسوب سيرفريًا
+    status = Column(String(20), nullable=False, default="Pending", index=True)
+    requested_at = Column(DateTime, nullable=False)                   # وقت استلام السيرفر (الحقيقة الموثّقة)
+    courier_local_at = Column(String(40), nullable=True, default="")  # وقت جهاز المندوب — للعرض فقط، مش موثّق
+    decided_by = Column(String(40), nullable=True, default="")
+    decided_at = Column(DateTime, nullable=True)
+    decision_note = Column(String(300), nullable=True, default="")
+    checkin_id = Column(Integer, nullable=True, index=True)           # طلب الحضور اللي الانصراف بيتبنى بعده
+    employee = relationship("Employee")
+
+
+# قيود يقينية (SQLite): مفيش أكتر من طلب Pending بنفس النوع لنفس الموظف في نفس يوم
+# الشيفت، ومفيش انصرافين مفتوحين (Pending/Approved) على نفس طلب الحضور.
+Index("uq_das_pending", DasRequest.employee_id, DasRequest.attendance_date, DasRequest.action,
+      unique=True, sqlite_where=text("status = 'Pending'"))
+Index("uq_das_open_checkout", DasRequest.checkin_id, unique=True,
+      sqlite_where=text("action = 'check_out' AND status IN ('Pending','Approved')"))
+
+# الجدول اتعرّف بعد create_all بتاع القاعدة — بنعمله إنشاء خاص بيه (idempotent)
+Base.metadata.create_all(bind=engine, tables=[DasRequest.__table__])
+
+
+class DasRequestIn(BaseModel):
+    action: str = Field(min_length=1, max_length=20)
+    employee_code: str = Field(min_length=1, max_length=60)
+    courier_name: str = Field(default="", max_length=120)
+    courier_local_at: str = Field(default="", max_length=40)
+
+
+class DasDecideIn(BaseModel):
+    decision: str = Field(min_length=1, max_length=20)   # approve | reject
+    note: str = Field(default="", max_length=300)
+
+
+def require_das_secret(request: Request):
+    """حماية واجهات الربط بين النظامين: سيرفر DAS بس اللي يعرف المفتاح."""
+    if not DAS_SECRET:
+        raise HTTPException(503, "ربط DAS غير مفعّل — حدّد المتغير DAS_SECRET على السيرفر")
+    given = request.headers.get("x-das-secret", "")
+    if not given or not secrets.compare_digest(given.encode(), DAS_SECRET.encode()):
+        raise HTTPException(403, "مفتاح ربط DAS غير صحيح")
+
+
+def cairo_dt(dt: datetime) -> datetime:
+    """توقيت القاهرة (UTC+3) — نفس منطق today_local() بتاع النظام."""
+    return dt + timedelta(hours=3)
+
+
+def das_shift_day(now: Optional[datetime] = None) -> date:
+    """يوم الشيفت بتاريخ القاهرة (اليوم اللي تسجيل الحضور هيرتبط به في الروستر)."""
+    return cairo_dt(now or utcnow()).date()
+
+
+def das_request_dict(r: DasRequest, e: Optional[Employee] = None) -> dict:
+    emp = e or r.employee
+    return {
+        "id": r.id, "action": r.action, "status": r.status,
+        "employee_id": r.employee_id,
+        "employee_name": emp.name if emp else "",
+        "employee_code": (emp.employee_code or "") if emp else "",
+        "branch": (emp.branch or "") if emp else "",
+        "shift": (emp.shift or "") if emp else "",
+        "attendance_date": r.attendance_date.isoformat(),
+        "requested_at": r.requested_at.isoformat() if r.requested_at else "",
+        "courier_local_at": r.courier_local_at or "",
+        "decided_by": r.decided_by or "",
+        "decided_at": r.decided_at.isoformat() if r.decided_at else "",
+        "decision_note": r.decision_note or "",
+        "checkin_id": r.checkin_id,
+    }
+
+
+def _das_owned_checkin(db: Session, e: Employee) -> Optional[DasRequest]:
+    """آخر موافقة حضور مفتوحة (مالهاش انصراف Pending/Approved بعدها)."""
+    checkins = (db.query(DasRequest)
+                .filter(DasRequest.employee_id == e.id, DasRequest.action == "check_in",
+                        DasRequest.status == "Approved")
+                .order_by(DasRequest.attendance_date.desc(), DasRequest.id.desc())
+                .limit(30).all())
+    for c in checkins:
+        open_co = (db.query(DasRequest)
+                   .filter(DasRequest.checkin_id == c.id, DasRequest.action == "check_out",
+                           DasRequest.status.in_(("Pending", "Approved"))).first())
+        if open_co is None:
+            return c
+    return None
+
+
+@app.post("/api/das/requests", dependencies=[Depends(require_das_secret)])
+def create_das_request(data: DasRequestIn, db: Session = Depends(get_db)):
+    """DAS بيبعت طلب حضور/انصراف جديد — بيتسجل Pending والمشرف يقرّر بعدها في داشبورد الروستر.
+
+    الموظف بيتعرّف من employee_code حصرًا (مش من الاسم)، ووقت الطلب بيتسجل من السيرفر.
+    يوم الشيفت بيتحدد من توقيت القاهرة: الحضور = اليوم، والانصراف بيرث يوم موافقته
+    الحضور — فالشيفت الليلي بعد منتصف الليل بيفضل على نفس يوم الحضور من غير لفّ."""
+    if data.action not in DAS_ACTIONS:
+        raise HTTPException(400, "نوع الطلب غير صحيح")
+    code = data.employee_code.strip()
+    e = db.query(Employee).filter(Employee.employee_code == code).first()
+    if not e:
+        raise HTTPException(404, "الكود مش مربوط بموظف في الروستر — من شاشة ربط الروستر في لوحة إدارة DAS اربط الكود")
+    if not e.active:
+        raise HTTPException(404, "الموظف غير نشط في الروستر")
+
+    now = utcnow()
+    if data.action == "check_in":
+        day = das_shift_day(now)
+        dup = (db.query(DasRequest)
+               .filter(DasRequest.employee_id == e.id, DasRequest.action == "check_in",
+                       DasRequest.attendance_date == day, DasRequest.status == "Pending").first())
+        if dup:
+            raise HTTPException(409, "طلب حضور اليوم قيد الموافقة بالفعل")
+        done = (db.query(DasRequest)
+                .filter(DasRequest.employee_id == e.id, DasRequest.action == "check_in",
+                        DasRequest.attendance_date == day, DasRequest.status == "Approved").first())
+        if done:
+            raise HTTPException(409, "حضورك اليوم مسجّل ومعتمد بالفعل — سجّل الانصراف")
+        pending_out = db.query(DasRequest).filter(
+            DasRequest.employee_id == e.id, DasRequest.action == "check_out",
+            DasRequest.status == "Pending").first()
+        if pending_out:
+            raise HTTPException(409, "في طلب انصراف لسه مستني موافقة — استنى قرار المشرف الأول")
+        row = DasRequest(employee_id=e.id, action="check_in", attendance_date=day,
+                         status="Pending", requested_at=now,
+                         courier_local_at=(data.courier_local_at or "")[:40])
+    else:
+        checkin = _das_owned_checkin(db, e)
+        if checkin is None:
+            raise HTTPException(409, "مفيش حضور معتمد ينفع تسجّل انصراف بعده — سجّل حضور الأول واستنى موافقة المشرف")
+        open_co = (db.query(DasRequest)
+                   .filter(DasRequest.checkin_id == checkin.id,
+                           DasRequest.action == "check_out",
+                           DasRequest.status.in_(("Pending", "Approved"))).first())
+        if open_co:
+            msg = "طلب الانصراف ده قيد الموافقة بالفعل" if open_co.status == "Pending" else "انصرافك مسجّل ومعتمد بالفعل"
+            raise HTTPException(409, msg)
+        row = DasRequest(employee_id=e.id, action="check_out", attendance_date=checkin.attendance_date,
+                         status="Pending", requested_at=now, checkin_id=checkin.id,
+                         courier_local_at=(data.courier_local_at or "")[:40])
+
+    db.add(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "طلب متكرر — فيه طلب شبه ده مفتوح في نفس اللحظة")
+    db.refresh(row)
+    publish_event("das_requests", action="create",
+                  names=[(data.courier_name or "").strip() or e.name], branch=e.branch, by="DAS", client="")
+    return das_request_dict(row, e)
+
+
+@app.get("/api/das/requests", dependencies=[Depends(require_das_secret)])
+def list_das_requests(employee_code: Optional[str] = None, updated_since: Optional[str] = None,
+                      limit: int = Query(200, ge=1, le=1000), db: Session = Depends(get_db)):
+    """مزامنة الحالة لجانب DAS: كل الطلبات لسه Pending أو اتغيّرت (إنشاء/قرار) من توقيت معيّن."""
+    q = db.query(DasRequest)
+    if employee_code:
+        emp = db.query(Employee).filter(Employee.employee_code == employee_code.strip()).first()
+        if emp is None:
+            return {"requests": []}
+        q = q.filter(DasRequest.employee_id == emp.id)
+    since = _parse_stamp(updated_since or "")
+    if since is not None:
+        q = q.filter(or_(DasRequest.status == "Pending",
+                         DasRequest.requested_at >= since,
+                         DasRequest.decided_at >= since))
+    rows = q.order_by(DasRequest.id.desc()).limit(limit).all()
+    return {"requests": [das_request_dict(r) for r in rows]}
+
+
+@app.get("/api/das/requests/inbox")
+def das_requests_inbox(status: Optional[str] = None, limit: int = Query(60, ge=1, le=200),
+                       role: str = Depends(require_auth), db: Session = Depends(get_db)):
+    """القائمة اللي بتظهر للمشرف/الأدمن في داشبورد الروستر (Pending الأول).
+
+    مشرف الفرع (supervisor:فرع) بيستلم طلبات فرعه فقط، والأدمن يشوف الفرعين."""
+    branch = None
+    if role == "supervisor" and not _has_branch_supervisors():
+        branch = None            # مشرف عام بدون حسابات فرع: يشوف كل حاجة (ويقرّر أيضًا)
+    else:
+        branch = role_branch(role)
+    q = db.query(DasRequest)
+    if branch:
+        q = q.join(Employee, DasRequest.employee_id == Employee.id).filter(Employee.branch == branch)
+    if status in DAS_STATUSES:
+        q = q.filter(DasRequest.status == status)
+    rows = q.order_by(DasRequest.id.desc()).limit(limit).all()
+    # Pending أعلى القايمة وبعده الأحدث أولًا
+    order = {"Pending": 0, "Approved": 1, "Rejected": 2}
+    rows = sorted(rows, key=lambda r: (order.get(r.status, 3), -r.id))
+    return {"requests": [das_request_dict(r) for r in rows],
+            "viewer": {"role": role, "branch": branch or "", "name": role_name(role),
+                       "can_decide": _das_decision_allowed(role, branch or "QCD 1")
+                       if role != "supervisor" else not _has_branch_supervisors()},
+            "branches": list(BRANCHES)}
+
+
+def _das_decision_allowed(role: str, req_branch: str) -> bool:
+    """مين يقدّر يوافق/يرفض على طلب فرع معيّن.
+
+    الأدمن لأي فرع. الحسابات المرتبطة بفرع (بالاسم أو بكلمة مرور الفرع) لفرعها
+    فقط. المشرف العام (بلا فرع) للقرارات بس لما مفيش حسابات فرع متحددة إطلاقًا."""
+    if role == "admin":
+        return True
+    branch = role_branch(role)
+    if branch:
+        return branch == req_branch
+    if role == "supervisor":
+        return not _has_branch_supervisors()
+    return False
+
+
+def record_das_attendance(db: Session, e: Employee, day: date, action: str, requested_at: datetime,
+                          actor: str = "DAS") -> Attendance:
+    """تسجيل رسمي للحضور في جدول attendance عند الموافقة — بقيد (موظف + يوم) الأساسي.
+
+    مفيش سجل لليوم: بنسجّل Present من غير غرامة (تصرف الموظف إنه وصل) والملاحظة
+    بتوثّق وقت الطلب الفعلي (وقت السيرفر بتوقيت القاهرة). السجل موجود: بنضيف وقت
+    الطلب في الملاحظة بس — حالة الحضور والغرامة اللي سجلها المشرف قبل كده مش
+    بتلمس، عشان تسجيل الانصراف ما يبقاش بيحتّم تغيير غرامة المشرف؛ يقدر يعدّل أو
+    يبرّر بعد كده طبيعي من صفحة الحضور."""
+    clock = cairo_dt(requested_at).strftime("%H:%M")
+    tag = "حضور DAS" if action == "check_in" else "انصراف DAS"
+    mark = f"{tag} {clock}"
+    row = db.query(Attendance).filter(Attendance.employee_id == e.id,
+                                      Attendance.attendance_date == day).first()
+    if row is None:
+        row = Attendance(employee_id=e.id, attendance_date=day, status="Present", fine=0,
+                         reason="", note=mark, recorded_by=actor, updated_at=utcnow())
+        db.add(row)
+        db.flush()
+        return row
+    row.recorded_by = actor
+    row.note = ((row.note or "") + ("\n" if row.note else "") + mark)[:500]
+    if not row.status:
+        row.status = "Present"
+        row.fine = 0
+        row.updated_at = utcnow()
+    return row
+
+
+@app.post("/api/das/requests/{req_id}/decide")
+def decide_das_request(req_id: int, data: DasDecideIn, request: Request,
+                       role: str = Depends(require_auth), db: Session = Depends(get_db)):
+    """الموافقة أو الرفض على طلب حضور/انصراف جاي من DAS.
+
+    الموافقة بتسجّل الحضور رسميًا في جدول attendance (وقت الطلب الموثّق بيتكتب في
+    الملاحظة مش وقت الموافقة)، والرفض بيتسجل بملاحظة اختيارية. القرار بيتسجل باسم
+    مين قرّر ووقتها، وبيمشي حدث مباشر يعيد رندر القايمة في كل التابات المتصلة."""
+    if data.decision not in ("approve", "reject"):
+        raise HTTPException(400, "نوع القرار غير صحيح")
+    row = db.query(DasRequest).filter(DasRequest.id == req_id, DasRequest.status == "Pending").first()
+    if row is None:
+        raise HTTPException(409, "الطلب ده اتقرر عليه من قبل — حدّث القائمة")
+    e = db.query(Employee).filter(Employee.id == row.employee_id).first()
+    if e is None:
+        raise HTTPException(404, "الموظف غير موجود في الروستر")
+    if not _das_decision_allowed(role, e.branch):
+        raise HTTPException(403, f"القرار على طلبات {e.branch} متاح لمشرف الفرع بس")
+
+    if data.decision == "reject":
+        row.status = "Rejected"
+        row.decision_note = (data.note or "").strip()[:300]
+    else:
+        if not e.active:
+            raise HTTPException(400, "الموظف غير نشط — فعّل الموظف قبل الموافقة")
+        record_das_attendance(db, e, row.attendance_date, row.action, row.requested_at,
+                              actor=who_role(role))
+        row.status = "Approved"
+        row.decision_note = (data.note or "").strip()[:300]
+    row.decided_by = who_role(role)
+    row.decided_at = utcnow()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "الطلب اتقرر عليه من مستخدم تاني — حدّث القائمة")
+    db.refresh(row)
+    publish_event("das_requests", action=("approve" if row.status == "Approved" else "reject"),
+                  names=[e.name], branch=e.branch, by=who_role(role), client=client_tag(request))
+    return das_request_dict(row, e)
 
 
 # ---------------------------------------------------------------- schedule (جدول الشيفتات)
@@ -2003,9 +2481,9 @@ def schedule_weeks(_: bool = Depends(require_auth), db: Session = Depends(get_db
 
 
 @app.get("/api/schedule")
-def get_schedule(branch: str, week: Optional[date] = None, _: bool = Depends(require_auth),
+def get_schedule(branch: str, week: Optional[date] = None, role: str = Depends(require_auth),
                  db: Session = Depends(get_db)):
-    _check_branch(branch)
+    branch = supervisor_scope(role) or (branch if branch in BRANCHES else BRANCHES[0])
     ws = week_param(week)
     pairs = week_pairs(db, ws, branch)
     names = {d.name for d in db.query(ShiftDef).filter(ShiftDef.branch == branch).all()} | {s.shift for _, s in pairs}
@@ -2249,9 +2727,9 @@ def schedule_auto(data: ScheduleAutoIn, _: bool = Depends(require_admin), db: Se
 
 @app.get("/api/schedule/export.csv")
 def schedule_export(branch: Optional[str] = None, week: Optional[date] = None,
-                    _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+                    role: str = Depends(require_auth), db: Session = Depends(get_db)):
     ws = week_param(week)
-    emps = sorted((SimpleNamespace(**ov(e, s)) for e, s in week_pairs(db, ws, branch)),
+    emps = sorted((SimpleNamespace(**ov(e, s)) for e, s in week_pairs(db, ws, supervisor_scope(role) or branch)),
                   key=lambda e: (e.branch, shift_sort_key(e.shift), e.name))
     return csv_response(
         ["الفرع", "الشيفت", "الاسم", "الكود", "النوع", "يوم الإجازة", "Beginning البريك", "مدة البريك (دقيقة)"],
@@ -2262,9 +2740,9 @@ def schedule_export(branch: Optional[str] = None, week: Optional[date] = None,
 
 @app.get("/api/schedule/export.xlsx")
 def schedule_export_xlsx(branch: Optional[str] = None, week: Optional[date] = None,
-                         _: bool = Depends(require_auth), db: Session = Depends(get_db)):
+                         role: str = Depends(require_auth), db: Session = Depends(get_db)):
     wk = week_param(week)
-    emps = [SimpleNamespace(**ov(e, s)) for e, s in week_pairs(db, wk, branch)]
+    emps = [SimpleNamespace(**ov(e, s)) for e, s in week_pairs(db, wk, supervisor_scope(role) or branch)]
 
     wb = Workbook()
     ws = wb.active

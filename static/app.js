@@ -469,7 +469,7 @@ function refreshLangView() {
   const p = S.page;
   if (!p || !S.shown) return;
   try {
-    if (p === "dashboard") loadDashboard();
+    if (p === "dashboard") { loadDashboard(); loadDasRequests(); }
     else if (p === "attendance") { renderAttendance(); }
     else if (p === "schedule") { if (S.sch.data) renderSchedule(); }
     else if (p === "employees") renderEmployees();
@@ -594,6 +594,8 @@ function loadLang() {
 const S = {
   token: localStorage.getItem("bankai_token") || "",
   role: localStorage.getItem("bankai_role") || "",
+  supName: "",
+  supBranch: "",     /* مشرف فرع: البيانات بتفلتل على فرعه من السيرفر وكمان في الواجهة */
   page: "", shown: false,
   settings: { fine_late: 0, fine_absent: 0 },
   employees: [],
@@ -718,7 +720,9 @@ function markSort(selector, attr, st) {
 }
 
 /* ============================== auth & navigation ============================== */
-const isAdmin = () => S.role !== "supervisor"; // الدور الافتراضي أدمن (بيتحدد من السيرفر بعد الدخول)
+/* المشرف إما supervisor (بلا فرع) أو supervisor:QCD 1 (مشرف فرع من كلمة مرور الفرع) */
+const isSupervisor = () => S.role === "supervisor" || (S.role || "").startsWith("supervisor:");
+const isAdmin = () => !isSupervisor(); // الدور الافتراضي أدمن (بيتحدد من السيرفر بعد الدخول)
 on("loginForm", "submit", async e => {
   e.preventDefault();
   $("loginError").textContent = "";
@@ -726,6 +730,8 @@ on("loginForm", "submit", async e => {
     const r = await api("/api/login", { method: "POST", body: { password: $("password").value } });
     S.token = r.token; localStorage.setItem("bankai_token", S.token);
     S.role = r.role || "admin"; localStorage.setItem("bankai_role", S.role);
+    const me = await api("/api/me").catch(() => ({}));
+    S.supBranch = me.branch || ""; S.supName = me.name || "";
     document.documentElement.dataset.auth = "1"; /* نفس القفل بتاع الـ head: شاشة الدخول مقفولة من هنا لقدام */
     $("password").value = "";
     await init();
@@ -773,9 +779,12 @@ function applyRole() {
   document.body.classList.toggle("supervisor", sup);
   const av = $("navAva");
   av.textContent = sup ? "م" : "أ";
-  av.title = sup ? "مشرف — مشاهدة كل حاجة وتعديل الحضور اليومي فقط" : "أدمن — كل الصلاحيات";
+  av.title = sup ? (S.supName ? `مشرف ${S.supName}${S.supBranch ? " — " + S.supBranch : ""} — بيانات فرعه بس من غير تعديل جدول/إعدادات` : "مشرف — مشاهدة")
+                 : "أدمن — كل الصلاحيات";
   $("rolePill").classList.toggle("hidden", !sup);
   $("setFineLate").disabled = $("setFineAbsent").disabled = sup;
+  /* مشرف الفرع: من غير جدول ومن غير إعدادات — كله قراءة + حضور لفرعه بس */
+  qsa('.nav-btn[data-page="schedule"],.nav-btn[data-page="settings"]').forEach(b => b.classList.toggle("hidden", sup));
   if (window.syncNavInd) window.syncNavInd();
 }
 
@@ -786,7 +795,9 @@ window.addEventListener("hashchange", route);
 function route() {
   if (!S.token) return;
   const p = (location.hash || "#dashboard").slice(1);
-  const target = PAGES[p] ? p : "dashboard";
+  let target = PAGES[p] ? p : "dashboard";
+  /* مشرف الفرع: الجدول والإعدادات للسيرفر والواجهة محروقة — نرجّعه للداشبورد */
+  if (!isAdmin() && (target === "schedule" || target === "settings")) target = "dashboard";
   if (S.shown && target === S.page) return;
   if (S.shown && target !== S.page && ((S.page === "attendance" && S.draft.size) || (S.page === "schedule" && S.sch.draft.size))) {
     if (!confirm("عندك تغييرات لم تُحفظ. هل تريد تجاهلها؟")) { location.hash = S.page; return; }
@@ -870,7 +881,7 @@ function showPage(p) {
     }, 160);
     vtGuard = myGuard;
   } else { window.bkVtActive = false; vtPending = null; swap(); }
-  if (p === "dashboard") { loadDashboard(); restartFeedTimer(); } else stopFeedTimer();
+  if (p === "dashboard") { loadDashboard(); restartFeedTimer(); loadDasRequests(); } else stopFeedTimer();
   if (p === "attendance") { syncAttControls(); loadRoster(); }
   if (p === "schedule") loadSchedulePage();
   if (p === "employees") { renderEmployees(); }
@@ -911,6 +922,7 @@ async function init() {
        التحميل الأول للنص تقريبًا ومفيش أي فرق في الترتيب من ناحية البيانات. */
     const [me, emps, settings] = await Promise.all([api("/api/me"), api(`/api/employees?${wq()}`), api("/api/settings")]);
     S.role = me.role || "admin"; localStorage.setItem("bankai_role", S.role);
+    S.supBranch = me.branch || ""; S.supName = me.name || "";
     applyRole();
     showApp();
     updateWeekBar();
@@ -1043,6 +1055,94 @@ async function loadFeed() {
 function restartFeedTimer() { stopFeedTimer(); loadFeed(); feedTimer = setInterval(loadFeed, 30000); }
 function stopFeedTimer() { if (feedTimer) { clearInterval(feedTimer); feedTimer = null; } }
 
+/* ============================== طلبات حضور DAS ============================== */
+/* المناديب بيسجّلوا حضور/انصراف من صفحة DAS — الطلب بيجي Pending هنا والموافقة
+   بتسجّل حضور رسمي في جدول attendance، والرفض بيرجّعه للمندوب في DAS. */
+const DAS_REQ_ST = {
+  Pending:  { ar: "قيد الموافقة", en: "Pending",  cls: "warn" },
+  Approved: { ar: "معتمد",        en: "Approved", cls: "ok" },
+  Rejected: { ar: "مرفوض",        en: "Rejected", cls: "bad" },
+};
+const DAS_REQ_ACTION = { check_in: ["تسجيل حضور", "Check in"], check_out: ["تسجيل انصراف", "Check out"] };
+
+/* وقت الطلب موثّق من سيرفر الروستر (UTC) — بنعرضه بتوقيت القاهرة */
+function dasReqHM(iso) {
+  try {
+    const d = new Date(String(iso || "").endsWith("Z") ? iso : (iso || "") + "Z");
+    if (isNaN(d)) return "";
+    return d.toLocaleTimeString(S.lang === "en" ? "en-GB" : "ar-EG-u-nu-latn", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Cairo" });
+  } catch (e) { return String(iso || "").slice(11, 16); }
+}
+
+let dasSig = null, dasViewer = null;
+async function loadDasRequests() {
+  const el = $("dasReqList");
+  if (!el || !S.token) return;
+  let d;
+  try { d = await api("/api/das/requests/inbox", { silent: true }); }
+  catch (e) {
+    if (S.page !== "dashboard") return;
+    el.innerHTML = `<p class="muted" style="padding:18px 0">${esc(e.message)}</p>`;
+    return;
+  }
+  dasViewer = d.viewer || null;
+  const sig = JSON.stringify([d.requests.map(r => [r.id, r.status, r.decided_by, r.decision_note]), d.viewer && d.viewer.can_decide, S.lang]);
+  if (sig === dasSig && S.page === "dashboard") return;
+  dasSig = sig;
+
+  if (!d.requests.length) {
+    el.innerHTML = `<p class="muted" style="padding:18px 0">${bi("مفيش طلبات حضور من DAS.", "No DAS attendance requests yet.")}</p>`;
+    return;
+  }
+  const can = !!(d.viewer && d.viewer.can_decide);
+  el.innerHTML = `<div class="table-wrap" style="max-height:420px"><table class="tbl"><thead><tr>
+      <th>${bi("المندوب", "Employee")}</th><th>${bi("الطلب", "Action")}</th><th>${bi("يوم الشيفت", "Shift day")}</th>
+      <th>${bi("وقت الطلب", "Requested")}</th><th>${bi("الحالة", "Status")}</th><th>${bi("القرار", "Decision")}</th>
+    </tr></thead><tbody>${d.requests.map(r => {
+      const st = DAS_REQ_ST[r.status] || { ar: r.status, en: r.status, cls: "" };
+      const act = DAS_REQ_ACTION[r.action] || [r.action, r.action];
+      const stBadge = `<span class="tag ${st.cls}">${S.lang === "en" ? st.en : st.ar}</span>`;
+      const decided = r.status !== "Pending" ? `${esc(r.decided_by || "")}${r.decided_at ? " · " + esc(r.decided_at.slice(0, 10)) : ""}${r.decision_note ? `<br><small class="muted">${esc(r.decision_note)}</small>` : ""}` : "—";
+      const actBtns = can
+        ? `<button class="btn sm primary" data-dasdec="${r.id}" data-d="approve">${bi("موافقة", "Approve")}</button>
+           <button class="btn sm danger" data-dasdec="${r.id}" data-d="reject">${bi("رفض", "Reject")}</button>`
+        : `<small class="muted">${bi("مشاهدة فقط", "Read only")}</small>`;
+      const note = r.courier_local_at ? `<br><small class="muted">${bi("وقت الجهاز (للعرض):", "Device time:")} ${esc(r.courier_local_at)}</small>` : "";
+      return `<tr data-dasrow="${r.id}">
+        <td class="who">${whoHTML(r.employee_name, `<b>${esc(r.employee_name)}</b><br><small class="muted">${esc(r.employee_code || "")} · ${sh(r.shift || "")}</small>`)}</td>
+        <td>${esc(S.lang === "en" ? act[1] : act[0])}</td>
+        <td class="num">${fmtDay(r.attendance_date, { day: "numeric", month: "short" })}</td>
+        <td class="num">${dasReqHM(r.requested_at)}${note}</td>
+        <td>${stBadge}</td>
+        <td>${r.status === "Pending" ? actBtns : decided}</td>
+      </tr>`;
+    }).join("")}</tbody></table></div>`;
+}
+
+on("dasReqList", "click", async ev => {
+  const btn = ev.target.closest("[data-dasdec]");
+  if (!btn) return;
+  const id = btn.dataset.dasdec, decision = btn.dataset.d;
+  if (!dasViewer || !dasViewer.can_decide) { toast(bi("القرار متاح لمشرف الفرع أو الأدمن.", "Decisions are for the branch supervisor or admin."), "err"); return; }
+  let note = "";
+  if (decision === "reject") {
+    note = window.prompt(bi("سبب الرفض (اختياري):", "Rejection note (optional):"), "") || "";
+    if (note === null) return;
+  }
+  btn.disabled = true;
+  try {
+    const r = await api(`/api/das/requests/${id}/decide`, { method: "POST", body: { decision, note } });
+    toast(bi(decision === "approve" ? "تمت الموافقة — الحضور اتسجّل في الروستر" : "تم الرفض — الحالة هتتحدّث عند المندوب في DAS",
+             decision === "approve" ? "Approved — attendance recorded" : "Rejected"), "ok");
+    dasSig = null;
+    loadDasRequests();
+    if (S.page === "attendance") loadRoster();
+  } catch (e) {
+    toast(e.message, "err");
+    btn.disabled = false;
+  }
+});
+
 function branchPanel(name, b, date) {
   const done = b.scheduled - b.unmarked, pct = b.scheduled ? Math.round(done * 100 / b.scheduled) : 0;
   const rows = b.shifts.map(s => `<tr data-go="${esc(JSON.stringify({ branch: name, shift: s.shift, date }))}"><td><b>${sh(s.shift)}</b></td><td class="num">${s.scheduled}</td><td class="num">${s.present}</td><td class="num">${s.late}</td><td class="num">${s.absent}</td><td class="num">${s.excused}</td><td class="num">${s.unmarked}</td><td class="bar">${stackBar(s)}</td></tr>`).join("");
@@ -1088,6 +1188,12 @@ function confirmDiscard() {
 }
 
 function syncAttControls() {
+  /* مشرف فرع: فلتر الفرع مثبّت على فرعه (السيرفر بيفلتر كمان) */
+  if (S.supBranch && S.att.branch !== S.supBranch) S.att.branch = S.supBranch;
+  qsa("#attBranchSeg button").forEach(b => {
+    const locked = !!S.supBranch && b.dataset.branch !== S.supBranch;
+    b.classList.toggle("hidden", locked);
+  });
   $("attDate").value = S.att.date;
   $("attSearch").value = S.att.q;
   $("attType").value = S.att.type;
@@ -1677,7 +1783,7 @@ async function loadHistory() {
     $("histTitle").textContent = e.name;
     $("histSub").innerHTML = `${esc(e.branch)} · ${sh(e.shift)} · ${esc(e.employee_code || "بدون كود")} · إجازة ${WD_AR[e.day_off] || e.day_off}${e.active ? "" : " · موقوف"}`;
     $("histStats").innerHTML = `<span class="tag">تسجيلات: ${s.total}</span><span class="tag ok">حضور: ${s.present}</span><span class="tag warn">تأخير: ${s.late}</span><span class="tag bad">غياب: ${s.absent}</span><span class="tag info">بعذر: ${s.excused}</span><span class="tag admin">غرامات إدارية: ${s.standalone || 0} — ${money(s.standalone_total || 0)}</span>`;
-    $("histRows").innerHTML = r.records.map(a => `<tr><td>${WD_AR[a.weekday] || ""} ${fmtDay(a.attendance_date, { day: "numeric", month: "short" })}</td><td><span class="tag ${a.status}">${ST[a.status]?.[0] || a.status}</span></td><td>${esc(a.reason) || "—"}</td><td>${esc(a.note) || "—"}</td></tr>`).join("");
+    $("histRows").innerHTML = r.records.map(a => `<tr><td>${WD_AR[a.weekday] || ""} ${fmtDay(a.attendance_date, { day: "numeric", month: "short" })}</td><td><span class="tag ${a.status}">${ST[a.status]?.[0] || a.status}</span></td><td>${esc(a.reason) || "—"}</td><td>${esc(a.note) || "—"}</td><td>${esc(a.recorded_by || a.created_by || "") || "—"}</td></tr>`).join("");
     $("histEmpty").classList.toggle("hidden", r.records.length > 0);
   } catch (err) { toast(err.message, "err"); }
 }
@@ -1860,7 +1966,7 @@ function renderFineRows() {
     const admin = x.source === "standalone" && isAdmin()
       ? `<div class="row-actions no-print"><button class="btn sm" data-fedit="${x.id}" title="تعديل الغرامة"><svg class="i"><use href="#i-edit"/></svg></button><button class="btn sm danger" data-fdel="${x.id}" title="مسح الغرامة"><svg class="i"><use href="#i-trash"/></svg></button></div>`
       : "";
-    return `<tr data-hist="${x.employee_id}" style="cursor:pointer"><td class="who">${whoHTML(x.name, `<b>${esc(x.name)}</b><small>${esc(x.employee_code || "بدون كود")} · ${sh(x.shift)} · ${esc(x.employment_type)}</small>`)}</td><td>${esc(x.branch)}</td><td>${WD_AR[x.weekday] || ""} ${fmtDay(x.date, { day: "numeric", month: "short" })} <small class="muted">W${x.week}</small></td><td><span class="tag ${st[1]}">${st[0]}</span></td><td class="num"><b>${money(x.fine)}</b></td><td>${esc(x.reason) || "—"}</td><td>${esc(x.note) || "—"}</td><td class="no-print">${admin}</td></tr>`;
+    return `<tr data-hist="${x.employee_id}" style="cursor:pointer"><td class="who">${whoHTML(x.name, `<b>${esc(x.name)}</b><small>${esc(x.employee_code || "بدون كود")} · ${sh(x.shift)} · ${esc(x.employment_type)}</small>`)}</td><td>${esc(x.branch)}</td><td>${WD_AR[x.weekday] || ""} ${fmtDay(x.date, { day: "numeric", month: "short" })} <small class="muted">W${x.week}</small></td><td><span class="tag ${st[1]}">${st[0]}</span></td><td class="num"><b>${money(x.fine)}</b></td><td>${esc(x.reason) || "—"}</td><td>${esc(x.note) || "—"}</td><td>${x.by ? `<small class="muted">${esc(x.by)}</small>` : "—"}</td><td class="no-print">${admin}</td></tr>`;
   }).join("");
   $("fineEmpty").classList.toggle("hidden", total > 0);
   renderPager($("finePager"), total, S.fines, renderFineRows);
@@ -1876,7 +1982,9 @@ function fineEmpOptions() {
 }
 
 function openFineDialog(employeeId = null, fineId = null) {
-  if (!isAdmin()) return toast("العملية دي متاحة للأدمن فقط.", "err");
+  /* إنشاء غرامة: للأدمن والمشرفين (المشرف من فرعه بس — والسيرفر بيمنع الباقي).
+     التعديل والمسح: للأدمن بس. */
+  if (fineId && !isAdmin()) return toast("التعديل والمسح متاح للأدمن فقط.", "err");
   $("fineError").textContent = "";
   $("fineId").value = fineId || "";
   $("fineEmpSel").innerHTML = fineEmpOptions();
@@ -2994,7 +3102,7 @@ function startLive() {
 function stopLive() { liveRun = false; if ($("livePill")) setLive(false, "متوقف"); }
 
 /* -------- تطبيق الأحداث على الشاشة -------- */
-const KIND_AR = { attendance: "تسجيلات الحضور", employees: "بيانات الموظفين", schedule: "الجدول", settings: "الإعدادات", fines: "الغرامات" };
+const KIND_AR = { attendance: "تسجيلات الحضور", employees: "بيانات الموظفين", schedule: "الجدول", settings: "الإعدادات", fines: "الغرامات", das_requests: "طلبات حضور DAS" };
 function applyEvents(events) {
   /* بنتجاهل بس الأحداث اللي مصدرها التاب نفسها. أي حدث من غير معرّف تاب (كتابة
      من بره الواجهة مثلًا) بنعتبره من حد تاني وبنطبّقه. */
@@ -3022,6 +3130,7 @@ function liveRefresh(ev) {
   }
   if (S.page === "dashboard") {
     if (kind === "attendance" && ev.date && ev.date !== S.dash.date) return false;
+    if (kind === "das_requests") { loadDasRequests(); return true; }
     loadDashboard(); if (kind === "attendance") loadFeed();
     return true;
   }
@@ -3033,7 +3142,7 @@ function liveRefresh(ev) {
 }
 function liveRefreshPage() {
   if (S.page === "attendance") loadRosterSoft();
-  else if (S.page === "dashboard") { loadDashboard(); loadFeed(); }
+  else if (S.page === "dashboard") { loadDashboard(); loadFeed(); loadDasRequests(); }
   else if (S.page === "employees") loadEmployeesSoft();
   else if (S.page === "fines") loadFines();
   else if (S.page === "reports" && $("repStart").value) runReport();
