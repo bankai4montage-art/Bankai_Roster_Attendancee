@@ -2630,6 +2630,17 @@ async function loadSettings() {
     S.settings = await api("/api/settings");
     $("setFineLate").value = S.settings.fine_late; $("setFineAbsent").value = S.settings.fine_absent;
   } catch (e) { toast(e.message, "err"); }
+  /* إظهار حسابات المشرفين اللي السيرفر شايفها فعلاً (بدون كلمات مرور) */
+  try {
+    const d = await api("/api/admin/supervisors", { silent: true });
+    const acc = (d.accounts || []).map(a => `${a.name} (${a.branch})`).join("، ");
+    $("supAccountsInfo").innerHTML = `حسابات المشرفين المتشغّلة: <b class="num">${d.count}</b>` +
+      (acc ? ` — ${esc(acc)}` : ' — <b>مفيش ولا حساب!</b>') +
+      (d.message ? `<br>${esc(d.message)}` : "") +
+      `<br>ربط DAS (${esc("DAS_SECRET")}): ${d.das_integration ? "مفعّل" : "غير مفعّل"}`;
+  } catch (e) {
+    $("supAccountsInfo").textContent = "حسابات المشرفين: غير متاح (لو الأدمن، جرّب تحديث الصفحة)";
+  }
 }
 on("setSave", "click", async () => {
   try {

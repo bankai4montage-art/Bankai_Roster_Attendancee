@@ -670,6 +670,21 @@ def _has_branch_supervisors() -> bool:
     return bool(BRANCH_SUPERVISOR_ACCOUNTS or BRANCH_SUPERVISOR_PASSWORDS)
 
 
+@app.get("/api/admin/supervisors")
+def supervisors_debug(request: Request, role: str = Depends(require_admin)):
+    """تشخيص حسابات المشرفين — للأدمن بس. بيرجّع الأسماء والفروع **بدون أي كلمات مرور**
+    عشان تتأكد إن متغيرات البيئة وصلت واتفسّرت صح بعد النشر."""
+    accounts = [{"name": acc["name"], "branch": acc["branch"]} for acc in BRANCH_SUPERVISOR_ACCOUNTS.values()]
+    return {
+        "accounts": accounts,
+        "count": len(accounts),
+        "branch_passwords": sorted(BRANCH_SUPERVISOR_PASSWORDS.keys()),
+        "general_supervisor": bool(SUPERVISOR_PASSWORD),
+        "das_integration": bool(DAS_SECRET),
+        "message": "لو القايمة فاضية والباسوردات مش شغالة: متغير SUPERVISOR_ACCOUNTS مش متسجل على السيرفر أو النشر ماخدش قيمته." if not accounts else "",
+    }
+
+
 
 def norm_type(v):
     s = str(v or "").strip().lower().replace(" ", "").replace("-", "")
