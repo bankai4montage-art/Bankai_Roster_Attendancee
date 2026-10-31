@@ -59,18 +59,18 @@ td.num,th.num{display:table-cell;text-align:right}
 .rawahel-logo { width: 160px; height: 41px; display: block; filter: drop-shadow(0 4px 16px rgba(37,99,235,0.25)); }
 .rawahel-logo svg { width: 100%; height: 100%; }
 @media (prefers-color-scheme: dark) { .rawahel-logo { filter: drop-shadow(0 4px 16px rgba(147,197,253,0.35)); } }
-.rawahel-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: linear-gradient(135deg, rgba(37,99,235,0.12), rgba(56,189,248,0.12)); border: 1px solid rgba(59,130,246,0.2); font-family: 'Alexandria', 'Cairo', sans-serif; font-size: 11px; font-weight: 700; color: var(--brand); white-space: nowrap; }
+.rawahel-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: linear-gradient(135deg, rgba(37,99,235,0.12), rgba(59, 130, 246,0.12)); border: 1px solid rgba(59,130,246,0.2); font-family: 'Alexandria', 'Cairo', sans-serif; font-size: 11px; font-weight: 700; color: var(--brand); white-space: nowrap; }
 .rawahel-badge .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--brand); animation: pulseDot 2s ease-in-out infinite; }
 
 /* ===== Rawahel lockup — "Rawahel" بخط عريض + "Powered by Bankai" تحته ===== */
 .rw-lockup{display:flex;align-items:center;gap:12px;justify-content:center}
 .rw-tile{width:52px;height:52px;border-radius:15px;display:grid;place-items:center;flex:none;
-  background:linear-gradient(145deg,#2563eb 0%,#3b82f6 45%,#38bdf8 100%);
+  background:linear-gradient(145deg,#2563eb 0%,#3b82f6 45%,#3B82F6 100%);
   color:#fff;font-family:'Alexandria','Cairo','Segoe UI',sans-serif;font-weight:800;font-size:27px;line-height:1;
   box-shadow:0 10px 24px -10px rgba(37,99,235,.65);transition:transform .45s var(--spring, cubic-bezier(.2,.8,.2,1))}
 .rw-stack{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0}
 .rw-name{font-family:'Alexandria','Cairo','Segoe UI',sans-serif;font-weight:800;font-size:34px;line-height:1;letter-spacing:-.015em;
-  background:linear-gradient(100deg,#1d4ed8 0%,#2563eb 40%,#38bdf8 100%);-webkit-background-clip:text;background-clip:text;
+  background:linear-gradient(100deg,#2563EB 0%,#2563eb 40%,#3B82F6 100%);-webkit-background-clip:text;background-clip:text;
   -webkit-text-fill-color:transparent;color:transparent}
 .rw-powered{font-family:'Alexandria','Cairo','Segoe UI',sans-serif;font-size:9.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted,#64748b);white-space:nowrap}
 .rw-powered b{color:var(--brand);font-weight:800}
@@ -79,9 +79,9 @@ td.num,th.num{display:table-cell;text-align:right}
 .rw-inline .rw-stack{gap:1px}
 .rw-inline .rw-name{font-size:19px}
 .rw-inline .rw-powered{font-size:7.5px;letter-spacing:.12em}
-:root[data-theme=dark] .rw-name{background:linear-gradient(100deg,#93c5fd 0%,#bfdbfe 55%,#e0f2fe 100%);-webkit-background-clip:text;background-clip:text}
+:root[data-theme=dark] .rw-name{background:linear-gradient(100deg,#93c5fd 0%,#bfdbfe 55%,#DBEAFE 100%);-webkit-background-clip:text;background-clip:text}
 /* كارت الدخول أبيض حتى في الدارك — نستخدم درجة غامقة مقروءة */
-:root[data-theme=dark] .login-card .rw-name{background:linear-gradient(100deg,#1d4ed8 0%,#2563eb 40%,#38bdf8 100%);-webkit-background-clip:text;background-clip:text}
+:root[data-theme=dark] .login-card .rw-name{background:linear-gradient(100deg,#2563EB 0%,#2563eb 40%,#3B82F6 100%);-webkit-background-clip:text;background-clip:text}
 @media (prefers-reduced-motion: no-preference){.login-card .rw-tile{animation:rwTileIn .5s cubic-bezier(.2,.8,.2,1) both}}
 @keyframes rwTileIn{from{opacity:0;transform:translateY(-8px) scale(.9)}to{opacity:1;transform:none}}
 .login-card .rw-lockup{margin:0 0 18px}
@@ -107,7 +107,7 @@ td.num,th.num{display:table-cell;text-align:right}
 .brand-row small{display:block;color:#9db5d8}
 .nav-item{display:flex;align-items:center;gap:12px;width:100%;border:0;background:none;color:#c3d1e6;border-radius:10px;text-align:start}
 .nav-item:hover{background:rgba(255,255,255,.08);color:#fff}
-.nav-item.active{color:#fff;box-shadow:inset 3px 0 #7aa6ff}
+.nav-item.active{color:#fff;box-shadow:inset 3px 0 #60A5FA}
 .sidebar-bottom{margin-top:auto;padding-top:14px;border-top:1px solid rgba(255,255,255,.12)}
 .sidebar-bottom .nav-item{margin:0;color:#9db5d8}
 .bnav{display:none}
@@ -329,7 +329,7 @@ textarea.inp{height:130px;padding:10px 12px;resize:vertical;font-family:ui-monos
 .sch td.who small{color:var(--ink3);font-size:11.5px}
 .sch tr.dirty td.who{box-shadow:inset 3px 0 var(--brand)}
 .dc{width:68px;min-width:60px;text-align:center}
-.dc.today{background:rgba(79,70,229,.04)}
+.dc.today{background:rgba(59, 130, 246,.04)}
 .dc button{width:100%;border:1px solid transparent;background:var(--dc-ok);color:transparent;font-weight:700;font-size:12px}
 .dc button:hover{border-color:#e0a020;background:var(--dc-hov);color:var(--warn)}
 .dc button:hover::after{content:"إجازة"}
@@ -390,7 +390,7 @@ textarea.inp{height:130px;padding:10px 12px;resize:vertical;font-family:ui-monos
 .sch{min-width:620px}
 .sch td{padding:6px 8px}
 .sch .f-off,.sch .f-bs{width:100%;min-width:118px;height:36px}
-.sch .sel.chg{box-shadow:0 0 0 2px rgba(79,70,229,.15)}
+.sch .sel.chg{box-shadow:0 0 0 2px rgba(59, 130, 246,.15)}
 .sch td.who{min-width:180px}
 @media(max-width:860px){
   .week-strip{gap:4px}
@@ -467,7 +467,7 @@ body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;transi
 .theme-sw svg{position:relative;z-index:1;width:30px;height:30px;padding:6px;flex:none;color:var(--ink3)}
 .theme-sw .sun{color:#fff}
 :root[data-theme=dark] .theme-sw .sun{color:var(--ink3)}
-:root[data-theme=dark] .theme-sw .moon{color:#0b1220}
+:root[data-theme=dark] .theme-sw .moon{color:#0C1428}
 .theme-sw:hover{border-color:var(--brand)}
 .lang-btn{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;flex:none;cursor:pointer;
   border:1px solid var(--line);background:var(--surface);color:var(--ink2);border-radius:12px;box-shadow:var(--shadow);
@@ -475,9 +475,9 @@ body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;transi
 .lang-btn svg.globe{width:19px;height:19px}
 .lang-btn:hover{border-color:var(--brand);color:var(--brand)}
 .lang-btn:active{transform:scale(.96)}
-.topnav .tools .lang-btn{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14);color:#cdd9ee;box-shadow:none}
+.topnav .tools .lang-btn{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14);color:#BFDBFE;box-shadow:none}
 .topnav .tools .lang-btn:hover{border-color:rgba(255,255,255,.42);color:#fff}
-.login-theme-row .lang-btn{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.16);color:#d6e4f7;box-shadow:none}
+.login-theme-row .lang-btn{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.16);color:#BFDBFE;box-shadow:none}
 .topbar-tools{display:flex;align-items:center}
 @media(max-width:860px){
   .date-pill{display:none}
@@ -620,7 +620,7 @@ dialog.dlg.xwide{width:min(1040px,calc(100% - 20px))}
   align-items:stretch;
   gap:0;
   padding:22px 14px 15px;
-  color:#eaf0ff;
+  color:#DBEAFE;
   border:0;
   border-inline-end:1px solid rgba(255,255,255,.07);
   backdrop-filter:none;
@@ -658,10 +658,10 @@ dialog.dlg.xwide{width:min(1040px,calc(100% - 20px))}
 .att-tools,.att-sticky{border-radius:14px}
 .inp,.sel{border-color:var(--line3);min-height:38px}
 .btn:active{transform:translateY(1px)}
-.btn.primary:hover{box-shadow:0 7px 18px rgba(50,103,233,.25)}
+.btn.primary:hover{box-shadow:0 7px 18px rgba(37, 99, 235,.25)}
 .tbl th,.tbl td{padding:11px 12px}
-.dlg{border:1px solid var(--line);border-radius:18px;box-shadow:0 24px 80px rgba(7,20,43,.24)}
-.brand-mark{box-shadow:0 8px 22px rgba(44,94,219,.22)}
+.dlg{border:1px solid var(--line);border-radius:18px;box-shadow:0 24px 80px rgba(12, 20, 40,.24)}
+.brand-mark{box-shadow:0 8px 22px rgba(37, 99, 235,.22)}
 @media(max-width:1180px){
   /* Keep the existing mobile navigation and make the desktop sidebar usable on small screens. */
   .main{padding-inline:22px}
@@ -681,7 +681,7 @@ dialog.dlg.xwide{width:min(1040px,calc(100% - 20px))}
     overflow:visible;
     border-top:1px solid var(--line);
     border-inline:0;
-    box-shadow:0 -5px 22px rgba(12,28,55,.06);
+    box-shadow:0 -5px 22px rgba(12, 20, 40,.06);
   }
   .topnav .brand{padding:0;border:0;gap:8px;font-size:16px;flex:1}
   .topnav .brand small{display:none}
@@ -719,7 +719,7 @@ dialog.dlg.xwide{width:min(1040px,calc(100% - 20px))}
 }
 /* ================= V13 — icons, controls & motion =================
    Presentation-only layer. No selectors, ids or data attributes were changed. */
-:root{--lift:0 6px 16px rgba(20,37,68,.09);--press:0 1px 2px rgba(20,37,68,.06)}
+:root{--lift:0 6px 16px rgba(22, 35, 74,.09);--press:0 1px 2px rgba(22, 35, 74,.06)}
 html{-webkit-tap-highlight-color:transparent}
 *{scrollbar-width:thin;scrollbar-color:var(--line3) transparent}
 ::selection{background:color-mix(in srgb,var(--brand) 25%,transparent)}
@@ -808,27 +808,27 @@ input[type=checkbox]:checked::before{transform:translateY(-1px) rotate(45deg) sc
 input[type=checkbox]:indeterminate::before{width:8px;height:0;border-width:0 0 2px 0;transform:scale(1)}
 input[type=checkbox]:focus-visible{outline:none}
 input[type=checkbox]:disabled{opacity:.5;cursor:not-allowed}
-:root[data-theme=dark] input[type=checkbox]:checked::before{border-color:#0b1220}
+:root[data-theme=dark] input[type=checkbox]:checked::before{border-color:#0C1428}
 /* ---- segmented controls, chips, presets ---- */
 .seg-filter{height:44px;padding:3px;gap:2px;border-radius:13px;background:var(--surf2);border:1px solid var(--line);overflow:visible}
 .seg-filter button{height:100%;border:0!important;border-radius:10px;padding:0 15px;color:var(--ink3);transition:background .22s var(--ease),color .2s,box-shadow .25s var(--ease),transform .12s}
 .seg-filter button:active{transform:scale(.96)}
-.seg-filter button.on{background:var(--surface);color:var(--brand-d);box-shadow:0 1px 3px rgba(20,37,68,.14),0 0 0 1px var(--brand-line)}
+.seg-filter button.on{background:var(--surface);color:var(--brand-d);box-shadow:0 1px 3px rgba(22, 35, 74,.14),0 0 0 1px var(--brand-line)}
 .seg-filter button small{transition:color .2s}
 .seg button{border:0!important}
 .seg button:active{transform:scale(.95)}
 .seg button:hover:not(.on){background:var(--surface);color:var(--ink)}
-.seg button.on{box-shadow:0 3px 9px rgba(20,37,68,.2)}
+.seg button.on{box-shadow:0 3px 9px rgba(22, 35, 74,.2)}
 .chip:active{transform:scale(.96)}
 .presets button,.simp-chips button,.daychecks label{transition:background .2s var(--ease),border-color .2s,color .2s,transform .15s var(--ease),box-shadow .2s}
 .presets button:hover,.simp-chips button:hover,.daychecks label:hover{border-color:var(--brand-line);transform:translateY(-1px)}
 .presets button:active,.simp-chips button:active,.daychecks label:active{transform:scale(.96)}
-.presets button.on,.simp-chips button.on{box-shadow:0 0 0 1px var(--brand-line),0 3px 8px rgba(50,103,233,.14)}
+.presets button.on,.simp-chips button.on{box-shadow:0 0 0 1px var(--brand-line),0 3px 8px rgba(37, 99, 235,.14)}
 /* ---- small action buttons inside rows ---- */
 .note-btn:hover{color:var(--brand-d)}
 .note-btn:active{transform:scale(.92)}
 .contact a{transition:background .2s,color .2s,transform .2s var(--spring),box-shadow .2s}
-.contact a:hover{background:var(--brand);color:#fff;transform:translateY(-2px) scale(1.06);box-shadow:0 5px 12px rgba(50,103,233,.3)}
+.contact a:hover{background:var(--brand);color:#fff;transform:translateY(-2px) scale(1.06);box-shadow:0 5px 12px rgba(37, 99, 235,.3)}
 .contact a:active{transform:scale(.92)}
 /* ---- navigation ---- */
 .topnav .tabs .nav-btn:active{transform:scale(.97)}
@@ -846,7 +846,7 @@ input[type=checkbox]:disabled{opacity:.5;cursor:not-allowed}
 .bnav .nav-btn.active::after{width:18px}
 /* ---- theme switch ---- */
 .theme-sw{transition:background .25s,border-color .25s}
-.theme-sw::before{box-shadow:0 3px 8px rgba(30,60,140,.35);transition:transform .45s var(--spring)}
+.theme-sw::before{box-shadow:0 3px 8px rgba(30, 64, 175,.35);transition:transform .45s var(--spring)}
 .theme-sw svg{transition:color .25s,transform .5s var(--spring)}
 .theme-sw:hover .sun{transform:rotate(60deg)}
 .theme-sw .moon{transform:rotate(-20deg)}
@@ -997,8 +997,8 @@ button.kpi{cursor:pointer}
 .att-sticky .seg-filter{background:var(--surf2);border-color:transparent}
 .att-sticky .seg-filter button.on{background:var(--brand);color:#fff;box-shadow:0 5px 14px color-mix(in srgb,var(--brand) 40%,transparent)}
 .att-sticky .seg-filter button.on small{color:rgba(255,255,255,.8)}
-:root[data-theme=dark] .att-sticky .seg-filter button.on{color:#06142e}
-:root[data-theme=dark] .att-sticky .seg-filter button.on small{color:rgba(6,20,46,.7)}
+:root[data-theme=dark] .att-sticky .seg-filter button.on{color:#0C1428}
+:root[data-theme=dark] .att-sticky .seg-filter button.on small{color:rgba(12, 20, 40,.7)}
 .seg-filter button small{color:inherit!important}
 /* toggle switch for "group by shift" and similar single checkboxes */
 #attGroup,.switch-row input[type=checkbox]{width:40px;height:24px;border-radius:999px;border:0;background:var(--line3);position:relative;display:inline-block;transition:background .25s var(--ease)}
@@ -1185,7 +1185,7 @@ p{text-wrap:pretty}
   .topnav::after{content:"";position:absolute;inset:0;pointer-events:none}
 }
 .topnav>*{position:relative;z-index:1}
-.topnav .tabs .nav-btn.active .nav-ico{box-shadow:0 6px 16px rgba(45,90,220,.45),var(--sheen)}
+.topnav .tabs .nav-btn.active .nav-ico{box-shadow:0 6px 16px rgba(37, 99, 235,.45),var(--sheen)}
 .topnav .tabs .nav-btn::before{transition:height var(--t-slow) var(--spring)}
 /* ---------- 6. controls: unified focus, calmer defaults ---------- */
 .btn:not(.primary):hover:not([disabled]){transform:translateY(-1px)}
@@ -1214,7 +1214,7 @@ input[type=checkbox]:focus-visible{box-shadow:var(--ring)}
 .trend .col i:first-child{border-radius:0}
 .kpi{border-radius:18px}
 .kpi::after{opacity:.95}
-.kpi:hover{box-shadow:var(--sheen),0 16px 34px -14px color-mix(in srgb,var(--c) 45%,rgba(16,33,66,.35))}
+.kpi:hover{box-shadow:var(--sheen),0 16px 34px -14px color-mix(in srgb,var(--c) 45%,rgba(22, 35, 74,.35))}
 :root[data-theme=dark] .kpi:hover{box-shadow:none}
 .feed-ava{background-image:linear-gradient(145deg,hsl(var(--h,212) 72% 54%),hsl(calc(var(--h,212) + 24) 70% 42%))}
 /* ---------- 10. attendance & schedule polish ---------- */
@@ -1260,14 +1260,14 @@ input[type=checkbox]:focus-visible{box-shadow:var(--ring)}
 /* ---- accents that were hard-coded blue adopt the new identity ---- */
 .btn.primary:active:not([disabled]){box-shadow:var(--sheen),var(--glow)}
 .btn.primary:focus-visible{box-shadow:var(--sheen),0 0 0 3px rgba(59,130,246,.5)}
-.brand-mark{background:linear-gradient(145deg,#93c5fd,#1d4ed8)}
+.brand-mark{background:linear-gradient(145deg,#93c5fd,#2563EB)}
 .theme-sw::before{background:linear-gradient(135deg,#3b82f6,#3b82f6)}
 /* ---- brand rail: violet aurora ---- */
-.topnav{background:linear-gradient(180deg,#0e1730,#16244f 58%,#182a63);box-shadow:10px 0 30px rgba(88,58,168,.18)}
+.topnav{background:linear-gradient(180deg,#0C1428,#16234A 58%,#0F1E45);box-shadow:10px 0 30px rgba(88,58,168,.18)}
 /* الوضع الغامق: نفس هوية القضيب البنفسجي بتاع الفاتح، بس بدرجات أغمق */
-:root[data-theme=dark] .topnav{background:linear-gradient(180deg,#0d1526,#14275a 56%,#1a3f8f)}
-.topnav .nav-search input{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14);color:#f4f8ff}
-.topnav .nav-search input::placeholder{color:#a8c2e6}
+:root[data-theme=dark] .topnav{background:linear-gradient(180deg,#0C1428,#16234A 56%,#1E40AF)}
+.topnav .nav-search input{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14);color:#EFF6FF}
+.topnav .nav-search input::placeholder{color:#93C5FD}
 .topnav .tabs .nav-btn::before{background:linear-gradient(#bfdbfe,#3b82f6)}
 /* ---- display face: Alexandria for headings & hero numbers ---- */
 .topbar h2,.page-head h3,.panel-h h3,.dlg-h h3,.shhead h4,.login-card h1, .kpi .kv,.kpi>strong,.dt strong,.topnav .brand{font-family:'Alexandria','Cairo','Segoe UI',sans-serif}
@@ -1276,7 +1276,7 @@ input[type=checkbox]:focus-visible{box-shadow:var(--ring)}
 .panel,.shcard,.br-card,.table-wrap,.alist,.att-tools,.att-sticky,.days-box,.dt{border-radius:var(--r-lg)}
 /* KPI seal: gradient icon chip */
 .kpi::before{background:linear-gradient(140deg,var(--c),color-mix(in srgb,var(--c) 55%,#000))}
-:root[data-theme=dark] .kpi::after{background:#0e1730}
+:root[data-theme=dark] .kpi::after{background:#0C1428}
 /* tables: violet-tinted sticky header */
 /* aurora wash recolored violet */
 /* empty-state icon recolored */
@@ -1501,14 +1501,14 @@ svg.i{transition:transform var(--t-med) var(--spring)}
   --line2:#f1f5f9;
   --line3:#e2e8f0;
   --brand:#2563eb;
-  --brand-d:#1d4ed8;
+  --brand-d:#2563EB;
   --brand-bg:#dbeafe;
   --brand-line:#bfdbfe;
   --focus:#3b82f6;
   --accent:#2563eb;
   --accent-2:#3b82f6;
   --side:#1e40af;
-  --side2:#1e3a8a;
+  --side2:#1E40AF;
   --bar:#1e40af;
   --ok:#059669;
   --ok-d:#047857;
@@ -1523,7 +1523,7 @@ svg.i{transition:transform var(--t-med) var(--spring)}
   --bad-bg:#fee2e2;
   --bad-line:#fca5a5;
   --info:#2563eb;
-  --info-d:#1d4ed8;
+  --info-d:#2563EB;
   --info-bg:#dbeafe;
   --slate:#64748b;
   --admin:#7c3aed;
@@ -1538,8 +1538,8 @@ svg.i{transition:transform var(--t-med) var(--spring)}
   --r:12px;
   --r-lg:18px;
   --r-card:18px;
-  --shadow:0 2px 10px -7px rgba(15,23,42,.24),0 16px 34px -24px rgba(15,23,42,.5);
-  --shadow-lg:0 4px 14px -8px rgba(15,23,42,.2),0 26px 54px -30px rgba(37,99,235,.55);
+  --shadow:0 2px 10px -7px rgba(12, 20, 40,.24),0 16px 34px -24px rgba(12, 20, 40,.5);
+  --shadow-lg:0 4px 14px -8px rgba(12, 20, 40,.2),0 26px 54px -30px rgba(37,99,235,.55);
   --glow:0 10px 22px -10px rgba(37,99,235,.62);
   --sheen:inset 0 1px 0 rgba(255,255,255,.7);
   --ring:0 0 0 4px rgba(59,130,246,.17);
@@ -1547,27 +1547,27 @@ svg.i{transition:transform var(--t-med) var(--spring)}
   --fds-spring:cubic-bezier(.34,1.56,.64,1);
 }
 :root[data-theme=dark]{
-  --ink:#eef2ff;
+  --ink:#EFF6FF;
   --ink2:#a5b0c9;
   --ink3:#6b7694;
-  --head:#eef2ff;
-  --bg:#060914;
-  --surface:#0e1530;
-  --surf2:#161f42;
-  --line:#1c2650;
-  --line2:#212c5c;
+  --head:#EFF6FF;
+  --bg:#0C1428;
+  --surface:#0C1428;
+  --surf2:#16234A;
+  --line:#16234A;
+  --line2:#0F1E45;
   --line3:#2c3a72;
-  --brand:#60a5fa;
+  --brand:#3B82F6;
   --brand-d:#93c5fd;
-  --brand-bg:#0d1f47;
+  --brand-bg:#16234A;
   --brand-line:#3b82f6;
   --focus:#93c5fd;
   --accent:#3b82f6;
-  --accent-2:#60a5fa;
-  --nav-bg:#060914;
-  --side:#0a0f24;
-  --side2:#111a3d;
-  --bar:#0e1c44;
+  --accent-2:#3B82F6;
+  --nav-bg:#0C1428;
+  --side:#0C1428;
+  --side2:#16234A;
+  --bar:#16234A;
   --ok:#34d399;
   --ok-d:#86efac;
   --ok-bg:#062b23;
@@ -1580,16 +1580,16 @@ svg.i{transition:transform var(--t-med) var(--spring)}
   --bad-d:#fca5a5;
   --bad-bg:#3d0d12;
   --bad-line:#63181f;
-  --info:#60a5fa;
+  --info:#3B82F6;
   --info-d:#93c5fd;
-  --info-bg:#0d1f47;
+  --info-bg:#16234A;
   --slate:#7d88a8;
   --admin:#a78bfa;
   --admin-d:#c4b5fd;
   --admin-bg:#251347;
   --admin-line:#4c1d95;
   --none:#2a3560;
-  --off-bg:#0e1530;
+  --off-bg:#0C1428;
   --off-fg:#8b96b5;
   --late-row:#332306;
   --abs-row:#360c10;
@@ -1606,9 +1606,9 @@ h1,h2,h3,h4,b,strong,.topbar h2,.page-head h3,.panel-h h3,.dlg-h h3,.shhead h4,.
 }
 /* خلفية اللوحة: لمعة فوديكس الزرقاء الهادية */
 body::before{background:radial-gradient(52% 34% at 84% -8%,color-mix(in srgb,#2563eb 8%,transparent),transparent 64%),
-  radial-gradient(46% 30% at 2% -4%,color-mix(in srgb,#1d4ed8 6%,transparent),transparent 60%)}
+  radial-gradient(46% 30% at 2% -4%,color-mix(in srgb,#2563EB 6%,transparent),transparent 60%)}
 :root[data-theme=dark] body::before{
-  background:radial-gradient(52% 34% at 84% -8%,color-mix(in srgb,#60a5fa 11%,transparent),transparent 64%),
+  background:radial-gradient(52% 34% at 84% -8%,color-mix(in srgb,#3B82F6 11%,transparent),transparent 64%),
   radial-gradient(46% 30% at 2% -4%,color-mix(in srgb,#3b82f6 8%,transparent),transparent 60%);
 }
 /* ---------- 3. الحركة: keyframes بأسماء fds* ---------- */
@@ -1624,17 +1624,17 @@ body::before{background:radial-gradient(52% 34% at 84% -8%,color-mix(in srgb,#25
 @keyframes fdsFade  {from{opacity:0}to{opacity:1}}
 @media(min-width:981px){
   /* ---------- 4. الشريط الجانبي: قطيفة بنفسجية + مؤشّر منزلق ---------- */
-  .topnav{background:linear-gradient(180deg,#0f2a63 0%,#143a80 56%,#1e40af 100%);box-shadow:-18px 0 46px -24px rgba(15,42,99,.75);border-inline-end:0;padding:20px 14px 16px}
+  .topnav{background:linear-gradient(180deg,#0F1E45 0%,#0F1E45 56%,#1e40af 100%);box-shadow:-18px 0 46px -24px rgba(15, 30, 69,.75);border-inline-end:0;padding:20px 14px 16px}
   .topnav::after{
-    background:radial-gradient(92% 26% at 50% -6%,color-mix(in srgb,#4f8ef7 34%,transparent),transparent 70%),
+    background:radial-gradient(92% 26% at 50% -6%,color-mix(in srgb,#3B82F6 34%,transparent),transparent 70%),
       radial-gradient(60% 18% at 50% 104%,color-mix(in srgb,#00b884 13%,transparent),transparent 70%);
   }
 }
 .topnav .brand{color:#fff;border-bottom-color:rgba(255,255,255,.12);padding:0 8px 22px}
-.topnav .brand small{color:#b6cdea}
-.topnav .mark{background:linear-gradient(150deg,#4f8ef7,#93c5fd);border-radius:13px;box-shadow:0 10px 22px -10px rgba(59,130,246,.95)}
+.topnav .brand small{color:#93C5FD}
+.topnav .mark{background:linear-gradient(150deg,#3B82F6,#93c5fd);border-radius:13px;box-shadow:0 10px 22px -10px rgba(59,130,246,.95)}
 .topnav .tabs{position:relative;gap:3px;margin-top:20px}
-.topnav .tabs::before{content:'القائمة الرئيسية';color:#8fb0e0;font-size:10px;font-weight:800;letter-spacing:.7px;padding:0 13px 10px}
+.topnav .tabs::before{content:'القائمة الرئيسية';color:#60A5FA;font-size:10px;font-weight:800;letter-spacing:.7px;padding:0 13px 10px}
 .nav-ind{
   position:absolute;
   inset-inline:0;
@@ -1655,7 +1655,7 @@ body::before{background:radial-gradient(52% 34% at 84% -8%,color-mix(in srgb,#25
   min-height:46px;
   padding:11px 13px;
   gap:11px;
-  color:#c7dbf2;
+  color:#BFDBFE;
   font-size:13.5px;
   font-weight:600;
   transition:color .17s var(--fds-out),transform .17s var(--fds-out);
@@ -1672,22 +1672,22 @@ body::before{background:radial-gradient(52% 34% at 84% -8%,color-mix(in srgb,#25
   font-size:13px;
   border-radius:8px;
   background:rgba(255,255,255,.09);
-  color:#c7dbf2;
+  color:#BFDBFE;
   transition:background .2s,color .2s,transform .34s var(--fds-spring);
 }
 .topnav .tabs .nav-btn:hover .nav-ico{color:#fff}
-.topnav .tabs .nav-btn.active .nav-ico{background:#4f8ef7;color:#fff;transform:scale(1.08)}
+.topnav .tabs .nav-btn.active .nav-ico{background:#3B82F6;color:#fff;transform:scale(1.08)}
 .nav-badge{margin-inline-start:auto;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--warn);color:#3b2600;font-size:11px;font-weight:800;line-height:20px;text-align:center;display:none}
 .nav-badge.on{display:block;animation:fdsPop .42s var(--fds-spring)}
 .topnav .tools{border-top-color:rgba(255,255,255,.12);padding-top:14px}
-.nav-search input{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14);color:#f4f8ff;border-radius:12px}
-.nav-search input::placeholder{color:#a8c2e6}
+.nav-search input{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14);color:#EFF6FF;border-radius:12px}
+.nav-search input::placeholder{color:#93C5FD}
 .nav-search input:focus{background:rgba(255,255,255,.14);border-color:#93c5fd;box-shadow:0 0 0 3px rgba(147,197,253,.25)}
-.nav-search .sic{color:#a8c2e6}
-.topnav .icon-btn{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14);color:#cdd9ee}
+.nav-search .sic{color:#93C5FD}
+.topnav .icon-btn{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14);color:#BFDBFE}
 .topnav .icon-btn:hover{background:rgba(255,255,255,.2);color:#fff;border-color:rgba(255,255,255,.28)}
-.topnav .theme-sw{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14);color:#cdd9ee}
-.topnav .ava{background:linear-gradient(150deg,#4f8ef7,#93c5fd);border-radius:12px;box-shadow:0 8px 18px -8px rgba(59,130,246,.9)}
+.topnav .theme-sw{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14);color:#BFDBFE}
+.topnav .ava{background:linear-gradient(150deg,#3B82F6,#93c5fd);border-radius:12px;box-shadow:0 8px 18px -8px rgba(59,130,246,.9)}
 /* ---------- 5. التخطيط العام ---------- */
 .main{padding:26px 30px 120px}
 .app-shell{animation:fdsFade .45s var(--fds-out) both}
@@ -1734,10 +1734,10 @@ body::before{background:radial-gradient(52% 34% at 84% -8%,color-mix(in srgb,#25
 .btn:hover:not([disabled]){background:var(--surface);transform:translateY(-2px);box-shadow:var(--shadow-lg)}
 .btn:active:not([disabled]){transform:translateY(0) scale(.98);box-shadow:var(--shadow)}
 .btn[disabled]{box-shadow:none;background:var(--surf2)}
-.btn.primary{background:linear-gradient(150deg,#1e40af,#1d4ed8);color:#fff;box-shadow:var(--glow)}
+.btn.primary{background:linear-gradient(150deg,#1e40af,#2563EB);color:#fff;box-shadow:var(--glow)}
 .btn.primary:hover:not([disabled]){background:linear-gradient(150deg,#1e40af,#2563eb);box-shadow:0 16px 30px -12px rgba(30,64,175,.8)}
 :root[data-theme=dark] .btn.primary{background:linear-gradient(150deg,#1e40af,#3b82f6);color:#fff}
-:root[data-theme=dark] .btn.primary:hover:not([disabled]){background:linear-gradient(150deg,#3b82f6,#60a5fa)}
+:root[data-theme=dark] .btn.primary:hover:not([disabled]){background:linear-gradient(150deg,#3b82f6,#3B82F6)}
 .btn.ghost{background:var(--surface);color:var(--brand);box-shadow:inset 0 0 0 1.5px var(--line3)}
 .btn.ghost:hover:not([disabled]){box-shadow:inset 0 0 0 1.5px var(--brand-line),var(--shadow)}
 .btn.danger{box-shadow:0 10px 22px -12px rgba(179,40,45,.8)}
@@ -1773,7 +1773,7 @@ textarea.inp{border-radius:14px}
 }
 .seg-filter button+button,.att-sticky .seg-filter button+button{border-inline-start:0}
 .seg-filter button:hover{background:var(--brand-bg);color:var(--brand)}
-.seg-filter button.on,.att-sticky .seg-filter button.on{background:linear-gradient(150deg,#1e40af,#1e3a8a);color:#fff;box-shadow:var(--glow);animation:fdsChip .38s var(--fds-spring)}
+.seg-filter button.on,.att-sticky .seg-filter button.on{background:linear-gradient(150deg,#1e40af,#1E40AF);color:#fff;box-shadow:var(--glow);animation:fdsChip .38s var(--fds-spring)}
 :root[data-theme=dark] .seg-filter button.on, :root[data-theme=dark] .att-sticky .seg-filter button.on{background:linear-gradient(150deg,#1e40af,#3b82f6);color:#fff}
 .seg-filter button small{background:color-mix(in srgb,currentColor 13%,transparent);border-radius:999px;padding:0 7px;min-width:20px;text-align:center;line-height:18px;font-size:11px;font-weight:800;opacity:.9}
 .seg-filter button.on small{color:rgba(255,255,255,.85)}
@@ -1830,7 +1830,7 @@ textarea.inp{border-radius:14px}
   transition:transform .17s var(--fds-spring),background .17s,color .17s,border-color .17s;
 }
 .presets button:hover{border-color:var(--brand-line);transform:translateY(-2px)}
-.presets button.on{background:linear-gradient(150deg,#1e40af,#1e3a8a);border-color:transparent;color:#fff;box-shadow:var(--glow)}
+.presets button.on{background:linear-gradient(150deg,#1e40af,#1E40AF);border-color:transparent;color:#fff;box-shadow:var(--glow)}
 :root[data-theme=dark] .presets button.on{background:linear-gradient(150deg,#1e40af,#3b82f6)}
 .daychecks label,.check{font-weight:600}
 /* ---------- 11. الجداول ---------- */
@@ -1872,7 +1872,7 @@ textarea.inp{border-radius:14px}
   transition:transform .17s var(--fds-spring),background .17s,color .17s;
 }
 .pager button:hover{transform:translateY(-2px)}
-.pager button.on{background:linear-gradient(150deg,#1e40af,#1e3a8a);color:#fff}
+.pager button.on{background:linear-gradient(150deg,#1e40af,#1E40AF);color:#fff}
 /* ---------- 12. كروت الملخص: شريط لون + رقم كبير + شريط نسبة ---------- */
 .kpi{--c:var(--none)}
 .kpi.info{--c:var(--info)}
@@ -1970,7 +1970,7 @@ textarea.inp{border-radius:14px}
 .ghead .g-sum{color:var(--ink2);font-size:12px}
 .ghead .chev{color:var(--ink3)}
 .ghead .btn.sm{box-shadow:none;background:var(--brand-bg);color:var(--brand);height:32px}
-.ghead .btn.sm:hover{background:#e3edfb;transform:translateY(-2px);box-shadow:none}
+.ghead .btn.sm:hover{background:#DBEAFE;transform:translateY(-2px);box-shadow:none}
 .g-head .stack,.ghead .stack{height:8px;border-radius:999px}
 .arow{grid-template-columns:minmax(190px,1.25fr) auto 96px minmax(150px,1fr) 42px;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line2);box-shadow:none!important;transition:background-color .17s var(--fds-out)}
 .arow:hover{background:color-mix(in srgb,var(--brand) 4%,var(--surface))}
@@ -2108,8 +2108,8 @@ textarea.inp{border-radius:14px}
   .toast.show{opacity:0;transform:translateY(20px) scale(.95)}
 }
 /* ---------- 18. الطبقات العليا: النوافذ ---------- */
-dialog.dlg{border:1px solid var(--line);border-radius:22px;box-shadow:0 30px 80px -30px rgba(15,42,99,.6);background:var(--surface)}
-dialog::backdrop{background:color-mix(in srgb,#0f1b33 55%,transparent);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+dialog.dlg{border:1px solid var(--line);border-radius:22px;box-shadow:0 30px 80px -30px rgba(15, 30, 69,.6);background:var(--surface)}
+dialog::backdrop{background:color-mix(in srgb,#0C1428 55%,transparent);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
 .dlg-h{border-bottom:1px solid var(--line2);padding:18px 20px 15px}
 .dlg-h h3{color:var(--head);font-weight:800}
 .dlg-b{padding:18px 20px}
@@ -2125,13 +2125,13 @@ dialog::backdrop{background:color-mix(in srgb,#0f1b33 55%,transparent);backdrop-
 .login-shell{
   position:relative;
   overflow:hidden;
-  --ink:#f3f7fd;
-  --ink2:#dbe7f8;
-  --ink3:#a8c2e6;
+  --ink:#EFF6FF;
+  --ink2:#DBEAFE;
+  --ink3:#93C5FD;
   --head:#ffffff;
   background:radial-gradient(64% 50% at 18% 6%,rgba(59,130,246,.42),transparent 62%),
     radial-gradient(52% 44% at 88% 94%,rgba(0,184,132,.20),transparent 64%),
-    linear-gradient(180deg,#0b1220 0%,#12204a 100%);
+    linear-gradient(180deg,#0C1428 0%,#16234A 100%);
 }
 .login-shell::before{
   background-image:linear-gradient(rgba(255,255,255,.055) 1px,transparent 1px),
@@ -2149,7 +2149,7 @@ dialog::backdrop{background:color-mix(in srgb,#0f1b33 55%,transparent);backdrop-
   pointer-events:none;
   filter:blur(70px);
   opacity:.55;
-  background:radial-gradient(24% 24% at 32% 30%,#4f8ef7,transparent 70%),
+  background:radial-gradient(24% 24% at 32% 30%,#3B82F6,transparent 70%),
     radial-gradient(20% 20% at 70% 66%,#00b884,transparent 70%),
     radial-gradient(18% 18% at 46% 82%,#f5a524,transparent 70%);
   animation:fdsFloat 16s ease-in-out infinite;
@@ -2172,16 +2172,16 @@ dialog::backdrop{background:color-mix(in srgb,#0f1b33 55%,transparent);backdrop-
   font-size:30px;
   border-radius:20px;
   margin:0 auto;
-  background:linear-gradient(150deg,#4f8ef7,#1e40af);
+  background:linear-gradient(150deg,#3B82F6,#1e40af);
   box-shadow:0 16px 34px -14px rgba(59,130,246,.9);
   animation:fdsPop .62s var(--fds-spring) both;
 }
-.login-card h1{color:#0f1b33;font-size:28px;font-weight:800;margin-top:16px;text-align:center;letter-spacing:-.3px}
+.login-card h1{color:#0C1428;font-size:28px;font-weight:800;margin-top:16px;text-align:center;letter-spacing:-.3px}
 .login-card .muted{color:#8ba0b8;text-align:center;display:block}
 .login-card form{gap:14px}
 .login-card .field{color:#55698a}
-.login-card .inp{height:48px;border-radius:14px;background:#f8fbff;border:1.5px solid #e2ebf9;color:#0f1b33}
-.login-card .inp:focus{background:#fff;border-color:#4f8ef7;box-shadow:0 0 0 4px rgba(59,130,246,.16)}
+.login-card .inp{height:48px;border-radius:14px;background:#EFF6FF;border:1.5px solid #DBEAFE;color:#0C1428}
+.login-card .inp:focus{background:#fff;border-color:#3B82F6;box-shadow:0 0 0 4px rgba(59,130,246,.16)}
 .login-card .btn.primary{height:50px;border-radius:999px;font-size:15px;box-shadow:0 14px 28px -12px rgba(30,64,175,.8)}
 .login-card .error{color:#b3282d}
 /* ---------- 21. حركة دخول الصفحة (على الأبناء، مش على .page) ---------- */
@@ -2202,7 +2202,7 @@ dialog::backdrop{background:color-mix(in srgb,#0f1b33 55%,transparent);backdrop-
 }
 @media(max-width:980px){
   /* ---------- 24. الموبايل ---------- */
-  .topnav{background:linear-gradient(120deg,#0f2a63,#1e40af)}
+  .topnav{background:linear-gradient(120deg,#0F1E45,#1e40af)}
   .nav-ind{display:none}
   .main{padding:78px 14px 100px}
 }
@@ -2224,7 +2224,7 @@ dialog::backdrop{background:color-mix(in srgb,#0f1b33 55%,transparent);backdrop-
    زر الخطر، والتوست. الحل: توكنز مستقلة للسطح الصلب، والغامق بياخد درجة
    متوسطة يقدر الأبيض يبان عليها.
    ============================================================================ */
-:root{--solid:#0f2a63;--solid-ok:#0a7f60;--solid-bad:#a8242e;--solid-info:#1d4ed8}
+:root{--solid:#0F1E45;--solid-ok:#0a7f60;--solid-bad:#a8242e;--solid-info:#2563EB}
 :root[data-theme=dark]{--solid:#1e40af;--solid-ok:#0d7f60;--solid-bad:#a82634;--solid-info:#2563eb}
 .chip.on{background:var(--solid);color:#fff}
 .chip.on b{background:rgba(255,255,255,.2);color:#fff}
@@ -2446,7 +2446,7 @@ dialog::backdrop{background:color-mix(in srgb,#0f1b33 55%,transparent);backdrop-
 .live-btn.off .snd-on{display:none}
 .live-btn.off .snd-off{display:block}
 .live-btn.off{color:var(--slate)}
-.topnav .live-btn{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14);color:#cdd9ee;box-shadow:none}
+.topnav .live-btn{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.14);color:#BFDBFE;box-shadow:none}
 .topnav .live-btn:hover{border-color:var(--brand);color:#fff}
 /* صف اتغيّر من مستخدم تاني وعليه عندنا مسودة مش محفوظة: تنبيه قبل الحفظ */
 .arow.stale{box-shadow:inset 3px 0 0 0 var(--warn)}
@@ -2527,30 +2527,31 @@ button,a,label,select,summary,input[type=checkbox],input[type=radio],.chip,.nav-
    V22 — درجة الأزرق الأساسية (مطابقة لنظام Bankai-Hiring)
    اللون الأساسي والتدرّج بقى نفس نظام Bankai-Hiring:
      · التدرّج الأساسي: #2563EB → #1E40AF (أزرق برواق غامق)
-     · الخلفية الداكنة: #16234A → #0C1428 → #080E1C مع هالة زرقاء فوق
-     · اللمعة/التمييز: #60A5FA
+     · الخلفية الداكنة: #16234A → #0C1428 → #0C1428 مع هالة زرقاء فوق
+     · اللمعة/التمييز: #3B82F6
    كل الأسطح الأساسية (السايدبار، الأزرار الرئيسية، التبويب النشط، شعار النظام،
    شاشة الدخول، الشيبس النشطة) اتنقلت للنظام ده.
    ========================================================================== */
 :root{
   --brand:#2563EB; --brand-d:#1E40AF; --brand-bg:#EFF6FF; --brand-line:#DBEAFE;
   --accent:#2563EB; --accent-2:#1E40AF; --focus:#3B82F6;
-  --side:#0F1E45; --side2:#0C1428; --bar:#0F1E45;
+  --side:#16234A; --side2:#0C1428; --bar:#16234A;
   --solid:#1E40AF;
   --bh-grad:linear-gradient(135deg,#2563EB 0%,#1E40AF 100%);
   --bh-deep:radial-gradient(120% 42% at 22% 0%,rgba(37,99,235,.38),transparent 62%),
-            radial-gradient(120% 60% at 0% 0%,#16234A 0%,#0C1428 55%,#080E1C 100%);
+            radial-gradient(120% 60% at 0% 0%,#16234A 0%,#0C1428 55%,#0C1428 100%);
 }
 /* السايدبار/الشريط */
 .topnav{background:var(--bh-deep)}
+:root[data-theme=dark] .topnav{background:var(--bh-deep)}
 /* شعار النظام + صورة المستخدم في السايدبار */
 .topnav .mark,.brand-mark{background:var(--bh-grad);box-shadow:0 8px 22px rgba(37,99,235,.4)}
-.topnav .ava{background:linear-gradient(150deg,#2563EB,#60A5FA)}
+.topnav .ava{background:linear-gradient(150deg,#2563EB,#3B82F6)}
 /* التبويب النشط: حبة متدرجة + شريط لمعة */
-.topnav .tabs .nav-btn.active{background:linear-gradient(100deg,rgba(37,99,235,.45),rgba(37,99,235,.10));box-shadow:inset 0 0 0 1px rgba(96,165,250,.22)}
-.topnav .tabs .nav-btn.active::before{background:#60A5FA;box-shadow:0 0 14px rgba(96,165,250,.9)}
+.topnav .tabs .nav-btn.active{background:linear-gradient(100deg,rgba(37,99,235,.45),rgba(37,99,235,.10));box-shadow:inset 0 0 0 1px rgba(59, 130, 246,.22)}
+.topnav .tabs .nav-btn.active::before{background:#3B82F6;box-shadow:0 0 14px rgba(59, 130, 246,.9)}
 .topnav .tabs .nav-btn.active .nav-ico{background:rgba(255,255,255,.12);box-shadow:0 6px 16px rgba(37,99,235,.45)}
-.nav-ind{background:#60A5FA;box-shadow:0 0 14px rgba(96,165,250,.85)}
+.nav-ind{background:#3B82F6;box-shadow:0 0 14px rgba(59, 130, 246,.85)}
 /* الأزرار الرئيسية */
 .btn.primary{background:var(--bh-grad);border-color:transparent}
 .btn.primary:hover:not([disabled]){background:linear-gradient(135deg,#3B82F6,#2563EB);box-shadow:0 16px 30px -12px rgba(37,99,235,.75)}
@@ -2560,15 +2561,15 @@ button,a,label,select,summary,input[type=checkbox],input[type=radio],.chip,.nav-
 .seg-filter button.on,.att-sticky .seg-filter button.on,.presets button.on,.chip.on{background:var(--bh-grad);color:#fff;border-color:transparent}
 .chip.on b{background:rgba(255,255,255,.2);color:#fff}
 /* شاشة الدخول */
-.login-shell{background:var(--bh-deep),linear-gradient(180deg,#0B1220,#0B1220)}
+.login-shell{background:var(--bh-deep),linear-gradient(180deg,#0C1428,#0C1428)}
 .login-shell::after{
   background:radial-gradient(24% 24% at 32% 30%,#2563EB,transparent 70%),
              radial-gradient(20% 20% at 70% 66%,#1E40AF,transparent 70%),
-             radial-gradient(18% 18% at 46% 82%,#60A5FA,transparent 70%);
+             radial-gradient(18% 18% at 46% 82%,#3B82F6,transparent 70%);
 }
 .login-card .brand-mark{background:var(--bh-grad)}
 /* الكارت فاتح جوه شاشة غامقة — نرجّع توكنز النص الفاتحة لألوان القراءة العادية */
-.login-card{--ink:#0F172A;--ink2:#475569;--ink3:#64748B;--head:#0F172A}
+.login-card{--ink:#0C1428;--ink2:#475569;--ink3:#64748B;--head:#0C1428}
 .login-card .inp:focus{border-color:#2563EB;box-shadow:0 0 0 4px rgba(37,99,235,.18)}
 /* عناصر صغيرة بلمسة الأزرق */
 .kpi:after{background:#2563EB}

@@ -749,7 +749,7 @@ qsa(".js-logout").forEach(b => b.addEventListener("click", () => {
 // ---------- theme (light / dark) ----------
 function applyTheme(t, save) {
   document.documentElement.dataset.theme = t;
-  const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = t === "dark" ? "#0b1220" : "#1e40af";
+  const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = t === "dark" ? "#0C1428" : "#1e40af";
   qsa(".js-theme").forEach(b => b.setAttribute("aria-checked", t === "dark" ? "true" : "false"));
   if (save) { try { sessionStorage.setItem("bankai-theme", t); } catch (e) {} }
 }
@@ -1029,7 +1029,7 @@ async function loadFeed() {
     const r = await api(`/api/roster?attendance_date=${S.dash.date}`, { silent: true });
     const rows = (r.employees || []).filter(e => e.attendance && e.attendance.status && e.attendance.updated_at)
       .sort((a, b) => new Date(b.attendance.updated_at) - new Date(a.attendance.updated_at)).slice(0, 8);
-    const AV = { Present: "linear-gradient(135deg,#0e9f6e,#34d399)", Late: "linear-gradient(135deg,#d97706,#f0b429)", Absent: "linear-gradient(135deg,#e02424,#f87171)", Excused: "linear-gradient(135deg,#0284c7,#38bdf8)" };
+    const AV = { Present: "linear-gradient(135deg,#0e9f6e,#34d399)", Late: "linear-gradient(135deg,#d97706,#f0b429)", Absent: "linear-gradient(135deg,#e02424,#f87171)", Excused: "linear-gradient(135deg,#1E40AF,#3B82F6)" };
     // دخول متتابع لصفوف الفيد أول مرة الداشبورد بيفتح بس — التحديثات بعد كده بتنزل من غير رفرفة
     const firstIn = !S.feedAnimated && rows.length > 0;
     if (firstIn) S.feedAnimated = true;
