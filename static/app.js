@@ -6,7 +6,29 @@ const $ = id => document.getElementById(id);
 const qs = (s, r = document) => r.querySelector(s);
 const qsa = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const sh = s => `<bdi dir="ltr">${esc(s)}</bdi>`;
+/* اسم الشيفت بيتعرض بنظام 12 ساعة (8:00 ص - 7:00 م) والقيمة الأصلية بتفضل زي ما هي
+   (للفلترة والحفظ). أي نص مش شيفت بيتعرض زي ما هو. */
+function fmtShiftLabel(name) {
+  const raw = String(name ?? "");
+  if (!/\d/.test(raw)) return raw;
+  const times = [...raw.matchAll(/(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.?m\.?|p\.?m\.?|ص|م)?/gi)];
+  if (times.length < 2) return raw;
+  const conv = m => {
+    let h = Number(m[1]);
+    const mi = Number(m[2] || 0);
+    const ap = String(m[3] || "").toLowerCase().replace(/\./g, "");
+    if (ap === "am" || ap === "ص") { if (h < 1 || h > 12) return null; h = h === 12 ? 0 : h; }
+    else if (ap === "pm" || ap === "م") { if (h < 1 || h > 12) return null; h = h === 12 ? 12 : h + 12; }
+    else { if (h > 23) return null; }
+    if (mi > 59) return null;
+    return `${h % 12 || 12}:${pad(mi)} ${h < 12 ? "ص" : "م"}`;
+  };
+  const a = conv(times[0]), b = conv(times[1]);
+  if (!a || !b) return raw;
+  const leftover = raw.replace(times[0][0], "").replace(times[1][0], "").replace(/[\s\-–—.:|/]+/g, "");
+  return leftover ? raw : `${a} - ${b}`;
+}
+const sh = s => `<bdi dir="ltr">${esc(fmtShiftLabel(s))}</bdi>`;
 const num = n => Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
 const money = n => `${num(n)} ج.م`;
 const pad = n => String(n).padStart(2, "0");
@@ -1222,7 +1244,7 @@ function fillAttShiftOptions() {
   const pool = S.roster.employees.filter(e => !S.att.branch || e.branch === S.att.branch);
   const shifts = [...new Set(pool.map(e => e.shift))].sort((a, b) => a.localeCompare(b, "ar"));
   if (S.att.shift && !shifts.includes(S.att.shift)) S.att.shift = "";
-  sel.innerHTML = `<option value="">كل الشيفتات</option>` + shifts.map(s => `<option>${esc(s)}</option>`).join("");
+  sel.innerHTML = `<option value="">كل الشيفتات</option>` + shifts.map(s => `<option value="${esc(s)}">${esc(fmtShiftLabel(s))}</option>`).join("");
   sel.value = S.att.shift;
 }
 
@@ -1516,7 +1538,7 @@ function fillShiftLists() {
   const shifts = [...new Set(S.employees.map(e => e.shift))].sort((a, b) => a.localeCompare(b, "ar"));
   $("shiftList").innerHTML = shifts.map(s => `<option value="${esc(s)}"></option>`).join("");
   const sel = $("empShift"), cur = S.emp.shift;
-  sel.innerHTML = `<option value="">كل الشيفتات</option>` + shifts.map(s => `<option>${esc(s)}</option>`).join("");
+  sel.innerHTML = `<option value="">كل الشيفتات</option>` + shifts.map(s => `<option value="${esc(s)}">${esc(fmtShiftLabel(s))}</option>`).join("");
   if (shifts.includes(cur)) sel.value = cur; else { S.emp.shift = ""; sel.value = ""; }
 }
 async function refreshEmployees() {
@@ -1653,7 +1675,7 @@ function fillEmpShiftOptions(current = "") {
   const sel = $("fShift");
   const shifts = empShiftOptions(branch, current);
   sel.innerHTML = shifts.length
-    ? shifts.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("")
+    ? shifts.map(s => `<option value="${esc(s)}">${esc(fmtShiftLabel(s))}</option>`).join("")
     : `<option value="">— مفيش شيفتات للفرع ده — أضف شيفت من صفحة الجدول الأول</option>`;
   if (current && shifts.includes(current)) sel.value = current;
   /* الشيفتات المعرّفة في الفرع حتى لو مفيهاش موظفين (نضيفها بعد ما تجيلنا) */
@@ -1668,7 +1690,7 @@ async function refreshBranchShiftDefs(branch, current) {
     const shifts = [...new Set([...(r.shifts || []), ...empShiftOptions(branch, keep)])]
       .filter(Boolean).sort((a, b) => a.localeCompare(b, "ar"));
     if (!shifts.length) return;
-    sel.innerHTML = shifts.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+    sel.innerHTML = shifts.map(s => `<option value="${esc(s)}">${esc(fmtShiftLabel(s))}</option>`).join("");
     if (keep && shifts.includes(keep)) sel.value = keep;
   } catch (e) { /* مش أساسي — القايمة الأساسية موجودة بالفعل */ }
 }
@@ -2184,7 +2206,7 @@ function schRow(e, all) {
       <td class="acts no-print"></td></tr>`;
   }
   const movedTo = otherBranchOf(e.branch);
-  const moves = all.filter(s => s !== e.shift).map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("")
+  const moves = all.filter(s => s !== e.shift).map(s => `<option value="${esc(s)}">${esc(fmtShiftLabel(s))}</option>`).join("")
     + `<option value="branch:${esc(movedTo)}">نقل لفرع ${esc(movedTo)}</option>`;
   return `<tr data-id="${e.id}" class="${S.sch.draft.has(e.id) ? "dirty" : ""}">
     <td class="who">${whoHTML(e.name, `<b>${esc(e.name)}</b><small>${esc(e.employee_code || "")}</small>`)}</td>
@@ -2227,7 +2249,7 @@ function renderSchedule() {
   const D = S.sch.data; if (!D) return;
   schSegCounts();
   const groups = schGroups(), names = [...groups.keys()], emps = D.employees.map(schEmp);
-  $("schNames").innerHTML = emps.map(e => `<option value="${esc(e.name)}">${esc(e.shift)}</option>`).join("");
+  $("schNames").innerHTML = emps.map(e => `<option value="${esc(e.name)}">${esc(fmtShiftLabel(e.shift))}</option>`).join("");
   const scope = $("autoScope").value;
   $("autoScope").innerHTML = `<option value="">كل شيفتات الفرع</option>` + names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
   $("autoScope").value = names.includes(scope) ? scope : "";
