@@ -3089,21 +3089,3 @@ async function loadEmployeesSoft() {
 applySoundBtn();
 setLive(false, "غير متصل");
 
-/* ================= سلاسة: أداء الشريط =================
-   ضبابية الشريط العلوي بتكلّف رسم على كل إطار أثناء التمرير — بعد أول شوية
-   تمرير بنحوّلها لخلفية صلبة (نفس المنظر تقريبًا، بدون تكلفة).
-   ملاحظة: حركة فتح/قفل النوافذ كلها CSS (transition-behavior: allow-discrete)
-   من غير أي تعديل على سلوك dialog في الـJS. */
-(function navSolidOnScroll() {
-  const nav = document.querySelector(".topnav");
-  if (!nav) return;
-  let raf = 0, solid = false;
-  const apply = () => {
-    raf = 0;
-    const want = window.scrollY > 8;
-    if (want !== solid) { solid = want; nav.classList.toggle("solid", solid); }
-  };
-  addEventListener("scroll", () => { if (!raf) raf = requestAnimationFrame(apply); }, { passive: true });
-  apply();
-})();
-

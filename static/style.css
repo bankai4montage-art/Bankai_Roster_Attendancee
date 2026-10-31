@@ -2509,7 +2509,6 @@ dialog.dlg[open]::backdrop{animation:none}
 }
 /* 2) الشريط العلوي + مؤشر التنقل */
 .topnav{transition:background .22s var(--fds-out),box-shadow .22s var(--fds-out)}
-.topnav.solid{background:var(--surface);-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:0 14px 34px -26px rgba(20,40,90,.55)}
 #navInd{transition:transform .26s var(--fds-out),height .26s var(--fds-out),opacity .18s ease}
 .topnav .tabs .nav-btn::before{transition:height .2s var(--fds-out)}
 .bnav .nav-btn::after{transition:width .22s var(--fds-out)}
@@ -2523,3 +2522,55 @@ button,a,label,select,summary,input[type=checkbox],input[type=radio],.chip,.nav-
 .tbl tbody tr,.arow{transition:background-color .11s var(--fds-out)}
 .link{transition:color .12s var(--fds-out)}
 .table-wrap,.dlg-b,.alist{overscroll-behavior:contain}
+
+/* ============================================================================
+   V22 — درجة الأزرق الأساسية (مطابقة لنظام Bankai-Hiring)
+   اللون الأساسي والتدرّج بقى نفس نظام Bankai-Hiring:
+     · التدرّج الأساسي: #2563EB → #1E40AF (أزرق برواق غامق)
+     · الخلفية الداكنة: #16234A → #0C1428 → #080E1C مع هالة زرقاء فوق
+     · اللمعة/التمييز: #60A5FA
+   كل الأسطح الأساسية (السايدبار، الأزرار الرئيسية، التبويب النشط، شعار النظام،
+   شاشة الدخول، الشيبس النشطة) اتنقلت للنظام ده.
+   ========================================================================== */
+:root{
+  --brand:#2563EB; --brand-d:#1E40AF; --brand-bg:#EFF6FF; --brand-line:#DBEAFE;
+  --accent:#2563EB; --accent-2:#1E40AF; --focus:#3B82F6;
+  --side:#0F1E45; --side2:#0C1428; --bar:#0F1E45;
+  --solid:#1E40AF;
+  --bh-grad:linear-gradient(135deg,#2563EB 0%,#1E40AF 100%);
+  --bh-deep:radial-gradient(120% 42% at 22% 0%,rgba(37,99,235,.38),transparent 62%),
+            radial-gradient(120% 60% at 0% 0%,#16234A 0%,#0C1428 55%,#080E1C 100%);
+}
+/* السايدبار/الشريط */
+.topnav{background:var(--bh-deep)}
+/* شعار النظام + صورة المستخدم في السايدبار */
+.topnav .mark,.brand-mark{background:var(--bh-grad);box-shadow:0 8px 22px rgba(37,99,235,.4)}
+.topnav .ava{background:linear-gradient(150deg,#2563EB,#60A5FA)}
+/* التبويب النشط: حبة متدرجة + شريط لمعة */
+.topnav .tabs .nav-btn.active{background:linear-gradient(100deg,rgba(37,99,235,.45),rgba(37,99,235,.10));box-shadow:inset 0 0 0 1px rgba(96,165,250,.22)}
+.topnav .tabs .nav-btn.active::before{background:#60A5FA;box-shadow:0 0 14px rgba(96,165,250,.9)}
+.topnav .tabs .nav-btn.active .nav-ico{background:rgba(255,255,255,.12);box-shadow:0 6px 16px rgba(37,99,235,.45)}
+.nav-ind{background:#60A5FA;box-shadow:0 0 14px rgba(96,165,250,.85)}
+/* الأزرار الرئيسية */
+.btn.primary{background:var(--bh-grad);border-color:transparent}
+.btn.primary:hover:not([disabled]){background:linear-gradient(135deg,#3B82F6,#2563EB);box-shadow:0 16px 30px -12px rgba(37,99,235,.75)}
+:root[data-theme=dark] .btn.primary{background:linear-gradient(135deg,#2563EB,#1E40AF)}
+:root[data-theme=dark] .btn.primary:hover:not([disabled]){background:linear-gradient(135deg,#3B82F6,#2563EB)}
+/* حالات التحديد النشطة */
+.seg-filter button.on,.att-sticky .seg-filter button.on,.presets button.on,.chip.on{background:var(--bh-grad);color:#fff;border-color:transparent}
+.chip.on b{background:rgba(255,255,255,.2);color:#fff}
+/* شاشة الدخول */
+.login-shell{background:var(--bh-deep),linear-gradient(180deg,#0B1220,#0B1220)}
+.login-shell::after{
+  background:radial-gradient(24% 24% at 32% 30%,#2563EB,transparent 70%),
+             radial-gradient(20% 20% at 70% 66%,#1E40AF,transparent 70%),
+             radial-gradient(18% 18% at 46% 82%,#60A5FA,transparent 70%);
+}
+.login-card .brand-mark{background:var(--bh-grad)}
+/* الكارت فاتح جوه شاشة غامقة — نرجّع توكنز النص الفاتحة لألوان القراءة العادية */
+.login-card{--ink:#0F172A;--ink2:#475569;--ink3:#64748B;--head:#0F172A}
+.login-card .inp:focus{border-color:#2563EB;box-shadow:0 0 0 4px rgba(37,99,235,.18)}
+/* عناصر صغيرة بلمسة الأزرق */
+.kpi:after{background:#2563EB}
+.topbar h2::before{background:linear-gradient(180deg,#93C5FD,#1E40AF)}
+.btn.primary::after{background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.28) 50%,transparent 65%)}
