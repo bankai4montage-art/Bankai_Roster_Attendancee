@@ -141,6 +141,9 @@ button.kpi:hover{border-color:var(--line3);border-top-color:inherit}
 .kpi.brand{border-top-color:var(--brand)}
 .dash-note{margin-bottom:14px;display:flex;flex-wrap:wrap}
 .branch-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+/* مشرف فرع: فرع واحد بس في الداش بورد — البانيل يملى العرض كله بدل نص مساحة فاضية */
+.branch-grid.one{grid-template-columns:1fr}
+.branch-grid.one>.panel .tbl{min-height:0}
 .bp-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:10px 0 8px}
 .mini-tbl{width:100%;border-collapse:collapse;margin-top:14px;font-size:12.5px}
 .mini-tbl th{text-align:start}

@@ -1005,6 +1005,8 @@ function renderDashboard(d) {
   const t = d.totals, date = d.date;
   $("dashSub").textContent = `${WD_AR[d.weekday] || ""} ${fmtDay(date, { day: "numeric", month: "long", year: "numeric" })} · ${weekLabel(d.week.start)}`;
   $("dashTrendSub").textContent = `${weekLabel(d.week.start)} · ${weekRangeText(d.week.start)}`;
+  /* فرع واحد بس في الرد (مشرف فرع) — البانيل يملى العرض بدل نص الجريد فاضي */
+  $("dashBranches").classList.toggle("one", Object.keys(d.branches).length === 1);
   const kp = [
     ["مجدولون اليوم", t.scheduled, "brand", { date }], ["حاضر", t.present, "ok", { date, status: "Present" }],
     ["متأخر", t.late, "warn", { date, status: "Late" }], ["غائب", t.absent, "bad", { date, status: "Absent" }],
