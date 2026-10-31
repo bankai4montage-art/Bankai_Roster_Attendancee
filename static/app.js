@@ -3089,3 +3089,23 @@ async function loadEmployeesSoft() {
 applySoundBtn();
 setLive(false, "غير متصل");
 
+/* ===== FB_TAB_EMITTER v1 =====
+   When Final-Bankai runs this system embedded, tell the platform which
+   internal page is open so the floating tab bar can follow along. */
+(function () {
+  const fbEmit = (p) => {
+    try { parent.postMessage({ type: "fb:tab", sys: "roster", tab: PAGES[p] ? p : "dashboard" }, "*"); } catch {}
+  };
+  const _fbShow = window.showPage;
+  if (_fbShow) {
+    window.showPage = function (p) { const r = _fbShow.apply(this, arguments); fbEmit(p); return r; };
+  }
+  window.addEventListener("hashchange", () => {
+    const pg = (location.hash || "#dashboard").slice(1);
+    fbEmit(PAGES[pg] ? pg : "dashboard");
+  });
+  // report the initial page (and again shortly after login/refresh flows)
+  const pg = (location.hash || "#dashboard").slice(1);
+  fbEmit(PAGES[pg] ? pg : "dashboard");
+  setTimeout(() => fbEmit((location.hash || "#dashboard").slice(1)), 1200);
+})();
