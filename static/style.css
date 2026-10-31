@@ -2476,3 +2476,50 @@ dialog::backdrop{background:color-mix(in srgb,#0f1b33 55%,transparent);backdrop-
 /* أسهم حقل المبلغ: بتغطي الحقل في RTL — بنخفيها (الكتابة manually هي الأساس) */
 #fineAmount{-moz-appearance:textfield;appearance:textfield}
 #fineAmount::-webkit-outer-spin-button,#fineAmount::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+
+/* ============================================================================
+   V21 — سلاسة الانتقالات: نوافذ، شريط، لمس، موبايل
+   1) قفل الدايلوج بأنيميشن (app.js بيضيف .dlg-closing) — وعلى الموبايل الدايلوج
+      يبقى شيت سفلي بينزلق من تحت.
+   2) الشريط العلوي: خلفية صلبة بعد التمرير (.solid من app.js) بدل الضبابية
+      اللي بتكلف رسم على كل إطار أثناء السكرول.
+   3) لمس: touch-action manipulation يلغي تأخير النقر المزدوج + ضغط أسرع
+      (active) على كل العناصر القابلة للنقر.
+   4) الأسطح الكبيرة (بانلات/جداول) حركتها أهدى من غير overshoot — الربيع
+      مخصص للعناصر الصغيرة بس.
+   ========================================================================== */
+/* 1) النوافذ: فتح/قفل بأنيميشن متماثل — CSS بحت (allow-discrete) من غير ما
+   نلمس سلوك dialog في الـJS، فالـopen بيفضل صحيح زي ما الكود متوقعه. */
+dialog.dlg{
+  opacity:0;
+  transform:translateY(12px) scale(.975);
+  transition:opacity .18s var(--fds-out),transform .18s var(--fds-out),
+             overlay .18s allow-discrete,display .18s allow-discrete;
+}
+dialog.dlg[open]{opacity:1;transform:none;animation:none}
+@starting-style{dialog.dlg[open]{opacity:0;transform:translateY(12px) scale(.975)}}
+dialog.dlg::backdrop{opacity:1;transition:opacity .18s ease,overlay .18s allow-discrete,display .18s allow-discrete}
+dialog.dlg[open]::backdrop{animation:none}
+@starting-style{dialog.dlg::backdrop{opacity:0}}
+@media (max-width:720px){
+  dialog.dlg{inset:auto 0 0 0;width:100%;max-width:none;max-height:92dvh;margin:0;border-radius:24px 24px 0 0;border-bottom:0;transform:translateY(34px)}
+  dialog.dlg[open]{transform:none}
+  @starting-style{dialog.dlg[open]{transform:translateY(34px)}}
+  dialog.dlg .dlg-f{position:sticky;bottom:0}
+}
+/* 2) الشريط العلوي + مؤشر التنقل */
+.topnav{transition:background .22s var(--fds-out),box-shadow .22s var(--fds-out)}
+.topnav.solid{background:var(--surface);-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:0 14px 34px -26px rgba(20,40,90,.55)}
+#navInd{transition:transform .26s var(--fds-out),height .26s var(--fds-out),opacity .18s ease}
+.topnav .tabs .nav-btn::before{transition:height .2s var(--fds-out)}
+.bnav .nav-btn::after{transition:width .22s var(--fds-out)}
+/* 3) لمس + ضغط فوري */
+button,a,label,select,summary,input[type=checkbox],input[type=radio],.chip,.nav-btn,.dc button,.daychecks label,.kpi,.link,tr[data-go],tr[data-hist]{touch-action:manipulation}
+.btn:active:not([disabled]){transform:translateY(1px) scale(.986);transition-duration:.055s}
+.icon-btn:active:not([disabled]),.note-btn:active:not([disabled]){transform:scale(.94);transition-duration:.055s}
+.nav-btn:active{transform:scale(.96);transition-duration:.055s}
+/* 4) أسطح كبيرة: حركة هادئة + تمرير محسوب */
+.panel,.shcard,.br-card{transition-timing-function:var(--fds-out)}
+.tbl tbody tr,.arow{transition:background-color .11s var(--fds-out)}
+.link{transition:color .12s var(--fds-out)}
+.table-wrap,.dlg-b,.alist{overscroll-behavior:contain}

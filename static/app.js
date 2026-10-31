@@ -620,12 +620,12 @@ S.clientId = (() => {
   } catch (e) { return "tab" + Math.random().toString(36).slice(2); }
 })();
 
-/* شريط تقدّم رقيق أعلى الصفحة. بيظهر بس لو الطلب خد أكتر من 220ms عشان مايرمشش
+/* شريط تقدّم رقيق أعلى الصفحة. بيظهر بس لو الطلب خد وقت (130ms) عشان مايرمشش
    مع كل تفاعل سريع، والطلبات الخلفية (تحديث الـ feed كل 30 ثانية) بتبعت silent. */
 let inflight = 0, barTimer;
 function trackStart() {
   inflight++;
-  if (inflight === 1) barTimer = setTimeout(() => $("routeBar")?.classList.add("on"), 220);
+  if (inflight === 1) barTimer = setTimeout(() => $("routeBar")?.classList.add("on"), 130);
 }
 function trackEnd() {
   inflight = Math.max(0, inflight - 1);
@@ -3088,4 +3088,22 @@ async function loadEmployeesSoft() {
 
 applySoundBtn();
 setLive(false, "غير متصل");
+
+/* ================= سلاسة: أداء الشريط =================
+   ضبابية الشريط العلوي بتكلّف رسم على كل إطار أثناء التمرير — بعد أول شوية
+   تمرير بنحوّلها لخلفية صلبة (نفس المنظر تقريبًا، بدون تكلفة).
+   ملاحظة: حركة فتح/قفل النوافذ كلها CSS (transition-behavior: allow-discrete)
+   من غير أي تعديل على سلوك dialog في الـJS. */
+(function navSolidOnScroll() {
+  const nav = document.querySelector(".topnav");
+  if (!nav) return;
+  let raf = 0, solid = false;
+  const apply = () => {
+    raf = 0;
+    const want = window.scrollY > 8;
+    if (want !== solid) { solid = want; nav.classList.toggle("solid", solid); }
+  };
+  addEventListener("scroll", () => { if (!raf) raf = requestAnimationFrame(apply); }, { passive: true });
+  apply();
+})();
 
