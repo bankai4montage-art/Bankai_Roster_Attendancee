@@ -579,7 +579,7 @@ def norm_type(v):
 _EN_DAYS = {d.lower(): d for d in WEEKDAYS}
 _EN_DAYS.update({d.lower()[:3]: d for d in WEEKDAYS})
 _AR_DAYS = {"سبت": "Saturday", "احد": "Sunday", "اثنين": "Monday", "ثلاثاء": "Tuesday",
-            "اربعاء": "Wednesday", "خميس": "Thursday", "جمعه": "Friday"}
+            "اربعاء": "Wednesday", "اربع": "Wednesday", "خميس": "Thursday", "جمعه": "Friday"}
 
 
 def norm_day(v):
@@ -2561,6 +2561,9 @@ def parse_schedule_workbook(data):
             continue
         marks = [c for c, h in hdr.items() if h in _NAME_HDR]
         blocks = []
+        # أعمدة الشمال لسه ما استُخدمتش: البلوك الأول ياخد كل اللي قبل اسمه، وأي بلوك بعده
+        # ياخد بس اللي بعد آخر عمود بلوك قبله (عشان ما يسرقش أعمدة بلوك السابق).
+        left_start = 1
         for i, c in enumerate(marks):
             stop = marks[i + 1] if i + 1 < len(marks) else ws.max_column + 1
             cols = {}
@@ -2568,9 +2571,17 @@ def parse_schedule_workbook(data):
                 k = _col_kind(hdr.get(cc, ""))
                 if k and k not in cols:
                     cols[k] = cc
-            # المحتوى أصدق من العنوان: لو عنوان BREAK فوق أيام أو العكس، نصحّح حسب القيم الفعلية
+            # الشيفت/الإجازة/البريك ممكن يكونون قبل عمود الاسم (شيتات برّه أو تصدير الجدول نفسه
+            # العملة فيه: الفرع، الشيفت، الاسم) — بنقراهم كمان عن طريق عنوان العمود.
+            for cc in range(left_start, c):
+                k = _col_kind(hdr.get(cc, ""))
+                if k and k not in cols:
+                    cols[k] = cc
+            # المحتوى أصدق من العنوان: لو عنوان BREAK فوق أيام أو العكس، نصحّح حسب القيم الفعلية.
+            # في أعمدة الشمال (قبل الاسم) ما نصحّحش بريك من غير عنوان — قيم البريك شكلها
+            # زي أعمدة رقمية/أكواد كتير وده ممكن يلبس عمود غلط في بلوك غلط.
             content = {}
-            for cc in range(c + 1, stop):
+            for cc in range(left_start, stop):
                 vals = [_clean(ws.cell(r, cc).value) for r in range(hdr_row + 1, ws.max_row + 1)]
                 vals = [v for v in vals if v]
                 if len(vals) < 2:
@@ -2581,6 +2592,8 @@ def parse_schedule_workbook(data):
                 elif frac(lambda v: parse_shift(v) is not None and re.search(r"\d\s*[-–—]\s*\d|\s[-–—]\s", v)) >= 0.6:
                     kind = "shift"
                 elif frac(lambda v: parse_break_time(v) is not None) >= 0.6:
+                    if cc < c:
+                        continue        # شمال الاسم: البريك بيتقرا من عنوانه بس
                     kind = "break"
                 else:
                     continue
@@ -2591,11 +2604,14 @@ def parse_schedule_workbook(data):
                              + "، ".join(f"عمود {_col_letter(v)} = {label[k]}" for k, v in sorted(content.items(), key=lambda x: x[1])))
                 cols = {**{k: v for k, v in cols.items() if k == "type"}, **content}
             blocks.append({"name": c, "type": _NAME_HDR[hdr[c]], "cols": cols})
+            left_start = stop      # الأعمدة دي بقت حط كلها منطقة البلوك ده
         used.append(ws.title)
         for r in range(hdr_row + 1, ws.max_row + 1):
             for b in blocks:
                 g = lambda k: _clean(ws.cell(r, b["cols"][k]).value) if k in b["cols"] else ""
                 name = _clean(ws.cell(r, b["name"]).value)
+                if _HDR(name) in _NAME_HDR:    # صف بيردّ عناوين بلوك تاني (قسم PART TIME في التصدير)
+                    continue
                 shift, brk, day, typ = g("shift"), g("break"), g("day"), g("type")
                 if not (name or shift or brk or day):
                     continue
