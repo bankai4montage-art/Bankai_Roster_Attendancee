@@ -1639,6 +1639,42 @@ on("bulkForm", "submit", async e => {
 on("empAdd", "click", () => openEmpDialog());
 on("fClose", "click", () => $("empDialog").close());
 on("fCancel", "click", () => $("empDialog").close());
+
+/* شيفتات نافذة الموظف: دروب مينو بالشيفتات المتاحة للفرع المختار (مش كتابة حرة)
+   — بندمج شيفتات موظفين الفرع + تعريفات الشيفتات بتاعة الفرع من صفحة الجدول */
+function empShiftOptions(branch, current) {
+  const set = new Set(S.employees.filter(e => !branch || e.branch === branch).map(e => e.shift).filter(Boolean));
+  if (current) set.add(current);
+  return [...set].sort((a, b) => a.localeCompare(b, "ar"));
+}
+
+function fillEmpShiftOptions(current = "") {
+  const branch = $("fBranch").value;
+  const sel = $("fShift");
+  const shifts = empShiftOptions(branch, current);
+  sel.innerHTML = shifts.length
+    ? shifts.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("")
+    : `<option value="">— مفيش شيفتات للفرع ده — أضف شيفت من صفحة الجدول الأول</option>`;
+  if (current && shifts.includes(current)) sel.value = current;
+  /* الشيفتات المعرّفة في الفرع حتى لو مفيهاش موظفين (نضيفها بعد ما تجيلنا) */
+  if (branch) refreshBranchShiftDefs(branch, current);
+}
+
+async function refreshBranchShiftDefs(branch, current) {
+  try {
+    const r = await api(`/api/schedule?branch=${encodeURIComponent(branch)}&week=${S.week}`, { silent: true });
+    if ($("fBranch").value !== branch) return;   /* الفرع اتغيّر خلال النداء */
+    const sel = $("fShift"), keep = sel.value || current;
+    const shifts = [...new Set([...(r.shifts || []), ...empShiftOptions(branch, keep)])]
+      .filter(Boolean).sort((a, b) => a.localeCompare(b, "ar"));
+    if (!shifts.length) return;
+    sel.innerHTML = shifts.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+    if (keep && shifts.includes(keep)) sel.value = keep;
+  } catch (e) { /* مش أساسي — القايمة الأساسية موجودة بالفعل */ }
+}
+
+on("fBranch", "change", () => fillEmpShiftOptions(""));
+
 function openEmpDialog(id = null) {
   $("fError").textContent = ""; $("empForm").reset();
   $("fId").value = ""; $("fActive").checked = true; $("fDay").value = "Friday";
@@ -1646,14 +1682,19 @@ function openEmpDialog(id = null) {
   if (id) {
     const e = S.employees.find(x => x.id === id); if (!e) return;
     $("fId").value = e.id; $("fName").value = e.name; $("fCode").value = e.employee_code || "";
-    $("fBranch").value = e.branch; $("fType").value = e.employment_type; $("fShift").value = e.shift;
+    $("fBranch").value = e.branch; $("fType").value = e.employment_type;
+    fillEmpShiftOptions(e.shift);
     $("fDay").value = e.day_off; $("fPhone").value = e.phone || ""; $("fActive").checked = e.active;
-  } else if (S.emp.branch) $("fBranch").value = S.emp.branch;
+  } else {
+    if (S.emp.branch) $("fBranch").value = S.emp.branch;
+    fillEmpShiftOptions("");
+  }
   $("empDialog").showModal(); $("fName").focus();
 }
 on("empForm", "submit", async ev => {
   ev.preventDefault();
-  const data = { name: $("fName").value.trim(), employee_code: $("fCode").value.trim() || null, branch: $("fBranch").value, employment_type: $("fType").value, shift: $("fShift").value.trim(), day_off: $("fDay").value, phone: $("fPhone").value.trim() || null, active: $("fActive").checked };
+  if (!$("fShift").value) { $("fError").textContent = "اختار الشيفت من القايمة — مفيش شيفتات معرّفة للفرع ده لسه."; return; }
+  const data = { name: $("fName").value.trim(), employee_code: $("fCode").value.trim() || null, branch: $("fBranch").value, employment_type: $("fType").value, shift: $("fShift").value, day_off: $("fDay").value, phone: $("fPhone").value.trim() || null, active: $("fActive").checked };
   const id = $("fId").value;
   try {
     await api(id ? `/api/employees/${id}?${wq()}` : `/api/employees?${wq()}`, { method: id ? "PUT" : "POST", body: data });
