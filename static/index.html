@@ -442,12 +442,14 @@
     <section id="page-settings" class="page hidden">
       <div class="settings-grid">
         <div class="panel">
-          <div class="panel-h"><div><h3>الغرامات الافتراضية</h3><p>تتعبّى تلقائيًا في خانة الغرامة عند اختيار الحالة، وتقدر تعدّلها لكل موظف.</p></div></div>
+          <div class="panel-h"><div><h3>الغرامات الافتراضية</h3><p>غرامة ثابتة لكل فرع (فول تايم وبارت تايم بتوعه). تتعبّى تلقائيًا في خانة الغرامة عند اختيار الحالة، وتقدر تعدّلها لكل موظف.</p></div></div>
           <div class="panel-b">
             <div class="form-grid">
               <label class="field">غرامة التأخير (ج.م)<input id="setFineLate" class="inp" type="number" min="0" step="1" inputmode="numeric"></label>
               <label class="field">غرامة الغياب (ج.م)<input id="setFineAbsent" class="inp" type="number" min="0" step="1" inputmode="numeric"></label>
             </div>
+            <p class="hint">الافتراضي العام للسيستم — بيتم تطبيقه لما تكون الخانة الخاصة بالفرع فاضية.</p>
+            <div id="branchFinesBox" class="branch-fines"></div>
             <p class="hint">الغياب «بعذر» ما عليه غرامة. لو الغرامة أكبر من صفر لازم تكتب السبب قبل الحفظ.</p>
             <div class="admin-only"><button class="btn primary" id="setSave">حفظ الإعدادات</button></div>
           </div>

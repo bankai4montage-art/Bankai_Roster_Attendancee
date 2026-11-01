@@ -233,6 +233,11 @@ Object.assign(I18N.en, {
   "التفصيل بالأسبوع": "Weekly breakdown", "الفترة": "Period", "التفصيل الشهري": "Monthly breakdown", "الشهر": "Month",
   "سجل الغرامات": "Fines log", "الغرامة": "Fine", "لا توجد غرامات في الفترة المحددة": "No fines in the selected period",
   "الغرامات الافتراضية": "Default fines",
+  "غرامة ثابتة لكل فرع (فول تايم وبارت تايم بتوعه). تتعبّى تلقائيًا في خانة الغرامة عند اختيار الحالة، وتقدر تعدّلها لكل موظف.": "A fixed fine per branch (full-time & part-time each). Auto-filled when picking a status; you can adjust per employee.",
+  "الافتراضي العام للسيستم — بيتم تطبيقه لما تكون الخانة الخاصة بالفرع فاضية.": "System-wide default — applied when a branch's own field is empty.",
+  "الافتراضي العام للسيستم — بيتم تطبيقه لما تكون الخانة بتاعة الفرع فاضية.": "System-wide default — applied when a branch's own field is empty.",
+  "فول تايم (FT)": "Full time (FT)", "بارت تايم (PT)": "Part time (PT)",
+  "الخانة الفاضية بتاخد الافتراضي العام": "Empty fields fall back to the system default",
   "تتعبّى تلقائيًا في خانة الغرامة عند اختيار الحالة، وتقدر تعدّلها لكل موظف.": "Auto-filled when picking a status; you can adjust per employee.",
   "الغياب «بعذر» ما عليه غرامة. لو الغرامة أكبر من صفر لازم تكتب السبب قبل الحفظ.": "Excused absence has no fine. A fine above zero requires a reason before saving.",
   "حفظ الإعدادات": "Save settings", "البيانات والنسخ الاحتياطي": "Data & backup", "خد نسخة من بياناتك بشكل دوري.": "Back up your data regularly.",
@@ -619,7 +624,7 @@ const S = {
   supName: "",
   supBranch: "",     /* مشرف فرع: البيانات بتفلتل على فرعه من السيرفر وكمان في الواجهة */
   page: "", shown: false,
-  settings: { fine_late: 0, fine_absent: 0 },
+  settings: { fine_late: 0, fine_absent: 0, branch_fines: {} },
   employees: [],
   week: "",
   dash: { date: todayISO() },
@@ -1361,6 +1366,14 @@ function updateRowUI(e) {
   if (d.note) note.classList.remove("hidden");
 }
 
+/* الغرامة الافتراضية للموظف: الغرامة الثابتة لفرعه ونوع تعاقده (لو محفوظة) — وإلا الافتراضي العام */
+function defaultFineFor(e, st) {
+  const kind = st === "Late" ? "late" : "absent";
+  const emp = e.employment_type === "PT" ? "pt" : "ft";
+  const v = ((S.settings.branch_fines || {})[e.branch] || {})[kind + "_" + emp];
+  return (v == null ? S.settings[kind === "late" ? "fine_late" : "fine_absent"] : v) || 0;
+}
+
 function setStatus(e, st) {
   const d = getDraft(e);
   S.stale.delete(e.id); /* المستخدم بيعدّل الصف بنفسه: التنبيه بتاع «اتغيّر من حد تاني» خلص */
@@ -1368,7 +1381,7 @@ function setStatus(e, st) {
   d.status = st;
   if (st === "Present") { d.fine = 0; d.reason = ""; }
   else if (st === "Excused") { d.fine = 0; }
-  else if (st === "Late" || st === "Absent") { if (!d.fineTouched) d.fine = S.settings[st === "Late" ? "fine_late" : "fine_absent"] || 0; }
+  else if (st === "Late" || st === "Absent") { if (!d.fineTouched) d.fine = defaultFineFor(e, st); }
   else { d.fine = 0; d.reason = ""; d.note = ""; }
   maybeClean(e); updateRowUI(e); updateAttSummary(); updateSaveBar();
   /* نبضة على الصف نفسه: تأكيد بصري إن التسجيل وقع (الزرار نفسه بينبض بـ fdsPop) */
@@ -2690,10 +2703,38 @@ on("autoRun", "click", async () => {
 });
 
 /* ============================== settings ============================== */
+const BF_BRANCHES = ["QCD 1", "QCD 2"]; /* لازم تطابق BRANCHES في السيرفر */
+const BF_EMPS = [["FT", "فول تايم (FT)"], ["PT", "بارت تايم (PT)"]];
+
+/* شبكة الغرامات الثابتة: صف لكل فرع، وكل صف فيه تأخير/غياب × فول تايم/بارت تايم */
+function renderBranchFines() {
+  const box = $("branchFinesBox");
+  if (!box) return;
+  const bf = S.settings.branch_fines || {};
+  box.innerHTML = BF_BRANCHES.map(b => {
+    const row = bf[b] || {};
+    const val = (k, fallback) => row[k] == null ? "" : row[k];
+    const cells = BF_EMPS.map(([emp, label]) => `
+        <div class="bf-row">
+          <span class="bf-emp">${esc(label)}</span>
+          <label class="bf-cell">تأخير<input class="inp" type="number" min="0" step="1" inputmode="numeric" dir="ltr"
+            data-bf="${esc(b)}|${emp}|late" value="${val("late_" + emp.toLowerCase())}" placeholder="${S.settings.fine_late || 0}"></label>
+          <label class="bf-cell">غياب<input class="inp" type="number" min="0" step="1" inputmode="numeric" dir="ltr"
+            data-bf="${esc(b)}|${emp}|absent" value="${val("absent_" + emp.toLowerCase())}" placeholder="${S.settings.fine_absent || 0}"></label>
+        </div>`).join("");
+    return `<div class="bf-branch">
+        <div class="bf-head"><span class="tag brand">${esc(b)}</span><span class="bf-note">الخانة الفاضية بتاخد الافتراضي العام</span></div>
+        ${cells}
+      </div>`;
+  }).join("");
+  try { applyLang(); } catch (e) {}
+}
+
 async function loadSettings() {
   try {
     S.settings = await api("/api/settings");
     $("setFineLate").value = S.settings.fine_late; $("setFineAbsent").value = S.settings.fine_absent;
+    renderBranchFines();
   } catch (e) { toast(e.message, "err"); }
   /* إظهار حسابات المشرفين اللي السيرفر شايفها فعلاً (بدون كلمات مرور) */
   try {
@@ -2709,7 +2750,25 @@ async function loadSettings() {
 }
 on("setSave", "click", async () => {
   try {
-    S.settings = await api("/api/settings", { method: "PUT", body: { fine_late: Number($("setFineLate").value || 0), fine_absent: Number($("setFineAbsent").value || 0) } });
+    /* نجمع الغرامات الثابتة لكل فرع من الشبكة — الخانة الفاضية بتاخد الافتراضي العام
+       (نقرأه من الحقول نفسها مش من S.settings عشان قيمة حفظ تانية في نفس اللحظة تتطبّق فورًا) */
+    const gLate = Number($("setFineLate").value || 0), gAbsent = Number($("setFineAbsent").value || 0);
+    const branch_fines = {};
+    qsa("#branchFinesBox input[data-bf]").forEach(inp => {
+      const [branch, emp, kind] = inp.dataset.bf.split("|");
+      const fb = kind === "late" ? gLate : gAbsent;
+      branch_fines[branch] = branch_fines[branch] || {};
+      branch_fines[branch][`${kind}_${emp.toLowerCase()}`] = inp.value === "" ? fb : Math.max(0, Number(inp.value) || 0);
+    });
+    S.settings = await api("/api/settings", {
+      method: "PUT",
+      body: {
+        fine_late: gLate,
+        fine_absent: gAbsent,
+        branch_fines,
+      }
+    });
+    renderBranchFines();
     toast("تم حفظ الإعدادات.", "ok");
   } catch (e) { toast(e.message, "err"); }
 });

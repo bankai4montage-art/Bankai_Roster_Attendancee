@@ -527,9 +527,19 @@ class ImportIn(BaseModel):
     dry_run: bool = False
 
 
+class BranchFinesIn(BaseModel):
+    """غرامات ثابتة لفرع واحد: تأخير وغياب × فول تايم وبارت تايم."""
+    late_ft: float = Field(default=0, ge=0, le=100000)
+    late_pt: float = Field(default=0, ge=0, le=100000)
+    absent_ft: float = Field(default=0, ge=0, le=100000)
+    absent_pt: float = Field(default=0, ge=0, le=100000)
+
+
 class SettingsIn(BaseModel):
     fine_late: float = Field(default=0, ge=0, le=100000)
     fine_absent: float = Field(default=0, ge=0, le=100000)
+    # قاموس {فرع: غرامات} — الفرع لازم يكون من BRANCHES، والقيم لكل نوع تعاقد (FT/PT)
+    branch_fines: Optional[Dict[str, BranchFinesIn]] = None
 
 
 class FineIn(BaseModel):
@@ -728,7 +738,27 @@ def get_settings(db: Session) -> dict:
             out[key] = float(stored.get(key, 0))
         except ValueError:
             out[key] = 0.0
+    # الغرامات الثابتة لكل فرع: مفاتيح بصيغة "bf|الفرع|FT|late" في جدول settings.
+    # القيمة الموجودة تعني إنها متسجّلة صراحةً؛ اللي مش موجودة بترجع برفض JSON
+    # (مفيش مفتاح) والواجهة بتاخد مكانها الافتراضي العام fine_late / fine_absent.
+    branch_fines: Dict[str, Dict[str, float]] = {}
+    for key, value in stored.items():
+        parts = key.split("|")
+        if len(parts) != 4 or parts[0] != "bf":
+            continue
+        _, branch, emp, kind = parts
+        if branch not in BRANCHES or emp not in EMP_TYPES or kind not in ("late", "absent"):
+            continue
+        try:
+            branch_fines.setdefault(branch, {})[f"{kind}_{emp.lower()}"] = float(value)
+        except ValueError:
+            continue
+    out["branch_fines"] = branch_fines
     return out
+
+
+def _branch_fine_key(branch: str, emp: str, kind: str) -> str:
+    return f"bf|{branch}|{emp}|{kind}"
 
 
 # ---------------------------------------------------------------- live updates
@@ -903,6 +933,19 @@ def update_settings(data: SettingsIn, request: Request, role: str = Depends(requ
             row.value = str(value)
         else:
             db.add(Setting(key=key, value=str(value)))
+    if data.branch_fines is not None:
+        for branch, fines in data.branch_fines.items():
+            if branch not in BRANCHES:
+                raise HTTPException(400, "الفرع يجب أن يكون QCD 1 أو QCD 2")
+            for emp in EMP_TYPES:
+                for kind in ("late", "absent"):
+                    value = getattr(fines, f"{kind}_{emp.lower()}", 0)
+                    bfkey = _branch_fine_key(branch, emp, kind)
+                    row = db.query(Setting).filter(Setting.key == bfkey).first()
+                    if row:
+                        row.value = str(value)
+                    else:
+                        db.add(Setting(key=bfkey, value=str(value)))
     db.commit()
     publish_event("settings", by=who_role(role), client=client_tag(request))
     return get_settings(db)
