@@ -2730,6 +2730,20 @@ function renderBranchFines() {
   try { applyLang(); } catch (e) {}
 }
 
+/* تحذير لو فيه كلمات مرور مشرفين شغالة من غير اسم — التسجيلات بتاعتها بتظهر
+   «مشرف» عموما في عمود «بواسطة» من غير اسم شخصي. بيوجّه لصيغة SUPERVISOR_ACCOUNTS. */
+function legacySupervisorsHint(d) {
+  const legacy = [];
+  if ((d.branch_passwords || []).length) legacy.push(`باسوردات فروع بدون اسم (${d.branch_passwords.join("، ")})`);
+  if (d.general_supervisor) legacy.push("باسورد المشرف العام");
+  if (!legacy.length) return "";
+  return `<br><span class="tag admin">تنبيه</span> شغّال كمان بـ ${esc(legacy.join(" و "))} — ` +
+    `التسجيلات بتاعة هدول بتظهر «مشرف» أو «مشرف فرع» من غير اسم. عشان اسم كل مشرف يظهر في السجل، ` +
+    `عرّف الحسابات في <b class="num">SUPERVISOR_ACCOUNTS</b> بصيغة ` +
+    `<b class="num">الاسم:الباسورد:الفرع</b> (مثال: <span class="num">HAMED:pass1:QCD 1;Karim:pass2:QCD 2</span>) ` +
+    `وسجّل الدخول من جديد. التسجيلات القديمة اللي متسجلة «مشرف» بس بتفضل زي ما هي.`;
+}
+
 async function loadSettings() {
   try {
     S.settings = await api("/api/settings");
@@ -2743,7 +2757,8 @@ async function loadSettings() {
     $("supAccountsInfo").innerHTML = `حسابات المشرفين المتشغّلة: <b class="num">${d.count}</b>` +
       (acc ? ` — ${esc(acc)}` : ' — <b>مفيش ولا حساب!</b>') +
       (d.message ? `<br>${esc(d.message)}` : "") +
-      `<br>ربط DAS (${esc("DAS_SECRET")}): ${d.das_integration ? "مفعّل" : "غير مفعّل"}`;
+      `<br>ربط DAS (${esc("DAS_SECRET")}): ${d.das_integration ? "مفعّل" : "غير مفعّل"}` +
+      legacySupervisorsHint(d);
   } catch (e) {
     $("supAccountsInfo").textContent = "حسابات المشرفين: غير متاح (لو الأدمن، جرّب تحديث الصفحة)";
   }

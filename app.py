@@ -55,7 +55,7 @@ FINE_STATUS = "Fine"
 # الأنواع اللي ينفع نفلتر بيها صفحة الغرامات
 FINE_KINDS = ("Late", "Absent", FINE_STATUS)
 # أسماء الوسائط المسموح بها في جمل تحديث الحضور المجمّعة
-_PARAM_KEYS = ("row_id", "status", "fine", "reason", "note", "updated_at", "expected")
+_PARAM_KEYS = ("row_id", "status", "fine", "reason", "note", "recorded_by", "updated_at", "expected")
 # لو العميل بعت القيمة دي في expected_updated_at يبقى هو شاف اليوم من غير أي تسجيل
 # للموظف ده — فلو حد تاني سجّله في اللحظة دي بنقول تعارض بدل ما نكتب فوقه.
 NEW_STAMP = "-"
