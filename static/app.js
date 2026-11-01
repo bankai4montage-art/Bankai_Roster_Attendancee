@@ -2769,7 +2769,18 @@ on("setSave", "click", async () => {
       }
     });
     renderBranchFines();
-    toast("تم حفظ الإعدادات.", "ok");
+    const ap = S.settings.applied;
+    if (ap && ap.changed > 0 && ap.week_start) {
+      const wk = fmtDay(ap.week_start) + " → " + fmtDay(ap.week_end);
+      toast(`تم حفظ الإعدادات — واتبدّلت غرامات ${ap.changed} تسجيل في آخر أسبوع (${wk}).`, "ok");
+      /* آخر أسبوع اتعدّلت غراماته: نحدّث الصفحة المفتوحة لو فيها داتا */
+      if (S.page === "fines") loadFines();
+      else if (S.page === "attendance") loadRoster();
+      else if (S.page === "reports" && $("repStart").value) runReport();
+      else if (S.page === "dashboard") loadDashboard();
+    } else {
+      toast("تم حفظ الإعدادات.", "ok");
+    }
   } catch (e) { toast(e.message, "err"); }
 });
 on("setBackup", "click", async () => {

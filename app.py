@@ -761,6 +761,45 @@ def _branch_fine_key(branch: str, emp: str, kind: str) -> str:
     return f"bf|{branch}|{emp}|{kind}"
 
 
+def _apply_fixed_fines_last_week(db: Session) -> dict:
+    """تطبيق الغرامات الثابتة على آخر أسبوع فيه تسجيلات حضور.
+
+    كل تسجيل تأخير/غياب في الأسبوع ده بياخد الغرامة الثابتة لفرع ونوع تعاقد
+    الموظف (أو الافتراضي العام لو الفرع مالوش قيمة محفوظة) — حتى لو فيه أرقام
+    قديمة محطوطة، بتتبدل بالقيمة الجديدة. الغرامات الإدارية المستقلة (Fine)
+    والغروب/الحاضر/بعذر مش بيمسّهم، والأسبوع الأقدم بيفضل زي ما هو.
+    """
+    s = get_settings(db)
+    bf = s.get("branch_fines") or {}
+
+    def fixed(branch: str, emp: str, kind: str) -> float:
+        v = (bf.get(branch) or {}).get(f"{kind}_{emp.lower()}")
+        if v is not None:
+            return v
+        return s.get("fine_late" if kind == "late" else "fine_absent") or 0.0
+
+    last = db.query(func.max(Attendance.attendance_date)).scalar()
+    if not last:
+        return {"week_start": None, "week_end": None, "rows": 0, "changed": 0}
+    ws = week_start_of(last)
+    we = ws + timedelta(days=6)
+    rows = (db.query(Attendance, Employee)
+              .join(Employee, Attendance.employee_id == Employee.id)
+              .filter(Attendance.status.in_(("Late", "Absent")),
+                      Attendance.attendance_date >= ws,
+                      Attendance.attendance_date <= we)
+              .all())
+    changed = 0
+    for att, emp in rows:
+        want = fixed(emp.branch, emp.employment_type, "late" if att.status == "Late" else "absent")
+        if float(att.fine or 0) != float(want):
+            att.fine = float(want)
+            changed += 1
+    if changed:
+        db.commit()
+    return {"week_start": ws.isoformat(), "week_end": we.isoformat(), "rows": len(rows), "changed": changed}
+
+
 # ---------------------------------------------------------------- live updates
 class EventBus:
     """باص أحداث في الذاكرة للتحديث المباشر بين كل التابات والمستخدمين.
@@ -948,7 +987,15 @@ def update_settings(data: SettingsIn, request: Request, role: str = Depends(requ
                         db.add(Setting(key=bfkey, value=str(value)))
     db.commit()
     publish_event("settings", by=who_role(role), client=client_tag(request))
-    return get_settings(db)
+    # الغرامات الثابتة بتتطبق فورًا على آخر أسبوع فيه تسجيلات: أي أرقام تانية
+    # محطوطة في التأخير/الغياب بتتبدل بقيمة الغرامة الجديدة لكل فرع ونوع.
+    applied = _apply_fixed_fines_last_week(db)
+    if applied["changed"]:
+        publish_event("attendance", date="", ids=[], names=[], count=applied["changed"],
+                      by=who_role(role), client=client_tag(request))
+    out = get_settings(db)
+    out["applied"] = applied
+    return out
 
 
 # ---------------------------------------------------------------- employees
