@@ -3505,6 +3505,8 @@ def wipe_attendance(request: Request, role: str = Depends(require_admin), db: Se
 #    التوكن بيتغيّر كل دقيقة، والفرق ≤ 20 متر، والتأخير بعد 5 دقايق غرامة.
 # ═══════════════════════════════════════════════════════════════════════
 QR_ZONE_M = float(os.getenv("QR_ZONE_M", "20"))
+# أكواد مسموح لها تتسجل من أي مكان (للاختبار أو لحالات استثنائية). فاضية = مفيش استثناء.
+QR_BYPASS_CODES = {c.strip().upper() for c in os.getenv("QR_BYPASS_CODES", "").split(",") if c.strip()}
 QR_LATE_GRACE_MIN = int(os.getenv("QR_LATE_GRACE_MIN", "5"))
 QR_LAT = float(os.getenv("QR_LAT", "31.2778999"))
 QR_LNG = float(os.getenv("QR_LNG", "30.0219501"))
@@ -3572,7 +3574,8 @@ def attendance_qr(data: QrAttendanceIn, request: Request, db: Session = Depends(
         raise HTTPException(403, "حسابك موقوف في الروستر")
 
     dist_m = _haversine_m(data.latitude, data.longitude, QR_LAT, QR_LNG)
-    if dist_m > QR_ZONE_M:
+    bypass = code.upper() in QR_BYPASS_CODES
+    if not bypass and dist_m > QR_ZONE_M:
         raise HTTPException(409, f"أنت على بُعد {int(dist_m)} متر من الفرع — لازم تكون جوه {int(QR_ZONE_M)} متر")
 
     now_local = datetime.now()
@@ -3614,8 +3617,11 @@ def attendance_qr(data: QrAttendanceIn, request: Request, db: Session = Depends(
         status = "Present"
         fine = 0.0
 
+    note = f"حضور QR {now_local.strftime('%H:%M')}"
+    if bypass:
+        note += " · استثناء مكان"
     item = AttendanceItem(employee_id=e.id, status=status, fine=float(fine),
-                          reason="", note=f"حضور QR {now_local.strftime('%H:%M')}")
+                          reason="", note=note)
     res = _save_items(db, day, [item], actor="QR")
     if res["errors"]:
         raise HTTPException(400, res["errors"][0].get("detail", "تعذر تسجيل الحضور"))
