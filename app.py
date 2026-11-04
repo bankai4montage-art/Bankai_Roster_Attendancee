@@ -3659,3 +3659,13 @@ def qr_screen(pw: str = ""):
 <p class="t">{token}</p>
 </body></html>"""
     return HTMLResponse(html)
+
+@app.get("/api/das/qr/live", dependencies=[Depends(require_das_secret)])
+def das_qr_live():
+    """نفس توكن الحضور لكن لخدمات تانية (البوابة/الأبلكيشن) بمفتاح DAS_SECRET.
+
+    ده اللي بيسمح لصفحة الـ QR في بوابة المناديب إنها تعرض كود الحضور
+    بدل ما يبقى فيه لينك تاني للمشرف.
+    """
+    return {"token": qr_token(), "expires_in": 60 - int(time.time()) % 60,
+            "zone_m": QR_ZONE_M, "late_after_min": QR_LATE_GRACE_MIN}
