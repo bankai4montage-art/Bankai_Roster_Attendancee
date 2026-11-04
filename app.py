@@ -3498,3 +3498,164 @@ def wipe_attendance(request: Request, role: str = Depends(require_admin), db: Se
     publish_event("attendance", date="", ids=[], names=[], count=n, wipe=True,
                   by=who_role(role), client=client_tag(request))
     return {"deleted": n, "message": f"تم مسح {n} تسجيلة حضور. السجل بقى فاضي."}
+
+# ═══════════════════════════════════════════════════════════════════════
+# 📷 حضور بالـ QR — المندوب يمسح كود الفرع من لابتوب المشرف فيتسجل حضوره
+#    فورًا في الروستر بدون موافقة (القرار: إلغاء موافقة المشرف).
+#    التوكن بيتغيّر كل دقيقة، والفرق ≤ 20 متر، والتأخير بعد 5 دقايق غرامة.
+# ═══════════════════════════════════════════════════════════════════════
+QR_ZONE_M = float(os.getenv("QR_ZONE_M", "20"))
+QR_LATE_GRACE_MIN = int(os.getenv("QR_LATE_GRACE_MIN", "5"))
+QR_LAT = float(os.getenv("QR_LAT", "31.2778999"))
+QR_LNG = float(os.getenv("QR_LNG", "30.0219501"))
+
+
+def _qr_mac(bucket: int) -> str:
+    return hmac.new(SECRET_KEY.encode(), f"attendance-qr|{bucket}".encode(),
+                    hashlib.sha256).hexdigest()[:20]
+
+
+def qr_token(ts: float | None = None) -> str:
+    bucket = int((ts if ts is not None else time.time()) // 60)
+    return f"{bucket}.{_qr_mac(bucket)}"
+
+
+def qr_token_valid(token: str) -> bool:
+    try:
+        raw_bucket, mac = str(token).split(".", 1)
+        bucket = int(raw_bucket)
+    except (ValueError, AttributeError):
+        return False
+    now_bucket = int(time.time() // 60)
+    if bucket not in (now_bucket, now_bucket - 1):
+        return False
+    return hmac.compare_digest(mac, _qr_mac(bucket))
+
+
+def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    import math as _math
+    r = 6371000.0
+    p1, p2 = _math.radians(lat1), _math.radians(lat2)
+    dp, dl = _math.radians(lat2 - lat1), _math.radians(lng2 - lng1)
+    a = _math.sin(dp / 2) ** 2 + _math.cos(p1) * _math.cos(p2) * _math.sin(dl / 2) ** 2
+    return 2 * r * _math.asin(_math.sqrt(a))
+
+
+class QrAttendanceIn(BaseModel):
+    token: str
+    employee_code: str
+    latitude: float
+    longitude: float
+    accuracy: Optional[float] = None
+
+
+@app.get("/api/admin/qr/live")
+def qr_live(role: str = Depends(require_admin)):
+    """التوكن اللي بيتعرض على شاشة المشرف — يتجدد كل دقيقة."""
+    return {"token": qr_token(), "expires_in": 60 - int(time.time()) % 60,
+            "zone_m": QR_ZONE_M, "late_after_min": QR_LATE_GRACE_MIN}
+
+
+@app.post("/api/attendance/qr")
+def attendance_qr(data: QrAttendanceIn, request: Request, db: Session = Depends(get_db)):
+    """يسجّل الحضور تلقائيًا بعد مسح الكود — بدون موافقة مشرف."""
+    if not qr_token_valid(data.token):
+        raise HTTPException(410, "كود الحضور انتهت صلاحيته — امسح الكود المعروض دلوقتي على شاشة المشرف")
+
+    code = (data.employee_code or "").strip()
+    if not code:
+        raise HTTPException(400, "كود المندوب مطلوب")
+    e = db.query(Employee).filter(Employee.employee_code == code).first()
+    if not e:
+        raise HTTPException(404, "كودك مش متسجل في الروستر — كلّم المشرف")
+    if not e.active:
+        raise HTTPException(403, "حسابك موقوف في الروستر")
+
+    dist_m = _haversine_m(data.latitude, data.longitude, QR_LAT, QR_LNG)
+    if dist_m > QR_ZONE_M:
+        raise HTTPException(409, f"أنت على بُعد {int(dist_m)} متر من الفرع — لازم تكون جوه {int(QR_ZONE_M)} متر")
+
+    now_local = datetime.now()
+    day = today_local()
+    weekday = day.strftime("%A")
+    shift_bounds = parse_shift(e.shift)
+    start_min = end_min = None
+    if shift_bounds:
+        start_min, end_min = shift_bounds
+        # الشيفت الليلي: لو إحنا بعد منتصف الليل وقبل نهايته → يوم الحضور هو اليوم السابق
+        if start_min > end_min and now_local.hour * 60 + now_local.minute < end_min:
+            day = day - timedelta(days=1)
+            weekday = day.strftime("%A")
+
+    if e.day_off == weekday:
+        raise HTTPException(409, "النهاردة إجازتك — مفيش تسجيل حضور")
+
+    existing = db.query(Attendance).filter(Attendance.employee_id == e.id,
+                                           Attendance.attendance_date == day).first()
+    now_min = now_local.hour * 60 + now_local.minute
+    late_minutes = 0
+    if start_min is not None:
+        late_minutes = max(0, now_min - (start_min + QR_LATE_GRACE_MIN))
+
+    if existing:
+        return {"ok": True, "already": True, "status": existing.status,
+                "time": existing.updated_at.strftime("%H:%M") if existing.updated_at else "",
+                "late_minutes": late_minutes, "fine": float(existing.fine or 0),
+                "employee": e.name, "branch": e.branch}
+
+    settings = get_settings(db)
+    if late_minutes > 0:
+        status = "Late"
+        bf = (settings.get("branch_fines") or {}).get(e.branch) or {}
+        fine = bf.get(f"late_{e.employment_type.lower()}")
+        if fine is None:
+            fine = settings.get("fine_late") or 0.0
+    else:
+        status = "Present"
+        fine = 0.0
+
+    item = AttendanceItem(employee_id=e.id, status=status, fine=float(fine),
+                          reason="", note=f"حضور QR {now_local.strftime('%H:%M')}")
+    res = _save_items(db, day, [item], actor="QR")
+    if res["errors"]:
+        raise HTTPException(400, res["errors"][0].get("detail", "تعذر تسجيل الحضور"))
+
+    publish_event("attendance", date=day.isoformat(), ids=[e.id], names=[e.name], count=1,
+                  by="QR", client=client_tag(request))
+    return {"ok": True, "already": False, "status": status,
+            "time": now_local.strftime("%H:%M"), "late_minutes": late_minutes,
+            "fine": float(fine), "employee": e.name, "branch": e.branch}
+
+@app.get("/qr", response_class=HTMLResponse)
+def qr_screen(pw: str = ""):
+    """شاشة المشرف: كود حضور متغيّر كل دقيقة، بيتعرض كـ QR كبير على اللابتوب.
+
+    بتتفتح على: /qr?pw=<نفس باسورد الأدمن>
+    الصفحة بتحدّث نفسها كل 20 ثانية، فالـ QR اللي على الشاشة دايمًا صالح.
+    """
+    if not pw or not secrets.compare_digest(pw, ADMIN_PASSWORD):
+        return HTMLResponse("<h3 style='font-family:sans-serif'>كلمة السر غلط</h3>", status_code=401)
+    from urllib.parse import quote as _quote
+    token = qr_token()
+    expires = 60 - int(time.time()) % 60
+    img = ("https://api.qrserver.com/v1/create-qr-code/?size=480x480&margin=8&data="
+           + _quote(token))
+    html = f"""<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta http-equiv="refresh" content="20">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>حضور بالـ QR</title>
+<style>
+ body{{margin:0;background:#070B12;color:#F3F7FC;font-family:system-ui,sans-serif;
+       display:flex;flex-direction:column;align-items:center;justify-content:center;
+       min-height:100vh;gap:18px}}
+ h1{{font-size:26px;margin:0;font-weight:800}}
+ p{{margin:0;color:#8190A5;font-size:14px}}
+ .card{{background:#fff;padding:18px;border-radius:24px;box-shadow:0 24px 60px rgba(0,0,0,.5)}}
+ .t{{font-family:monospace;font-size:13px;color:#5EA2FF;letter-spacing:.5px}}
+</style></head><body>
+<h1>امسح الكود لتسجيل الحضور</h1>
+<p>الكود بيتغيّر كل دقيقة — باقي {expires} ثانية</p>
+<div class="card"><img src="{img}" width="480" height="480" alt="QR"></div>
+<p class="t">{token}</p>
+</body></html>"""
+    return HTMLResponse(html)
