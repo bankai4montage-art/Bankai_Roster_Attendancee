@@ -3596,8 +3596,11 @@ def attendance_qr(data: QrAttendanceIn, request: Request, db: Session = Depends(
 
     if start_min is not None:
         now_min_check = now_local.hour * 60 + now_local.minute
-        opens = (start_min - 15) % 1440
-        inside = (opens <= now_min_check <= end_min) if start_min <= end_min             else (now_min_check >= opens or now_min_check <= end_min)
+        opens = start_min - 15
+        if start_min <= end_min:
+            inside = opens <= now_min_check <= end_min
+        else:
+            inside = now_min_check >= opens or now_min_check <= end_min
         if not inside:
             raise HTTPException(
                 409,
@@ -3685,3 +3688,74 @@ def das_qr_live():
     """
     return {"token": qr_token(), "expires_in": 60 - int(time.time()) % 60,
             "zone_m": QR_ZONE_M, "late_after_min": QR_LATE_GRACE_MIN}
+
+# ═══════════════════════════════════════════════════════════════════════
+# 🚪 انصراف بالـ QR — بيتسجل في جدول منفصل، ومش بيلمس الحضور ولا الغرامات
+# ═══════════════════════════════════════════════════════════════════════
+with engine.begin() as _conn:
+    _conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS attendance_checkouts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER NOT NULL,
+            checkout_date TEXT NOT NULL,
+            checked_out_at TEXT NOT NULL,
+            method TEXT DEFAULT 'QR',
+            note TEXT DEFAULT ''
+        )
+    """))
+    _conn.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_checkout_employee_day "
+        "ON attendance_checkouts(employee_id, checkout_date)"
+    ))
+
+
+@app.post("/api/attendance/qr/checkout")
+def attendance_qr_checkout(data: QrAttendanceIn, request: Request, db: Session = Depends(get_db)):
+    """إنهاء الشيفت: نفس كود الحضور، بدون أي قيد وقت، ومن غير ما يغيّر سجل الحضور."""
+    if not qr_token_valid(data.token):
+        raise HTTPException(410, "كود الحضور انتهى — امسح الكود المعروض دلوقتي على شاشة المشرف")
+
+    code = (data.employee_code or "").strip()
+    e = db.query(Employee).filter(Employee.employee_code == code).first()
+    if not e:
+        raise HTTPException(404, "كودك مش متسجل في الروستر — كلّم المشرف")
+    if not e.active:
+        raise HTTPException(403, "حسابك موقوف في الروستر")
+
+    from zoneinfo import ZoneInfo
+    now_local = datetime.now(ZoneInfo("Africa/Cairo")).replace(tzinfo=None)
+    day = today_local()
+
+    present = db.query(Attendance).filter(Attendance.employee_id == e.id,
+                                          Attendance.attendance_date == day).first()
+    if not present:
+        raise HTTPException(409, "مفيش حضور مسجل النهاردة — سجّل حضورك الأول")
+
+    dist_m = _haversine_m(data.latitude, data.longitude, QR_LAT, QR_LNG)
+    bypass = code.upper() in QR_BYPASS_CODES
+    if not bypass and dist_m > QR_ZONE_M:
+        raise HTTPException(409, f"أنت على بُعد {int(dist_m)} متر من الفرع — لازم تكون جوه {int(QR_ZONE_M)} متر")
+
+    stamp = now_local.strftime("%Y-%m-%d %H:%M:%S")
+    sql = text("""
+        INSERT INTO attendance_checkouts (employee_id, checkout_date, checked_out_at, method, note)
+        VALUES (:eid, :day, :stamp, 'QR', :note)
+        ON CONFLICT(employee_id, checkout_date)
+        DO UPDATE SET checked_out_at = :stamp
+    """)
+    try:
+        db.execute(sql, {"eid": e.id, "day": day.isoformat(), "stamp": stamp,
+                         "note": "استثناء مكان" if bypass else ""})
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        db.execute(text("""
+            UPDATE attendance_checkouts SET checked_out_at = :stamp
+            WHERE employee_id = :eid AND checkout_date = :day
+        """), {"stamp": stamp, "eid": e.id, "day": day.isoformat()})
+        db.commit()
+
+    publish_event("attendance", date=day.isoformat(), ids=[e.id], names=[e.name], count=0,
+                  by="QR", client=client_tag(request), checkout=stamp)
+    return {"ok": True, "time": now_local.strftime("%H:%M"), "stamp": stamp,
+            "employee": e.name, "branch": e.branch}
