@@ -3578,7 +3578,8 @@ def attendance_qr(data: QrAttendanceIn, request: Request, db: Session = Depends(
     if not bypass and dist_m > QR_ZONE_M:
         raise HTTPException(409, f"أنت على بُعد {int(dist_m)} متر من الفرع — لازم تكون جوه {int(QR_ZONE_M)} متر")
 
-    now_local = datetime.now()
+    from zoneinfo import ZoneInfo
+    now_local = datetime.now(ZoneInfo("Africa/Cairo")).replace(tzinfo=None)
     day = today_local()
     weekday = day.strftime("%A")
     shift_bounds = parse_shift(e.shift)
@@ -3592,6 +3593,15 @@ def attendance_qr(data: QrAttendanceIn, request: Request, db: Session = Depends(
 
     if e.day_off == weekday:
         raise HTTPException(409, "النهاردة إجازتك — مفيش تسجيل حضور")
+
+    if start_min is not None:
+        now_min_check = now_local.hour * 60 + now_local.minute
+        opens = (start_min - 15) % 1440
+        inside = (opens <= now_min_check <= end_min) if start_min <= end_min             else (now_min_check >= opens or now_min_check <= end_min)
+        if not inside:
+            raise HTTPException(
+                409,
+                f"مفيش شيفت دلوقتي — شيفتك {e.shift}. التسجيل متاح من 15 دقيقة قبل بدايته لحد نهايته.")
 
     existing = db.query(Attendance).filter(Attendance.employee_id == e.id,
                                            Attendance.attendance_date == day).first()
