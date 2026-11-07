@@ -47,7 +47,7 @@ def _auth(token):
 
 def _mk(client, admin, code, *, branch="QCD 2", shift="9 AM - 6 PM",
         day_off="Friday", typ="FT"):
-    r = client.post("/api/employees", headers=_auth(admin), json={
+    r = client.post(f"/api/employees?week={SHIFT_DAY.date().isoformat()}", headers=_auth(admin), json={
         "name": f"موظف {code}", "employee_code": code, "branch": branch,
         "shift": shift, "employment_type": typ, "day_off": day_off,
     })
@@ -170,22 +170,33 @@ def test_absent_status_still_allows_the_correction_scan(client, admin):
     assert body["can_check_in"] is True
 
 
-def test_night_shift_status_keeps_the_shift_day(client, admin):
-    emp = _mk(client, admin, "QR-N1", shift="10 PM - 6 AM")
+def test_after_a_night_shift_the_new_day_can_check_in_and_the_old_one_can_check_out(
+    client, admin
+):
+    emp = _mk(client, admin, "QR-N2", shift="10 PM - 6 AM")
     db = app.SessionLocal()
-    db.add(app.Attendance(employee_id=emp["id"], attendance_date=SHIFT_DAY.date() - timedelta(days=1),
-                          status="Present", fine=0, reason="", note="حضور QR 22:05",
-                          recorded_by="QR"))
+    db.add(app.Attendance(
+        employee_id=emp["id"], attendance_date=SHIFT_DAY.date() - timedelta(days=1),
+        status="Present", fine=0, reason="", note="حضور QR 22:02", recorded_by="QR",
+    ))
     db.commit()
     db.close()
     app.qr_now_local = lambda: SHIFT_DAY.replace(hour=7, minute=0)
-    r = client.get("/api/attendance/qr/status",
-                   headers={"X-DAS-Secret": app.DAS_SECRET},
-                   params={"employee_code": "QR-N1"})
+    headers = {"X-DAS-Secret": app.DAS_SECRET}
+    r = client.get("/api/attendance/qr/status", headers=headers,
+                   params={"employee_code": "QR-N2"})
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["date"] == (SHIFT_DAY.date() - timedelta(days=1)).isoformat()
-    assert body["attendance"]["status"] == "Present"
+    assert body["date"] == SHIFT_DAY.date().isoformat()
+    assert body["can_check_in"] is True
+    assert body["attendance"] is None
+    assert body["previous"]["status"] == "Present"
+    assert body["previous"]["checkout"] is None
+
+    r = client.post("/api/attendance/qr/checkout", headers=headers,
+                    json={"employee_code": "QR-N2"})
+    assert r.status_code == 200, r.text
+    assert r.json()["attendance_date"] == (SHIFT_DAY.date() - timedelta(days=1)).isoformat()
 
 
 def test_wrong_branch_and_expired_token_are_refused(client, admin):

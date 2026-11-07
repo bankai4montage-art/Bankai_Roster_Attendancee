@@ -3705,6 +3705,20 @@ def _qr_late_from_row(row: Attendance, ctx) -> int:
     return max(0, stamp_min - ctx.bounds[0])
 
 
+def _qr_checkout_state(req, checked_out_at) -> Optional[dict]:
+    if req is not None:
+        return {
+            "status": req.status, "request_id": req.id,
+            "decided_by": req.decided_by or "",
+            "decided_at": req.decided_at.isoformat() if req.decided_at else "",
+            "decision_note": req.decision_note or "",
+            "checked_out_at": checked_out_at or "",
+        }
+    if checked_out_at:
+        return {"status": "Approved", "checked_out_at": checked_out_at}
+    return None
+
+
 def _qr_write_audit(db: Session, e: Employee, day: date, old_status: str, old_fine: float,
                     new_status: str, new_fine: float, note: str) -> None:
     """أثر التدقيق مش جزء من نجاح الحضور — لو فشل ما بنفشلش العملية."""
@@ -3965,15 +3979,19 @@ def qr_attendance_status(employee_code: str = Query(..., min_length=1, max_lengt
     att = (db.query(Attendance)
            .filter(Attendance.employee_id == e.id, Attendance.attendance_date == day)
            .first())
+    # An overnight shift that just ended still needs its checkout button, but the
+    # new day must also show the check-in option. Keep yesterday's record as a
+    # separate "previous" block instead of replacing today's state.
+    prev_day = None
+    prev_att = None
     if att is None and ctx.bounds and ctx.bounds[1] > 1440:
-        # After an overnight shift ends, keep showing the shift's own day.
-        prev = day - timedelta(days=1)
-        prev_att = (db.query(Attendance)
-                    .filter(Attendance.employee_id == e.id,
-                            Attendance.attendance_date == prev)
-                    .first())
-        if prev_att is not None:
-            day, att = prev, prev_att
+        candidate = day - timedelta(days=1)
+        candidate_att = (db.query(Attendance)
+                         .filter(Attendance.employee_id == e.id,
+                                 Attendance.attendance_date == candidate)
+                         .first())
+        if candidate_att is not None:
+            prev_day, prev_att = candidate, candidate_att
     window = _qr_shift_window(ctx)
     inside = bool(window and window[0] <= ctx.now_min <= window[1])
     day_off = bool(ctx.schedule and (ctx.schedule.day_off or "") == day.strftime("%A"))
@@ -3995,6 +4013,17 @@ def qr_attendance_status(employee_code: str = Query(..., min_length=1, max_lengt
            .filter(DasRequest.employee_id == e.id, DasRequest.action == "check_out",
                    DasRequest.attendance_date == day)
            .order_by(DasRequest.id.desc()).first())
+    prev_co = prev_req = None
+    if prev_day is not None:
+        prev_co = db.execute(text(
+            "SELECT checked_out_at FROM attendance_checkouts "
+            "WHERE employee_id = :eid AND checkout_date = :day"
+        ), {"eid": e.id, "day": prev_day.isoformat()}).first()
+        prev_req = (db.query(DasRequest)
+                    .filter(DasRequest.employee_id == e.id,
+                            DasRequest.action == "check_out",
+                            DasRequest.attendance_date == prev_day)
+                    .order_by(DasRequest.id.desc()).first())
     return {
         "employee": e.name, "employee_code": e.employee_code or "", "branch": e.branch,
         "employment_type": e.employment_type, "date": day.isoformat(), "shift": ctx.shift,
@@ -4011,13 +4040,13 @@ def qr_attendance_status(employee_code: str = Query(..., min_length=1, max_lengt
             "recorded_by": att.recorded_by or "", "time": _qr_clock_for(att),
             "late_minutes": _qr_late_from_row(att, ctx),
         } if att else None),
-        "checkout": ({
-            "status": req.status, "request_id": req.id,
-            "decided_by": req.decided_by or "",
-            "decided_at": req.decided_at.isoformat() if req.decided_at else "",
-            "decision_note": req.decision_note or "",
-            "checked_out_at": co[0] if co else "",
-        } if req else ({"status": "Approved", "checked_out_at": co[0]} if co else None)),
+        "checkout": _qr_checkout_state(req, co[0] if co else ""),
+        "previous": ({
+            "date": prev_day.isoformat(),
+            "status": prev_att.status, "fine": float(prev_att.fine or 0),
+            "note": prev_att.note or "", "time": _qr_clock_for(prev_att),
+            "checkout": _qr_checkout_state(prev_req, prev_co[0] if prev_co else ""),
+        } if prev_att is not None else None),
     }
 
 
