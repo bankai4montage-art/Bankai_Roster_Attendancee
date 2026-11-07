@@ -248,12 +248,22 @@ def test_weekly_history_lists_days_and_summary(client, admin):
     db.commit()
     db.close()
     app.qr_now_local = lambda: SHIFT_DAY.replace(hour=9, minute=4)
+    db = app.SessionLocal()
+    next_week = SHIFT_DAY.date() + timedelta(days=1)
+    if not db.query(app.WeekSchedule).filter(
+            app.WeekSchedule.employee_id == emp["id"],
+            app.WeekSchedule.week_start == next_week).first():
+        db.add(app.WeekSchedule(week_start=next_week, employee_id=emp["id"],
+                                shift=emp["shift"], day_off=emp["day_off"],
+                                break_start=None, break_min=60, off_locked=False))
+        db.commit()
+    db.close()
     r = client.get("/api/attendance/qr/history",
                    headers={"X-DAS-Secret": app.DAS_SECRET},
                    params={"employee_code": "QR-H1", "weeks": 2})
     assert r.status_code == 200, r.text
     body = r.json()
-    assert len(body["weeks"]) >= 1
+    assert len(body["weeks"]) == 2
     week = body["weeks"][0]
     assert week["current"] is True
     assert week["week_start"] == "2026-11-01"
@@ -264,9 +274,8 @@ def test_weekly_history_lists_days_and_summary(client, admin):
     assert week["summary"]["excused"] == 1
     assert week["summary"]["off"] == 1
     assert week["summary"]["fine"] == 75
-    assert len(body["weeks"]) >= 5
-    assert body["weeks"][-1]["week_start"] == "2026-11-29"
-    assert any(w["summary"]["future"] > 0 for w in body["weeks"])
+    assert body["weeks"][1]["week_start"] == "2026-11-08"
+    assert body["weeks"][1]["summary"]["future"] > 0
     late_day = next(d for d in week["days"] if d["status"] == "Late")
     assert late_day["late_minutes"] == 9 and late_day["fine"] == 25
     off_day = next(d for d in week["days"] if d["status"] == "OFF")
