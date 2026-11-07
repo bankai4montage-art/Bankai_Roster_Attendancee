@@ -219,16 +219,36 @@ def test_roster_directory_exposes_branch_and_attendance_only(client, admin):
     assert body["shift"] == "9 AM - 6 PM"
 
 
-def test_day_off_and_outside_shift_are_refused(client, admin):
+def test_any_time_check_in_and_the_fine_preview(client, admin):
     _mk(client, admin, "QR-OFF", day_off="Saturday")
     r = _check(client, "QR-OFF", SHIFT_DAY.replace(hour=9, minute=4))
     assert r.status_code == 409
     assert "إجازتك" in r.json()["detail"]
 
+    db = app.SessionLocal()
+    _set_fine(db, value=25)
+    db.close()
     _mk(client, admin, "QR-LATE", shift="9 AM - 6 PM")
+
+    app.qr_now_local = lambda: SHIFT_DAY.replace(hour=20, minute=0)
+    r = client.get("/api/attendance/qr/status",
+                   headers={"X-DAS-Secret": app.DAS_SECRET},
+                   params={"employee_code": "QR-LATE"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["can_check_in"] is True
+    assert body["preview"]["status"] == "Late"
+    assert body["preview"]["fine"] == 25
+    assert body["preview"]["late_minutes"] == 660
+
     r = _check(client, "QR-LATE", SHIFT_DAY.replace(hour=20, minute=0))
-    assert r.status_code == 409
-    assert "مفيش شيفت" in r.json()["detail"]
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "Late" and r.json()["fine"] == 25
+
+    _mk(client, admin, "QR-EARLY", shift="9 AM - 6 PM")
+    r = _check(client, "QR-EARLY", SHIFT_DAY.replace(hour=7, minute=0))
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "Present" and r.json()["fine"] == 0
 
 
 def test_checkout_request_waits_for_approval(client, admin):

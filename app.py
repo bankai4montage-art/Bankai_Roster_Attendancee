@@ -3533,7 +3533,6 @@ def wipe_attendance(request: Request, role: str = Depends(require_admin), db: Se
 QR_TOKEN_SECONDS = 30
 QR_TOKEN_GRACE_SECONDS = 10
 QR_LATE_GRACE_MIN = int(os.getenv("QR_LATE_GRACE_MIN", "5"))
-QR_CHECKIN_OPEN_MIN = int(os.getenv("QR_CHECKIN_OPEN_MIN", "15"))
 
 
 class AttendanceAudit(Base):
@@ -3657,15 +3656,7 @@ def qr_shift_context(db: Session, e: Employee, now_local: datetime):
 def _qr_shift_window(ctx) -> Optional[tuple[int, int]]:
     if not ctx.bounds:
         return None
-    start, end = ctx.bounds
-    return max(0, start - QR_CHECKIN_OPEN_MIN), end
-
-
-def _qr_window_text(ctx) -> tuple[str, str]:
-    window = _qr_shift_window(ctx)
-    if not window:
-        return "", ""
-    return hhmm(window[0] % 1440), hhmm(window[1] % 1440)
+    return ctx.bounds
 
 
 def _qr_late_fine(db: Session, e: Employee) -> float:
@@ -3812,14 +3803,6 @@ def attendance_qr(data: QrAttendanceIn, request: Request, db: Session = Depends(
         raise HTTPException(409, "النهاردة إجازتك — مفيش تسجيل حضور")
     if not ctx.bounds:
         raise HTTPException(409, f"شيفتك «{ctx.shift}» مش مقروء — كلّم المشرف يظبطه")
-
-    window = _qr_shift_window(ctx)
-    if not (window[0] <= ctx.now_min <= window[1]):
-        opens, closes = _qr_window_text(ctx)
-        raise HTTPException(
-            409,
-            f"مفيش شيفت دلوقتي — شيفتك {ctx.shift}. التسجيل متاح من {opens} لحد {closes}.",
-        )
 
     status, fine = _qr_status_for(ctx, db, e)
     clock = now_local.strftime("%H:%M")
@@ -3992,6 +3975,16 @@ def qr_attendance_status(employee_code: str = Query(..., min_length=1, max_lengt
     window = _qr_shift_window(ctx)
     inside = bool(window and window[0] <= ctx.now_min <= window[1])
     day_off = bool(ctx.schedule and (ctx.schedule.day_off or "") == day.strftime("%A"))
+    preview = None
+    if ((att is None or (att.status or "") == "Absent")
+            and not day_off and ctx.bounds):
+        preview_status, preview_fine = _qr_status_for(ctx, db, e)
+        preview = {
+            "status": preview_status,
+            "late_minutes": ctx.late_minutes,
+            "fine": float(preview_fine),
+            "at": now_local.strftime("%H:%M"),
+        }
     co = db.execute(text(
         "SELECT checked_out_at FROM attendance_checkouts "
         "WHERE employee_id = :eid AND checkout_date = :day"
@@ -4008,8 +4001,9 @@ def qr_attendance_status(employee_code: str = Query(..., min_length=1, max_lengt
         "window": {"opens": hhmm(window[0] % 1440) if window else "",
                    "closes": hhmm(window[1] % 1440) if window else ""},
         "can_check_in": bool((att is None or (att.status or "") == "Absent")
-                              and inside and not day_off and ctx.bounds),
+                              and not day_off and ctx.bounds),
         "inside_shift": inside,
+        "preview": preview,
         "attendance": ({
             "status": att.status, "fine": float(att.fine or 0), "note": att.note or "",
             "recorded_by": att.recorded_by or "", "time": _qr_clock_for(att),
