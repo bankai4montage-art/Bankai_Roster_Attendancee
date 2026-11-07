@@ -2173,6 +2173,7 @@ class DasRequest(Base):
     decided_at = Column(DateTime, nullable=True)
     decision_note = Column(String(300), nullable=True, default="")
     checkin_id = Column(Integer, nullable=True, index=True)           # طلب الحضور اللي الانصراف بيتبنى بعده
+    source = Column(String(10), nullable=False, default="DAS")        # DAS | QR
     employee = relationship("Employee")
 
 
@@ -2185,6 +2186,15 @@ Index("uq_das_open_checkout", DasRequest.checkin_id, unique=True,
 
 # الجدول اتعرّف بعد create_all بتاع القاعدة — بنعمله إنشاء خاص بيه (idempotent)
 Base.metadata.create_all(bind=engine, tables=[DasRequest.__table__])
+# ترقية قاعدة موجودة: عمود مصدر الطلب (DAS / QR) من غير ما نلمس الصفوف القديمة.
+try:
+    with engine.begin() as _conn:
+        _das_cols = {c["name"] for c in inspect(_conn).get_columns("das_requests")}
+        if "source" not in _das_cols:
+            _conn.execute(text(
+                "ALTER TABLE das_requests ADD COLUMN source VARCHAR(10) NOT NULL DEFAULT 'DAS'"))
+except Exception:
+    pass
 
 
 class DasRequestIn(BaseModel):
@@ -2213,6 +2223,16 @@ def cairo_dt(dt: datetime) -> datetime:
     return dt + timedelta(hours=3)
 
 
+def cairo_wall(dt: datetime) -> datetime:
+    """وقت حائط القاهرة الحقيقي من UTC — بيحترم التوقيت الصيفي/الشتوي."""
+    try:
+        from zoneinfo import ZoneInfo
+        local = dt.replace(tzinfo=timezone.utc).astimezone(ZoneInfo("Africa/Cairo"))
+        return local.replace(tzinfo=None)
+    except Exception:
+        return cairo_dt(dt)
+
+
 def das_shift_day(now: Optional[datetime] = None) -> date:
     """يوم الشيفت بتاريخ القاهرة (اليوم اللي تسجيل الحضور هيرتبط به في الروستر)."""
     return cairo_dt(now or utcnow()).date()
@@ -2234,6 +2254,7 @@ def das_request_dict(r: DasRequest, e: Optional[Employee] = None) -> dict:
         "decided_at": r.decided_at.isoformat() if r.decided_at else "",
         "decision_note": r.decision_note or "",
         "checkin_id": r.checkin_id,
+        "source": (r.source or "DAS"),
     }
 
 
@@ -2379,7 +2400,7 @@ def _das_decision_allowed(role: str, req_branch: str) -> bool:
 
 
 def record_das_attendance(db: Session, e: Employee, day: date, action: str, requested_at: datetime,
-                          actor: str = "DAS") -> Attendance:
+                          actor: str = "DAS", source: str = "DAS") -> Attendance:
     """تسجيل رسمي للحضور في جدول attendance عند الموافقة — بقيد (موظف + يوم) الأساسي.
 
     مفيش سجل لليوم: بنسجّل Present من غير غرامة (تصرف الموظف إنه وصل) والملاحظة
@@ -2387,8 +2408,8 @@ def record_das_attendance(db: Session, e: Employee, day: date, action: str, requ
     الطلب في الملاحظة بس — حالة الحضور والغرامة اللي سجلها المشرف قبل كده مش
     بتلمس، عشان تسجيل الانصراف ما يبقاش بيحتّم تغيير غرامة المشرف؛ يقدر يعدّل أو
     يبرّر بعد كده طبيعي من صفحة الحضور."""
-    clock = cairo_dt(requested_at).strftime("%H:%M")
-    tag = "حضور DAS" if action == "check_in" else "انصراف DAS"
+    clock = (cairo_wall(requested_at) if source == "QR" else cairo_dt(requested_at)).strftime("%H:%M")
+    tag = ("حضور " if action == "check_in" else "انصراف ") + (source or "DAS")
     mark = f"{tag} {clock}"
     row = db.query(Attendance).filter(Attendance.employee_id == e.id,
                                       Attendance.attendance_date == day).first()
@@ -2432,8 +2453,11 @@ def decide_das_request(req_id: int, data: DasDecideIn, request: Request,
     else:
         if not e.active:
             raise HTTPException(400, "الموظف غير نشط — فعّل الموظف قبل الموافقة")
+        source = (row.source or "DAS")
         record_das_attendance(db, e, row.attendance_date, row.action, row.requested_at,
-                              actor=who_role(role))
+                              actor=who_role(role), source=source)
+        if row.action == "check_out" and source == "QR":
+            save_attendance_checkout(db, e, row.attendance_date, row.requested_at)
         row.status = "Approved"
         row.decision_note = (data.note or "").strip()[:300]
     row.decided_by = who_role(role)
@@ -3500,198 +3524,37 @@ def wipe_attendance(request: Request, role: str = Depends(require_admin), db: Se
     return {"deleted": n, "message": f"تم مسح {n} تسجيلة حضور. السجل بقى فاضي."}
 
 # ═══════════════════════════════════════════════════════════════════════
-# 📷 حضور بالـ QR — المندوب يمسح كود الفرع من لابتوب المشرف فيتسجل حضوره
-#    فورًا في الروستر بدون موافقة (القرار: إلغاء موافقة المشرف).
-#    التوكن بيتغيّر كل دقيقة، والفرق ≤ 20 متر، والتأخير بعد 5 دقايق غرامة.
 # ═══════════════════════════════════════════════════════════════════════
-QR_ZONE_M = float(os.getenv("QR_ZONE_M", "20"))
-# أكواد مسموح لها تتسجل من أي مكان (للاختبار أو لحالات استثنائية). فاضية = مفيش استثناء.
-QR_BYPASS_CODES = {c.strip().upper() for c in os.getenv("QR_BYPASS_CODES", "").split(",") if c.strip()}
+# 📷 حضور بالـ QR — كود متغيّر على شاشة المشرف داخل الروستر، بدون GPS
+#    الـQR بيتغيّر كل 30 ثانية، والتوكن موقّع ومربوط بالفرع. تسجيل الحضور
+#    بيحسب التأخير من شيفت الأسبوع: أقل من 5 دقائق = حاضر، وبعدها Late
+#    + الغرامة الثابتة مرة واحدة. تصحيح Absent بيتسجل في attendance_audit.
+# ═══════════════════════════════════════════════════════════════════════
+QR_TOKEN_SECONDS = 30
+QR_TOKEN_GRACE_SECONDS = 10
 QR_LATE_GRACE_MIN = int(os.getenv("QR_LATE_GRACE_MIN", "5"))
-QR_LAT = float(os.getenv("QR_LAT", "31.2778999"))
-QR_LNG = float(os.getenv("QR_LNG", "30.0219501"))
+QR_CHECKIN_OPEN_MIN = int(os.getenv("QR_CHECKIN_OPEN_MIN", "15"))
 
 
-def _qr_mac(bucket: int) -> str:
-    return hmac.new(SECRET_KEY.encode(), f"attendance-qr|{bucket}".encode(),
-                    hashlib.sha256).hexdigest()[:20]
+class AttendanceAudit(Base):
+    """أثر تدقيق لتسجيلات الحضور اللي بتتغيّر من QR (وبالذات تصحيح Absent)."""
+    __tablename__ = "attendance_audit"
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
+    attendance_date = Column(Date, nullable=False, index=True)
+    old_status = Column(String(20), nullable=True, default="")
+    old_fine = Column(Float, nullable=False, default=0)
+    new_status = Column(String(20), nullable=False, default="")
+    new_fine = Column(Float, nullable=False, default=0)
+    source = Column(String(10), nullable=False, default="QR")
+    note = Column(String(300), nullable=True, default="")
+    actor = Column(String(60), nullable=True, default="QR")
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
 
-def qr_token(ts: float | None = None) -> str:
-    bucket = int((ts if ts is not None else time.time()) // 60)
-    return f"{bucket}.{_qr_mac(bucket)}"
+Base.metadata.create_all(bind=engine, tables=[AttendanceAudit.__table__])
 
-
-def qr_token_valid(token: str) -> bool:
-    try:
-        raw_bucket, mac = str(token).split(".", 1)
-        bucket = int(raw_bucket)
-    except (ValueError, AttributeError):
-        return False
-    now_bucket = int(time.time() // 60)
-    if bucket not in (now_bucket, now_bucket - 1):
-        return False
-    return hmac.compare_digest(mac, _qr_mac(bucket))
-
-
-def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
-    import math as _math
-    r = 6371000.0
-    p1, p2 = _math.radians(lat1), _math.radians(lat2)
-    dp, dl = _math.radians(lat2 - lat1), _math.radians(lng2 - lng1)
-    a = _math.sin(dp / 2) ** 2 + _math.cos(p1) * _math.cos(p2) * _math.sin(dl / 2) ** 2
-    return 2 * r * _math.asin(_math.sqrt(a))
-
-
-class QrAttendanceIn(BaseModel):
-    token: str
-    employee_code: str
-    latitude: float
-    longitude: float
-    accuracy: Optional[float] = None
-
-
-@app.get("/api/admin/qr/live")
-def qr_live(role: str = Depends(require_admin)):
-    """التوكن اللي بيتعرض على شاشة المشرف — يتجدد كل دقيقة."""
-    return {"token": qr_token(), "expires_in": 60 - int(time.time()) % 60,
-            "zone_m": QR_ZONE_M, "late_after_min": QR_LATE_GRACE_MIN}
-
-
-@app.post("/api/attendance/qr")
-def attendance_qr(data: QrAttendanceIn, request: Request, db: Session = Depends(get_db)):
-    """يسجّل الحضور تلقائيًا بعد مسح الكود — بدون موافقة مشرف."""
-    if not qr_token_valid(data.token):
-        raise HTTPException(410, "كود الحضور انتهت صلاحيته — امسح الكود المعروض دلوقتي على شاشة المشرف")
-
-    code = (data.employee_code or "").strip()
-    if not code:
-        raise HTTPException(400, "كود المندوب مطلوب")
-    e = db.query(Employee).filter(Employee.employee_code == code).first()
-    if not e:
-        raise HTTPException(404, "كودك مش متسجل في الروستر — كلّم المشرف")
-    if not e.active:
-        raise HTTPException(403, "حسابك موقوف في الروستر")
-
-    dist_m = _haversine_m(data.latitude, data.longitude, QR_LAT, QR_LNG)
-    bypass = code.upper() in QR_BYPASS_CODES
-    if not bypass and dist_m > QR_ZONE_M:
-        raise HTTPException(409, f"أنت على بُعد {int(dist_m)} متر من الفرع — لازم تكون جوه {int(QR_ZONE_M)} متر")
-
-    from zoneinfo import ZoneInfo
-    now_local = datetime.now(ZoneInfo("Africa/Cairo")).replace(tzinfo=None)
-    day = today_local()
-    weekday = day.strftime("%A")
-    shift_bounds = parse_shift(e.shift)
-    start_min = end_min = None
-    if shift_bounds:
-        start_min, end_min = shift_bounds
-        # الشيفت الليلي: لو إحنا بعد منتصف الليل وقبل نهايته → يوم الحضور هو اليوم السابق
-        if start_min > end_min and now_local.hour * 60 + now_local.minute < end_min:
-            day = day - timedelta(days=1)
-            weekday = day.strftime("%A")
-
-    if e.day_off == weekday:
-        raise HTTPException(409, "النهاردة إجازتك — مفيش تسجيل حضور")
-
-    if start_min is not None:
-        now_min_check = now_local.hour * 60 + now_local.minute
-        opens = start_min - 15
-        if start_min <= end_min:
-            inside = opens <= now_min_check <= end_min
-        else:
-            inside = now_min_check >= opens or now_min_check <= end_min
-        if not inside:
-            raise HTTPException(
-                409,
-                f"مفيش شيفت دلوقتي — شيفتك {e.shift}. التسجيل متاح من 15 دقيقة قبل بدايته لحد نهايته.")
-
-    existing = db.query(Attendance).filter(Attendance.employee_id == e.id,
-                                           Attendance.attendance_date == day).first()
-    now_min = now_local.hour * 60 + now_local.minute
-    late_minutes = 0
-    if start_min is not None:
-        late_minutes = max(0, now_min - (start_min + QR_LATE_GRACE_MIN))
-
-    if existing:
-        return {"ok": True, "already": True, "status": existing.status,
-                "time": existing.updated_at.strftime("%H:%M") if existing.updated_at else "",
-                "late_minutes": late_minutes, "fine": float(existing.fine or 0),
-                "employee": e.name, "branch": e.branch}
-
-    settings = get_settings(db)
-    if late_minutes > 0:
-        status = "Late"
-        bf = (settings.get("branch_fines") or {}).get(e.branch) or {}
-        fine = bf.get(f"late_{e.employment_type.lower()}")
-        if fine is None:
-            fine = settings.get("fine_late") or 0.0
-    else:
-        status = "Present"
-        fine = 0.0
-
-    note = f"حضور QR {now_local.strftime('%H:%M')}"
-    if bypass:
-        note += " · استثناء مكان"
-    item = AttendanceItem(employee_id=e.id, status=status, fine=float(fine),
-                          reason="", note=note)
-    res = _save_items(db, day, [item], actor="QR")
-    if res["errors"]:
-        raise HTTPException(400, res["errors"][0].get("detail", "تعذر تسجيل الحضور"))
-
-    publish_event("attendance", date=day.isoformat(), ids=[e.id], names=[e.name], count=1,
-                  by="QR", client=client_tag(request))
-    return {"ok": True, "already": False, "status": status,
-            "time": now_local.strftime("%H:%M"), "late_minutes": late_minutes,
-            "fine": float(fine), "employee": e.name, "branch": e.branch}
-
-@app.get("/qr", response_class=HTMLResponse)
-def qr_screen(pw: str = ""):
-    """شاشة المشرف: كود حضور متغيّر كل دقيقة، بيتعرض كـ QR كبير على اللابتوب.
-
-    بتتفتح على: /qr?pw=<نفس باسورد الأدمن>
-    الصفحة بتحدّث نفسها كل 20 ثانية، فالـ QR اللي على الشاشة دايمًا صالح.
-    """
-    if not pw or not secrets.compare_digest(pw, ADMIN_PASSWORD):
-        return HTMLResponse("<h3 style='font-family:sans-serif'>كلمة السر غلط</h3>", status_code=401)
-    from urllib.parse import quote as _quote
-    token = qr_token()
-    expires = 60 - int(time.time()) % 60
-    img = ("https://api.qrserver.com/v1/create-qr-code/?size=480x480&margin=8&data="
-           + _quote(token))
-    html = f"""<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
-<meta http-equiv="refresh" content="20">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>حضور بالـ QR</title>
-<style>
- body{{margin:0;background:#070B12;color:#F3F7FC;font-family:system-ui,sans-serif;
-       display:flex;flex-direction:column;align-items:center;justify-content:center;
-       min-height:100vh;gap:18px}}
- h1{{font-size:26px;margin:0;font-weight:800}}
- p{{margin:0;color:#8190A5;font-size:14px}}
- .card{{background:#fff;padding:18px;border-radius:24px;box-shadow:0 24px 60px rgba(0,0,0,.5)}}
- .t{{font-family:monospace;font-size:13px;color:#5EA2FF;letter-spacing:.5px}}
-</style></head><body>
-<h1>امسح الكود لتسجيل الحضور</h1>
-<p>الكود بيتغيّر كل دقيقة — باقي {expires} ثانية</p>
-<div class="card"><img src="{img}" width="480" height="480" alt="QR"></div>
-<p class="t">{token}</p>
-</body></html>"""
-    return HTMLResponse(html)
-
-@app.get("/api/das/qr/live", dependencies=[Depends(require_das_secret)])
-def das_qr_live():
-    """نفس توكن الحضور لكن لخدمات تانية (البوابة/الأبلكيشن) بمفتاح DAS_SECRET.
-
-    ده اللي بيسمح لصفحة الـ QR في بوابة المناديب إنها تعرض كود الحضور
-    بدل ما يبقى فيه لينك تاني للمشرف.
-    """
-    return {"token": qr_token(), "expires_in": 60 - int(time.time()) % 60,
-            "zone_m": QR_ZONE_M, "late_after_min": QR_LATE_GRACE_MIN}
-
-# ═══════════════════════════════════════════════════════════════════════
-# 🚪 انصراف بالـ QR — بيتسجل في جدول منفصل، ومش بيلمس الحضور ولا الغرامات
-# ═══════════════════════════════════════════════════════════════════════
+# جدول الانصرافات (بيتكتب عند موافقة المشرف فقط).
 with engine.begin() as _conn:
     _conn.execute(text("""
         CREATE TABLE IF NOT EXISTS attendance_checkouts (
@@ -3709,53 +3572,472 @@ with engine.begin() as _conn:
     ))
 
 
-@app.post("/api/attendance/qr/checkout")
-def attendance_qr_checkout(data: QrAttendanceIn, request: Request, db: Session = Depends(get_db)):
-    """إنهاء الشيفت: نفس كود الحضور، بدون أي قيد وقت، ومن غير ما يغيّر سجل الحضور."""
-    if not qr_token_valid(data.token):
-        raise HTTPException(410, "كود الحضور انتهى — امسح الكود المعروض دلوقتي على شاشة المشرف")
+def qr_now_local() -> datetime:
+    """وقت حائط القاهرة — نفس الساعة اللي المشرف شايفها على شاشة الروستر."""
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("Africa/Cairo")).replace(tzinfo=None)
 
-    code = (data.employee_code or "").strip()
-    e = db.query(Employee).filter(Employee.employee_code == code).first()
+
+def _qr_mac(branch: str, bucket: int) -> str:
+    return hmac.new(SECRET_KEY.encode(), f"attendance-qr|{branch}|{bucket}".encode(),
+                    hashlib.sha256).hexdigest()[:20]
+
+
+def qr_token(branch: str = "QCD 2", ts: float | None = None) -> str:
+    """توكن موقّع: v1|الفرع|نافذة-30-ثانية|HMAC."""
+    branch = norm_branch(branch) or "QCD 2"
+    bucket = int((ts if ts is not None else time.time()) // QR_TOKEN_SECONDS)
+    return f"v1|{branch}|{bucket}|{_qr_mac(branch, bucket)}"
+
+
+def qr_token_branch(token: str) -> Optional[str]:
+    """يرجّع الفرع لو التوكن سليم ولسه في نافذته (مع سماح 10 ثواني)."""
+    try:
+        version, branch, raw_bucket, mac = str(token).split("|")
+        bucket = int(raw_bucket)
+    except (ValueError, AttributeError):
+        return None
+    if version != "v1" or branch not in BRANCHES:
+        return None
+    now = time.time()
+    now_bucket = int(now // QR_TOKEN_SECONDS)
+    if bucket == now_bucket - 1:
+        if (now - now_bucket * QR_TOKEN_SECONDS) > QR_TOKEN_GRACE_SECONDS:
+            return None
+    elif bucket != now_bucket:
+        return None
+    if not hmac.compare_digest(mac, _qr_mac(branch, bucket)):
+        return None
+    return branch
+
+
+def qr_live_payload(branch: str) -> dict:
+    branch = norm_branch(branch) or "QCD 2"
+    return {
+        "token": qr_token(branch),
+        "branch": branch,
+        "expires_in": max(1, QR_TOKEN_SECONDS - int(time.time()) % QR_TOKEN_SECONDS),
+        "interval": QR_TOKEN_SECONDS,
+        "grace_min": QR_LATE_GRACE_MIN,
+        "late_after_min": QR_LATE_GRACE_MIN,
+    }
+
+
+def _qr_employee(db: Session, code: str) -> Optional[Employee]:
+    code = (code or "").strip()
+    if not code:
+        return None
+    return (db.query(Employee)
+            .filter(func.upper(Employee.employee_code) == code.upper())
+            .first())
+
+
+def qr_shift_context(db: Session, e: Employee, now_local: datetime):
+    """يوم الشيفت + شيفت الأسبوع + دقايق التأخير، مع معالجة الشيفت الليلي.
+
+    الشيفت الليلي اللي بيعدّي منتصف الليل: التسجيل بعد منتصف الليل بيتحسب على
+    يوم بداية الشيفت، والوقت بيتزاد 1440 دقيقة عشان حساب التأخير يفضل صح.
+    """
+    day = now_local.date()
+    now_min = now_local.hour * 60 + now_local.minute
+    sched = ensure_week(db, week_start_of(day)).get(e.id)
+    shift = (sched.shift if sched else e.shift) or ""
+    bounds = parse_shift(shift)
+    if bounds and bounds[1] > 1440 and now_min < bounds[1] - 1440:
+        day -= timedelta(days=1)
+        now_min += 1440
+        sched = ensure_week(db, week_start_of(day)).get(e.id)
+        shift = (sched.shift if sched else e.shift) or ""
+        bounds = parse_shift(shift)
+    late = max(0, now_min - bounds[0]) if bounds else 0
+    return SimpleNamespace(day=day, schedule=sched, shift=shift, bounds=bounds,
+                           now_min=now_min, late_minutes=late)
+
+
+def _qr_shift_window(ctx) -> Optional[tuple[int, int]]:
+    if not ctx.bounds:
+        return None
+    start, end = ctx.bounds
+    return max(0, start - QR_CHECKIN_OPEN_MIN), end
+
+
+def _qr_window_text(ctx) -> tuple[str, str]:
+    window = _qr_shift_window(ctx)
+    if not window:
+        return "", ""
+    return hhmm(window[0] % 1440), hhmm(window[1] % 1440)
+
+
+def _qr_late_fine(db: Session, e: Employee) -> float:
+    """الغرامة الثابتة للتأخير لفرع الموظف ونوع تعاقده، مرة واحدة في اليوم."""
+    settings = get_settings(db)
+    branch_fines = (settings.get("branch_fines") or {}).get(e.branch) or {}
+    value = branch_fines.get(f"late_{(e.employment_type or 'FT').lower()}")
+    if value is None:
+        value = settings.get("fine_late") or 0.0
+    return float(value or 0)
+
+
+def _qr_status_for(ctx, db: Session, e: Employee) -> tuple[str, float]:
+    if ctx.late_minutes >= QR_LATE_GRACE_MIN:
+        return "Late", _qr_late_fine(db, e)
+    return "Present", 0.0
+
+
+def _qr_clock_for(row: Attendance) -> str:
+    if not row:
+        return ""
+    match = re.search(r"حضور QR\s+([0-2]\d:[0-5]\d)", row.note or "")
+    if match:
+        return match.group(1)
+    if not row.updated_at:
+        return ""
+    return cairo_wall(row.updated_at).strftime("%H:%M")
+
+
+def _qr_late_from_row(row: Attendance, ctx) -> int:
+    if not row or row.status != "Late" or not ctx.bounds:
+        return 0
+    stamp_min = None
+    match = re.search(r"حضور QR\s+([0-2]\d):([0-5]\d)", row.note or "")
+    if match:
+        stamp_min = int(match.group(1)) * 60 + int(match.group(2))
+    elif row.updated_at:
+        stamp = cairo_wall(row.updated_at)
+        stamp_min = stamp.hour * 60 + stamp.minute
+    if stamp_min is None:
+        return 0
+    if ctx.bounds[1] > 1440 and stamp_min < ctx.bounds[1] - 1440:
+        stamp_min += 1440
+    return max(0, stamp_min - ctx.bounds[0])
+
+
+def _qr_write_audit(db: Session, e: Employee, day: date, old_status: str, old_fine: float,
+                    new_status: str, new_fine: float, note: str) -> None:
+    """أثر التدقيق مش جزء من نجاح الحضور — لو فشل ما بنفشلش العملية."""
+    try:
+        db.add(AttendanceAudit(
+            employee_id=e.id, attendance_date=day,
+            old_status=old_status or "", old_fine=float(old_fine or 0),
+            new_status=new_status, new_fine=float(new_fine or 0),
+            source="QR", note=note[:300], actor="QR", created_at=utcnow(),
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def save_attendance_checkout(db: Session, e: Employee, day: date, requested_at: datetime) -> None:
+    """وقت الانصراف المعتمد — في جدول منفصل عشان ما يلمسش حالة الحضور أو الغرامة."""
+    stamp = cairo_wall(requested_at).strftime("%Y-%m-%d %H:%M:%S")
+    db.execute(text("""
+        INSERT INTO attendance_checkouts (employee_id, checkout_date, checked_out_at, method, note)
+        VALUES (:eid, :day, :stamp, 'QR', '')
+        ON CONFLICT(employee_id, checkout_date)
+        DO UPDATE SET checked_out_at = :stamp, method = 'QR'
+    """), {"eid": e.id, "day": day.isoformat(), "stamp": stamp})
+
+
+class QrAttendanceIn(BaseModel):
+    token: str = Field(min_length=5, max_length=300)
+    employee_code: str = Field(min_length=1, max_length=60)
+    # للتوافق مع نسخة قديمة من التطبيق كانت بتبعت الموقع — بيتجاهل.
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    accuracy: Optional[float] = None
+
+
+class QrCheckoutIn(BaseModel):
+    employee_code: str = Field(min_length=1, max_length=60)
+
+
+@app.get("/api/admin/qr/attendance")
+def qr_attendance_live(branch: Optional[str] = None, role: str = Depends(require_auth)):
+    """كود الـQR الحالي لشاشة المشرف. مشرف الفرع بياخد فرعه تلقائيًا."""
+    scoped = role_branch(role)
+    target = scoped or norm_branch(branch) or "QCD 2"
+    return qr_live_payload(target)
+
+
+@app.get("/api/admin/qr/live")
+def qr_live(role: str = Depends(require_auth)):
+    """نسخة قديمة من نفس الـendpoint — بنسيبها للتوافق."""
+    return qr_live_payload(role_branch(role) or "QCD 2")
+
+
+@app.get("/api/das/qr/live", dependencies=[Depends(require_das_secret)])
+def das_qr_live():
+    """بوابة DAS بتقرأ كود QCD 2 من هنا — نفس التوكن الموجود في الروستر."""
+    return qr_live_payload("QCD 2")
+
+
+@app.get("/api/das/employee", dependencies=[Depends(require_das_secret)])
+def das_employee(employee_code: str = Query(..., min_length=1, max_length=60),
+                 db: Session = Depends(get_db)):
+    """بيانات المندوب من الروستر — المصدر الرسمي للفرع والشيفت."""
+    e = _qr_employee(db, employee_code)
+    if not e:
+        raise HTTPException(404, "الكود مش مسجل في الروستر")
+    sched = peek_week(db, week_start_of(today_local())).get(e.id)
+    return {
+        "employee_id": e.id, "name": e.name, "employee_code": e.employee_code or "",
+        "branch": e.branch, "shift": (sched.shift if sched else e.shift),
+        "day_off": (sched.day_off if sched else e.day_off),
+        "employment_type": e.employment_type, "active": bool(e.active),
+        "attendance_only": e.branch == "QCD 2",
+    }
+
+
+@app.post("/api/attendance/qr")
+def attendance_qr(data: QrAttendanceIn, request: Request, db: Session = Depends(get_db)):
+    """تسجيل حضور فوري بعد مسح QR — بدون GPS وبدون موافقة مشرف."""
+    branch = qr_token_branch(data.token)
+    if not branch:
+        raise HTTPException(410, "كود الحضور انتهت صلاحيته — امسح الكود المعروض دلوقتي على شاشة المشرف")
+
+    e = _qr_employee(db, data.employee_code)
+    if not e:
+        raise HTTPException(404, "كودك مش متسجل في الروستر — كلّم المشرف")
+    if not e.active:
+        raise HTTPException(403, "حسابك موقوف في الروستر")
+    if (e.branch or "").strip() != branch:
+        raise HTTPException(409, f"الـQR ده بتاع {branch} — امسح الـQR بتاع فرعك ({e.branch})")
+
+    now_local = qr_now_local()
+    ctx = qr_shift_context(db, e, now_local)
+    day = ctx.day
+    if not ctx.schedule:
+        raise HTTPException(409, "مش مضاف في جدول الأسبوع ده — كلّم المشرف")
+    if (ctx.schedule.day_off or "") == day.strftime("%A"):
+        raise HTTPException(409, "النهاردة إجازتك — مفيش تسجيل حضور")
+    if not ctx.bounds:
+        raise HTTPException(409, f"شيفتك «{ctx.shift}» مش مقروء — كلّم المشرف يظبطه")
+
+    window = _qr_shift_window(ctx)
+    if not (window[0] <= ctx.now_min <= window[1]):
+        opens, closes = _qr_window_text(ctx)
+        raise HTTPException(
+            409,
+            f"مفيش شيفت دلوقتي — شيفتك {ctx.shift}. التسجيل متاح من {opens} لحد {closes}.",
+        )
+
+    status, fine = _qr_status_for(ctx, db, e)
+    clock = now_local.strftime("%H:%M")
+    note = f"حضور QR {clock}"
+    if status == "Late":
+        note += f" · متأخر {ctx.late_minutes} دقيقة"
+
+    existing = (db.query(Attendance)
+                .filter(Attendance.employee_id == e.id, Attendance.attendance_date == day)
+                .first())
+
+    if existing is not None:
+        old_status = existing.status or ""
+        old_fine = float(existing.fine or 0)
+        if old_status in ("Present", "Late"):
+            return {"ok": True, "already": True, "corrected": False, "status": old_status,
+                    "time": _qr_clock_for(existing), "late_minutes": _qr_late_from_row(existing, ctx),
+                    "fine": old_fine, "employee": e.name, "branch": e.branch,
+                    "attendance_date": day.isoformat(), "shift": ctx.shift}
+        if old_status == "Absent":
+            correction_note = ((existing.note or "") + ("\n" if existing.note else "")
+                               + f"تصحيح بعد QR {clock}")[:500]
+            item = AttendanceItem(employee_id=e.id, status=status, fine=fine,
+                                  reason="", note=correction_note)
+            res = _save_items(db, day, [item], actor="QR")
+            if res["errors"]:
+                raise HTTPException(400, res["errors"][0].get("detail", "تعذر تصحيح الحضور"))
+            _qr_write_audit(db, e, day, old_status, old_fine, status, fine,
+                            f"تصحيح بعد QR {clock}")
+            publish_event("attendance", date=day.isoformat(), ids=[e.id], names=[e.name],
+                          count=1, by="QR", client=client_tag(request))
+            return {"ok": True, "already": False, "corrected": True, "status": status,
+                    "time": clock, "late_minutes": ctx.late_minutes, "fine": float(fine),
+                    "employee": e.name, "branch": e.branch,
+                    "attendance_date": day.isoformat(), "shift": ctx.shift}
+        # Excused أو أي حالة يدوية تانية: ما بنكتبش فوق قرار المشرف.
+        return {"ok": True, "already": True, "corrected": False, "status": old_status,
+                "time": _qr_clock_for(existing), "late_minutes": 0, "fine": old_fine,
+                "employee": e.name, "branch": e.branch,
+                "attendance_date": day.isoformat(), "shift": ctx.shift}
+
+    item = AttendanceItem(employee_id=e.id, status=status, fine=fine, reason="", note=note)
+    res = _save_items(db, day, [item], actor="QR")
+    if res["errors"]:
+        raise HTTPException(400, res["errors"][0].get("detail", "تعذر تسجيل الحضور"))
+
+    _qr_write_audit(db, e, day, "", 0, status, fine, note)
+    publish_event("attendance", date=day.isoformat(), ids=[e.id], names=[e.name],
+                  count=1, by="QR", client=client_tag(request))
+    return {"ok": True, "already": False, "corrected": False, "status": status,
+            "time": clock, "late_minutes": ctx.late_minutes, "fine": float(fine),
+            "employee": e.name, "branch": e.branch,
+            "attendance_date": day.isoformat(), "shift": ctx.shift}
+
+
+@app.post("/api/attendance/qr/checkout", dependencies=[Depends(require_das_secret)])
+def qr_checkout_request(data: QrCheckoutIn, request: Request, db: Session = Depends(get_db)):
+    """طلب انصراف من التطبيق — بيتسجل Pending والمشرف يوافق عليه من الروستر."""
+    e = _qr_employee(db, data.employee_code)
     if not e:
         raise HTTPException(404, "كودك مش متسجل في الروستر — كلّم المشرف")
     if not e.active:
         raise HTTPException(403, "حسابك موقوف في الروستر")
 
-    from zoneinfo import ZoneInfo
-    now_local = datetime.now(ZoneInfo("Africa/Cairo")).replace(tzinfo=None)
-    day = today_local()
+    now_local = qr_now_local()
+    ctx = qr_shift_context(db, e, now_local)
+    day = ctx.day
+    att = (db.query(Attendance)
+           .filter(Attendance.employee_id == e.id, Attendance.attendance_date == day)
+           .first())
+    if att is None and ctx.bounds and ctx.bounds[1] > 1440:
+        # الشيفت الليلي: لو الانصراف بعد نهاية الشيفت، سجل الحضور على اليوم السابق.
+        prev = day - timedelta(days=1)
+        prev_att = (db.query(Attendance)
+                    .filter(Attendance.employee_id == e.id, Attendance.attendance_date == prev)
+                    .first())
+        if prev_att is not None:
+            day, att = prev, prev_att
+    if att is None or (att.status or "") not in ("Present", "Late"):
+        raise HTTPException(409, "مفيش حضور مسجل في اليوم ده — سجّل حضورك الأول")
 
-    present = db.query(Attendance).filter(Attendance.employee_id == e.id,
-                                          Attendance.attendance_date == day).first()
-    if not present:
-        raise HTTPException(409, "مفيش حضور مسجل النهاردة — سجّل حضورك الأول")
+    existing = (db.query(DasRequest)
+                .filter(DasRequest.employee_id == e.id, DasRequest.action == "check_out",
+                        DasRequest.attendance_date == day,
+                        DasRequest.status.in_(("Pending", "Approved")))
+                .order_by(DasRequest.id.desc()).first())
+    if existing is not None:
+        return {"ok": True, "already": True, "status": existing.status,
+                "request_id": existing.id, "attendance_date": day.isoformat(),
+                "time": cairo_wall(existing.requested_at).strftime("%H:%M") if existing.requested_at else "",
+                "message": "طلب الانصراف قيد موافقة المشرف" if existing.status == "Pending"
+                           else "انصرافك معتمد بالفعل"}
 
-    dist_m = _haversine_m(data.latitude, data.longitude, QR_LAT, QR_LNG)
-    bypass = code.upper() in QR_BYPASS_CODES
-    if not bypass and dist_m > QR_ZONE_M:
-        raise HTTPException(409, f"أنت على بُعد {int(dist_m)} متر من الفرع — لازم تكون جوه {int(QR_ZONE_M)} متر")
-
-    stamp = now_local.strftime("%Y-%m-%d %H:%M:%S")
-    sql = text("""
-        INSERT INTO attendance_checkouts (employee_id, checkout_date, checked_out_at, method, note)
-        VALUES (:eid, :day, :stamp, 'QR', :note)
-        ON CONFLICT(employee_id, checkout_date)
-        DO UPDATE SET checked_out_at = :stamp
-    """)
+    row = DasRequest(employee_id=e.id, action="check_out", attendance_date=day,
+                     status="Pending", requested_at=utcnow(), courier_local_at="",
+                     checkin_id=None, source="QR")
+    db.add(row)
     try:
-        db.execute(sql, {"eid": e.id, "day": day.isoformat(), "stamp": stamp,
-                         "note": "استثناء مكان" if bypass else ""})
         db.commit()
     except IntegrityError:
         db.rollback()
-        db.execute(text("""
-            UPDATE attendance_checkouts SET checked_out_at = :stamp
-            WHERE employee_id = :eid AND checkout_date = :day
-        """), {"stamp": stamp, "eid": e.id, "day": day.isoformat()})
-        db.commit()
+        existing = (db.query(DasRequest)
+                    .filter(DasRequest.employee_id == e.id, DasRequest.action == "check_out",
+                            DasRequest.attendance_date == day,
+                            DasRequest.status.in_(("Pending", "Approved")))
+                    .order_by(DasRequest.id.desc()).first())
+        if existing is None:
+            raise HTTPException(409, "طلب متكرر — جرّب تاني")
+        return {"ok": True, "already": True, "status": existing.status,
+                "request_id": existing.id, "attendance_date": day.isoformat(),
+                "time": "", "message": "طلب الانصراف قيد موافقة المشرف"}
+    db.refresh(row)
+    publish_event("das_requests", action="create", names=[e.name], branch=e.branch,
+                  by="QR", client=client_tag(request))
+    return {"ok": True, "already": False, "status": "Pending", "request_id": row.id,
+            "attendance_date": day.isoformat(), "time": now_local.strftime("%H:%M"),
+            "message": "تم إرسال طلب الانصراف — مستني موافقة المشرف"}
 
-    publish_event("attendance", date=day.isoformat(), ids=[e.id], names=[e.name], count=0,
-                  by="QR", client=client_tag(request), checkout=stamp)
-    return {"ok": True, "time": now_local.strftime("%H:%M"), "stamp": stamp,
-            "employee": e.name, "branch": e.branch}
+
+@app.get("/api/attendance/qr/checkout/status", dependencies=[Depends(require_das_secret)])
+def qr_checkout_status(employee_code: str = Query(..., min_length=1, max_length=60),
+                       db: Session = Depends(get_db)):
+    e = _qr_employee(db, employee_code)
+    if not e:
+        raise HTTPException(404, "كودك مش متسجل في الروستر")
+    row = (db.query(DasRequest)
+           .filter(DasRequest.employee_id == e.id, DasRequest.action == "check_out")
+           .order_by(DasRequest.id.desc()).first())
+    co = None
+    if row is not None:
+        co = db.execute(text(
+            "SELECT checked_out_at FROM attendance_checkouts "
+            "WHERE employee_id = :eid AND checkout_date = :day"
+        ), {"eid": e.id, "day": row.attendance_date.isoformat()}).first()
+    return {
+        "status": row.status if row else "",
+        "request_id": row.id if row else None,
+        "attendance_date": row.attendance_date.isoformat() if row else "",
+        "requested_at": row.requested_at.isoformat() if row and row.requested_at else "",
+        "decided_by": (row.decided_by or "") if row else "",
+        "decided_at": row.decided_at.isoformat() if row and row.decided_at else "",
+        "decision_note": (row.decision_note or "") if row else "",
+        "checked_out_at": (co[0] if co else ""),
+        "checkout_method": "QR",
+    }
+
+
+@app.get("/api/attendance/qr/status", dependencies=[Depends(require_das_secret)])
+def qr_attendance_status(employee_code: str = Query(..., min_length=1, max_length=60),
+                         db: Session = Depends(get_db)):
+    """حالة حضور المندوب النهاردة + شيفته + طلب الانصراف — بيقرأها Bankai."""
+    e = _qr_employee(db, employee_code)
+    if not e:
+        raise HTTPException(404, "كودك مش متسجل في الروستر")
+    now_local = qr_now_local()
+    ctx = qr_shift_context(db, e, now_local)
+    day = ctx.day
+    att = (db.query(Attendance)
+           .filter(Attendance.employee_id == e.id, Attendance.attendance_date == day)
+           .first())
+    window = _qr_shift_window(ctx)
+    inside = bool(window and window[0] <= ctx.now_min <= window[1])
+    day_off = bool(ctx.schedule and (ctx.schedule.day_off or "") == day.strftime("%A"))
+    co = db.execute(text(
+        "SELECT checked_out_at FROM attendance_checkouts "
+        "WHERE employee_id = :eid AND checkout_date = :day"
+    ), {"eid": e.id, "day": day.isoformat()}).first()
+    req = (db.query(DasRequest)
+           .filter(DasRequest.employee_id == e.id, DasRequest.action == "check_out",
+                   DasRequest.attendance_date == day)
+           .order_by(DasRequest.id.desc()).first())
+    return {
+        "employee": e.name, "employee_code": e.employee_code or "", "branch": e.branch,
+        "employment_type": e.employment_type, "date": day.isoformat(), "shift": ctx.shift,
+        "day_off": day_off, "server_time": now_local.strftime("%H:%M"),
+        "grace_min": QR_LATE_GRACE_MIN,
+        "window": {"opens": hhmm(window[0] % 1440) if window else "",
+                   "closes": hhmm(window[1] % 1440) if window else ""},
+        "can_check_in": bool(att is None and inside and not day_off and ctx.bounds),
+        "inside_shift": inside,
+        "attendance": ({
+            "status": att.status, "fine": float(att.fine or 0), "note": att.note or "",
+            "recorded_by": att.recorded_by or "", "time": _qr_clock_for(att),
+            "late_minutes": _qr_late_from_row(att, ctx),
+        } if att else None),
+        "checkout": ({
+            "status": req.status, "request_id": req.id,
+            "decided_by": req.decided_by or "",
+            "decided_at": req.decided_at.isoformat() if req.decided_at else "",
+            "decision_note": req.decision_note or "",
+            "checked_out_at": co[0] if co else "",
+        } if req else ({"status": "Approved", "checked_out_at": co[0]} if co else None)),
+    }
+
+
+@app.get("/qr", response_class=HTMLResponse)
+def qr_screen(pw: str = "", branch: Optional[str] = None):
+    """شاشة كبيرة احتياطية للـQR — الأساس بقى الكارت داخل sidebar الروستر."""
+    if not pw or not secrets.compare_digest(pw, ADMIN_PASSWORD):
+        return HTMLResponse("<h3 style='font-family:sans-serif'>كلمة السر غلط</h3>", status_code=401)
+    from urllib.parse import quote as _quote
+    target = norm_branch(branch) or "QCD 2"
+    token = qr_token(target)
+    expires = max(1, QR_TOKEN_SECONDS - int(time.time()) % QR_TOKEN_SECONDS)
+    img = ("https://api.qrserver.com/v1/create-qr-code/?size=480x480&margin=8&data="
+           + _quote(token))
+    html = f"""<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta http-equiv="refresh" content="15">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>حضور بالـ QR</title>
+<style>
+ body{{margin:0;background:#070B12;color:#F3F7FC;font-family:system-ui,-apple-system,sans-serif;
+      display:grid;place-items:center;min-height:100vh}}
+ .card{{background:#fff;padding:18px;border-radius:18px}}
+ h1{{font-size:20px;margin:0 0 12px;text-align:center}}
+ p{{margin:12px 0 0;text-align:center;color:#475569;font-size:14px}}
+</style></head><body>
+<div><h1>QR الحضور — {target}</h1><div class="card"><img src="{img}" width="480" height="480" alt="QR"></div>
+<p>الكود يتغيّر كل 30 ثانية · يتجدد خلال {expires} ث</p></div>
+</body></html>"""
+    return HTMLResponse(html)

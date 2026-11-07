@@ -2589,3 +2589,33 @@ button,a,label,select,summary,input[type=checkbox],input[type=radio],.chip,.nav-
 .kpi:after{background:#2563EB}
 .topbar h2::before{background:linear-gradient(180deg,#93C5FD,#1E40AF)}
 .btn.primary::after{background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.28) 50%,transparent 65%)}
+
+/* ================= Attendance QR — right sidebar card + enlarge modal ================= */
+.side-qr{flex:none;margin:14px 0 12px;padding:10px;border-radius:14px;background:#fff;color:#0C1428;border:1px solid rgba(255,255,255,.18)}
+.side-qr-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;min-width:0}
+.side-qr-title{flex:1;min-width:0;font-size:12px;font-weight:800;color:#0C1428;white-space:nowrap}
+.side-qr-branch{height:26px;max-width:86px;border:1px solid #CBD5E1;border-radius:7px;background:#fff;color:#0C1428;font-size:11px;font-weight:700;padding:0 6px;cursor:pointer}
+.side-qr-branch-tag{font-size:11px;font-weight:800;color:#1D4ED8;background:#EFF6FF;border:1px solid #DBEAFE;border-radius:999px;padding:3px 8px;white-space:nowrap}
+.side-qr-box{position:relative;background:#fff;border-radius:10px;padding:0;display:grid;place-items:center;min-height:148px}
+.side-qr-code{width:148px;height:148px;display:grid;place-items:center}
+.side-qr-code canvas,.side-qr-code img{display:block;width:148px!important;height:148px!important}
+.side-qr-cover{position:absolute;inset:0;display:grid;place-items:center;background:#fff;color:#475569;font-size:11px;font-weight:700;border-radius:10px;text-align:center;padding:10px;line-height:1.6}
+.side-qr-progress{height:3px;border-radius:99px;background:#E2E8F0;margin:8px 1px 0;overflow:hidden}
+.side-qr-progress i{display:block;height:100%;width:100%;background:#2563EB;border-radius:99px;transition:width .25s linear}
+.side-qr-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:7px}
+.side-qr-time{font-size:11px;font-weight:700;color:#475569}
+.side-qr-big{border:0;background:none;color:#1D4ED8;font-size:11.5px;font-weight:800;padding:2px 0;text-decoration:underline;text-underline-offset:3px}
+.side-qr-big:hover{color:#1E40AF}
+.qr-modal{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;background:rgba(4,10,24,.72);padding:24px}
+.qr-modal-card{width:min(94vw,510px);background:#fff;color:#0C1428;border-radius:20px;padding:18px 20px 16px;box-shadow:0 30px 90px rgba(0,0,0,.42)}
+.qr-modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+.qr-modal-head b{display:block;font-size:16px;font-weight:800}
+.qr-modal-head span{display:block;margin-top:3px;font-size:12px;font-weight:700;color:#1D4ED8}
+.qr-modal-close{width:32px;height:32px;border:1px solid #E2E8F0;border-radius:9px;background:#fff;color:#0C1428;font-size:20px;line-height:1;display:grid;place-items:center}
+.qr-modal-close:hover{background:#F1F5F9}
+.qr-modal-code{display:grid;place-items:center;min-height:300px;padding:14px;background:#fff;border:1px solid #E2E8F0;border-radius:14px}
+.qr-modal-code canvas,.qr-modal-code img{display:block;width:min(72vw,360px)!important;height:min(72vw,360px)!important}
+.qr-modal-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:11px;font-size:11px;font-weight:700;color:#64748B}
+.qr-modal-foot span:last-child{color:#475569}
+@media(max-width:980px){.side-qr{display:none!important}}
+@media print{.side-qr,.qr-modal{display:none!important}}

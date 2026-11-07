@@ -767,6 +767,7 @@ on("loginForm", "submit", async e => {
 
 function logout(show = true) {
   stopLive();
+  stopAttendanceQr();
   S.token = ""; S.role = "";
   localStorage.removeItem("bankai_token"); localStorage.removeItem("bankai_role");
   delete document.documentElement.dataset.auth; /* نشيل قفل إخفاء شاشة الدخول المبكّر بتاع الـ head */
@@ -813,6 +814,7 @@ function applyRole() {
   /* مشرف الفرع: من غير جدول ومن غير إعدادات — كله قراءة + حضور لفرعه بس */
   qsa('.nav-btn[data-page="schedule"],.nav-btn[data-page="settings"]').forEach(b => b.classList.toggle("hidden", sup));
   if (window.syncNavInd) window.syncNavInd();
+  initAttendanceQr();
 }
 
 const PAGES = { dashboard: "نظرة عامة", attendance: "الحضور اليومي", schedule: "الجدول", employees: "الموظفون", reports: "التقارير", fines: "الغرامات", settings: "الإعدادات" };
@@ -1136,10 +1138,11 @@ async function loadDasRequests() {
         ? `<button class="btn sm primary" data-dasdec="${r.id}" data-d="approve">${bi("موافقة", "Approve")}</button>
            <button class="btn sm danger" data-dasdec="${r.id}" data-d="reject">${bi("رفض", "Reject")}</button>`
         : `<small class="muted">${bi("مشاهدة فقط", "Read only")}</small>`;
-      const note = r.courier_local_at ? `<br><small class="muted">${bi("وقت الجهاز (للعرض):", "Device time:")} ${esc(r.courier_local_at)}</small>` : "";
+      const note = r.courier_local_at && r.source !== "QR" ? `<br><small class="muted">${bi("وقت الجهاز (للعرض):", "Device time:")} ${esc(r.courier_local_at)}</small>` : "";
+      const srcTag = r.source === "QR" ? ` <span class="tag ok">QR</span>` : "";
       return `<tr data-dasrow="${r.id}">
         <td class="who">${whoHTML(r.employee_name, `<b>${esc(r.employee_name)}</b><br><small class="muted">${esc(r.employee_code || "")} · ${sh(r.shift || "")}</small>`)}</td>
-        <td>${esc(S.lang === "en" ? act[1] : act[0])}</td>
+        <td>${esc(S.lang === "en" ? act[1] : act[0])}${srcTag}</td>
         <td class="num">${fmtDay(r.attendance_date, { day: "numeric", month: "short" })}</td>
         <td class="num">${dasReqHM(r.requested_at)}${note}</td>
         <td>${stBadge}</td>
@@ -3358,6 +3361,157 @@ async function loadEmployeesSoft() {
 
 applySoundBtn();
 setLive(false, "غير متصل");
+
+/* ================= QR الحضور — كارت الـsidebar ================= */
+const QR_ATT = {
+  token: "", branch: "", expiresAt: 0, interval: 30,
+  timer: null, tick: null, loading: false, started: false, lastError: "",
+};
+
+function qrChosenBranch() {
+  if (S.supBranch) return S.supBranch;
+  try {
+    const saved = localStorage.getItem("bankai_qr_branch");
+    if (saved === "QCD 1" || saved === "QCD 2") return saved;
+  } catch (e) {}
+  return "QCD 2";
+}
+
+function qrRenderInto(el, token, size) {
+  if (!el || !token) return;
+  el.replaceChildren();
+  if (!window.QRCode) {
+    el.textContent = "QR غير متاح";
+    return;
+  }
+  new QRCode(el, {
+    text: token,
+    width: size,
+    height: size,
+    colorDark: "#0C1428",
+    colorLight: "#FFFFFF",
+    correctLevel: window.QRCode.CorrectLevel.M,
+  });
+}
+
+function qrRender() {
+  qrRenderInto($("attQrCode"), QR_ATT.token, 148);
+  if ($("attQrModal") && !$("attQrModal").classList.contains("hidden")) {
+    qrRenderInto($("attQrModalCode"), QR_ATT.token, 360);
+  }
+  const branch = QR_ATT.branch || qrChosenBranch();
+  if ($("attQrBranchTag")) $("attQrBranchTag").textContent = branch;
+  if ($("attQrModalBranch")) $("attQrModalBranch").textContent = branch;
+  if ($("attQrCover")) {
+    $("attQrCover").classList.toggle("hidden", !!QR_ATT.token);
+    if (!QR_ATT.token) $("attQrCover").textContent = QR_ATT.lastError || "جاري تجهيز الكود…";
+  }
+}
+
+function qrCountdownText(secs) { return `يتجدد خلال ${secs} ث`; }
+
+function qrUpdateCountdown() {
+  const el = $("attQrTime");
+  if (!el || !QR_ATT.expiresAt) return;
+  const secs = Math.max(0, Math.ceil((QR_ATT.expiresAt - Date.now()) / 1000));
+  el.textContent = qrCountdownText(secs);
+  if ($("attQrModalTime")) $("attQrModalTime").textContent = qrCountdownText(secs);
+  if ($("attQrProgress")) {
+    const pct = Math.max(0, Math.min(100, (secs / (QR_ATT.interval || 30)) * 100));
+    $("attQrProgress").style.width = pct + "%";
+  }
+}
+
+async function refreshAttendanceQr(force = false) {
+  if (!S.token) return;
+  const branch = qrChosenBranch();
+  if (!force && QR_ATT.token && QR_ATT.branch === branch && Date.now() < QR_ATT.expiresAt - 1500) return;
+  if (QR_ATT.loading) return;
+  QR_ATT.loading = true;
+  try {
+    const data = await api(`/api/admin/qr/attendance?branch=${encodeURIComponent(branch)}`, { silent: true });
+    QR_ATT.token = data.token || "";
+    QR_ATT.branch = data.branch || branch;
+    QR_ATT.interval = Number(data.interval || 30);
+    QR_ATT.expiresAt = Date.now() + Number(data.expires_in || QR_ATT.interval) * 1000;
+    QR_ATT.lastError = "";
+    qrRender();
+    qrUpdateCountdown();
+  } catch (e) {
+    QR_ATT.lastError = "تعذّر تحميل الكود — إعادة المحاولة…";
+    QR_ATT.expiresAt = Date.now() + 5000;
+    if (!QR_ATT.token) qrRender();
+  } finally {
+    QR_ATT.loading = false;
+  }
+}
+
+function stopAttendanceQr() {
+  if (QR_ATT.timer) { clearInterval(QR_ATT.timer); QR_ATT.timer = null; }
+  if (QR_ATT.tick) { clearInterval(QR_ATT.tick); QR_ATT.tick = null; }
+  QR_ATT.token = ""; QR_ATT.branch = ""; QR_ATT.expiresAt = 0; QR_ATT.started = false;
+  if ($("attQrModal")) $("attQrModal").classList.add("hidden");
+}
+
+function initAttendanceQr() {
+  const card = $("attQrCard");
+  if (!card) return;
+  if (!S.token) { card.classList.add("hidden"); stopAttendanceQr(); return; }
+  card.classList.remove("hidden");
+  const sel = $("attQrBranchSel"), tag = $("attQrBranchTag");
+  const scoped = !!S.supBranch;
+  if (sel) {
+    sel.classList.toggle("hidden", scoped);
+    if (scoped) sel.value = S.supBranch;
+    else sel.value = qrChosenBranch();
+  }
+  if (tag) {
+    tag.classList.toggle("hidden", !scoped);
+    tag.textContent = qrChosenBranch();
+  }
+  refreshAttendanceQr(true);
+  if (!QR_ATT.started) {
+    QR_ATT.started = true;
+    QR_ATT.timer = setInterval(() => {
+      if (Date.now() >= QR_ATT.expiresAt - 1500) refreshAttendanceQr();
+    }, 4000);
+    QR_ATT.tick = setInterval(qrUpdateCountdown, 1000);
+  }
+}
+
+function openQrModal() {
+  const modal = $("attQrModal");
+  if (!modal) return;
+  modal.classList.remove("hidden");
+  qrRender();
+  qrUpdateCountdown();
+  $("attQrModalClose")?.focus();
+}
+
+function closeQrModal() {
+  const modal = $("attQrModal");
+  if (modal) modal.classList.add("hidden");
+}
+
+if ($("attQrBranchSel")) {
+  $("attQrBranchSel").addEventListener("change", (e) => {
+    try { localStorage.setItem("bankai_qr_branch", e.target.value); } catch (err) {}
+    QR_ATT.token = ""; QR_ATT.branch = ""; QR_ATT.expiresAt = 0;
+    if ($("attQrBranchTag")) $("attQrBranchTag").textContent = e.target.value;
+    refreshAttendanceQr(true);
+  });
+}
+if ($("attQrBig")) $("attQrBig").addEventListener("click", openQrModal);
+if ($("attQrModalClose")) $("attQrModalClose").addEventListener("click", closeQrModal);
+if ($("attQrModal")) {
+  $("attQrModal").addEventListener("click", (e) => { if (e.target === $("attQrModal")) closeQrModal(); });
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && $("attQrModal") && !$("attQrModal").classList.contains("hidden")) closeQrModal();
+});
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && S.token && Date.now() >= QR_ATT.expiresAt - 1500) refreshAttendanceQr(true);
+});
 
 /* ===== FB_TAB_EMITTER v1 =====
    When Final-Bankai runs this system embedded, tell the platform which
