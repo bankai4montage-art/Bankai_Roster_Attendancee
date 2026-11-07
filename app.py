@@ -2478,6 +2478,8 @@ _TIME_RE = re.compile(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.|ص|م)?", 
 HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 WD_AR = {"Saturday": "السبت", "Sunday": "الأحد", "Monday": "الاثنين", "Tuesday": "الثلاثاء",
          "Wednesday": "الأربعاء", "Thursday": "الخميس", "Friday": "الجمعة"}
+AR_MONTHS = ("يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس",
+             "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر")
 
 
 def parse_shift(name):
@@ -4017,6 +4019,84 @@ def qr_attendance_status(employee_code: str = Query(..., min_length=1, max_lengt
             "checked_out_at": co[0] if co else "",
         } if req else ({"status": "Approved", "checked_out_at": co[0]} if co else None)),
     }
+
+
+@app.get("/api/attendance/qr/history", dependencies=[Depends(require_das_secret)])
+def qr_attendance_history(employee_code: str = Query(..., min_length=1, max_length=60),
+                          weeks: int = Query(12, ge=1, le=26),
+                          db: Session = Depends(get_db)):
+    """سجل المندوب الأسبوعي: كل أسبوع وملخصه، وكل يوم وحالته."""
+    e = _qr_employee(db, employee_code)
+    if not e:
+        raise HTTPException(404, "كودك مش متسجل في الروستر")
+    now_local = qr_now_local()
+    today = now_local.date()
+    current_ws = week_start_of(today)
+    first_ws = current_ws - timedelta(weeks=weeks - 1)
+    att_rows = (db.query(Attendance)
+                .filter(Attendance.employee_id == e.id,
+                        Attendance.attendance_date >= first_ws,
+                        Attendance.attendance_date <= current_ws + timedelta(days=6))
+                .all())
+    by_date = {row.attendance_date: row for row in att_rows}
+    schedules = {row.week_start: row for row in
+                 db.query(WeekSchedule).filter(
+                     WeekSchedule.employee_id == e.id,
+                     WeekSchedule.week_start >= first_ws,
+                     WeekSchedule.week_start <= current_ws).all()}
+    result = []
+    for offset in range(weeks):
+        ws = current_ws - timedelta(weeks=offset)
+        sched = schedules.get(ws)
+        if sched is None:
+            continue
+        day_off = sched.day_off or ""
+        days = []
+        counts = {"present": 0, "late": 0, "absent": 0, "excused": 0,
+                  "missing": 0, "off": 0, "future": 0}
+        fine_total = 0.0
+        for index in range(7):
+            day = ws + timedelta(days=index)
+            row = by_date.get(day)
+            is_off = day_off == day.strftime("%A")
+            future = day > today
+            if row is not None:
+                status = row.status or ""
+                fine = float(row.fine or 0)
+                note = row.note or ""
+                recorded_by = row.recorded_by or ""
+                clock = _qr_clock_for(row)
+            elif is_off:
+                status, fine, note, recorded_by, clock = "OFF", 0.0, "", "", ""
+            elif future:
+                status, fine, note, recorded_by, clock = "FUTURE", 0.0, "", "", ""
+            else:
+                status, fine, note, recorded_by, clock = "MISSING", 0.0, "", "", ""
+            key = {"Present": "present", "Late": "late", "Absent": "absent",
+                   "Excused": "excused", "OFF": "off", "FUTURE": "future",
+                   "MISSING": "missing"}.get(status)
+            if key:
+                counts[key] += 1
+            fine_total += fine
+            late_match = re.search(r"متأخر\s+(\d+)\s+دقيقة", note)
+            days.append({
+                "date": day.isoformat(),
+                "weekday": day.strftime("%A"),
+                "weekday_ar": WD_AR.get(day.strftime("%A"), day.strftime("%A")),
+                "status": status, "fine": round(fine, 2),
+                "note": note, "recorded_by": recorded_by, "time": clock,
+                "late_minutes": int(late_match.group(1)) if late_match else 0,
+                "off": is_off, "future": future,
+            })
+        we = ws + timedelta(days=6)
+        result.append({
+            "week_start": ws.isoformat(), "week_end": we.isoformat(),
+            "label": f"Week {week_number(ws)[1]}",
+            "range": f"{ws.day} {AR_MONTHS[ws.month - 1]} – {we.day} {AR_MONTHS[we.month - 1]} {we.year}",
+            "days": days, "summary": dict(counts, fine=round(fine_total, 2)),
+        })
+    return {"employee": e.name, "employee_code": e.employee_code or "",
+            "branch": e.branch, "weeks": result}
 
 
 @app.get("/qr", response_class=HTMLResponse)

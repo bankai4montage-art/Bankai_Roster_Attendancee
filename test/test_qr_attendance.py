@@ -219,6 +219,45 @@ def test_roster_directory_exposes_branch_and_attendance_only(client, admin):
     assert body["shift"] == "9 AM - 6 PM"
 
 
+def test_weekly_history_lists_days_and_summary(client, admin):
+    emp = _mk(client, admin, "QR-H1", day_off="Friday")
+    db = app.SessionLocal()
+    db.add_all([
+        app.Attendance(employee_id=emp["id"], attendance_date=SHIFT_DAY.date() - timedelta(days=6),
+                       status="Present", fine=0, reason="", note="حضور QR 09:02",
+                       recorded_by="QR"),
+        app.Attendance(employee_id=emp["id"], attendance_date=SHIFT_DAY.date() - timedelta(days=5),
+                       status="Late", fine=25, reason="", note="حضور QR 09:09 · متأخر 9 دقيقة",
+                       recorded_by="QR"),
+        app.Attendance(employee_id=emp["id"], attendance_date=SHIFT_DAY.date() - timedelta(days=4),
+                       status="Absent", fine=50, reason="", note="", recorded_by="المشرف"),
+        app.Attendance(employee_id=emp["id"], attendance_date=SHIFT_DAY.date() - timedelta(days=3),
+                       status="Excused", fine=0, reason="مرض", note="", recorded_by="المشرف"),
+    ])
+    db.commit()
+    db.close()
+    app.qr_now_local = lambda: SHIFT_DAY.replace(hour=9, minute=4)
+    r = client.get("/api/attendance/qr/history",
+                   headers={"X-DAS-Secret": app.DAS_SECRET},
+                   params={"employee_code": "QR-H1", "weeks": 2})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body["weeks"]) >= 1
+    week = body["weeks"][0]
+    assert week["week_start"] == "2026-11-01"
+    assert len(week["days"]) == 7
+    assert week["summary"]["present"] == 1
+    assert week["summary"]["late"] == 1
+    assert week["summary"]["absent"] == 1
+    assert week["summary"]["excused"] == 1
+    assert week["summary"]["off"] == 1
+    assert week["summary"]["fine"] == 75
+    late_day = next(d for d in week["days"] if d["status"] == "Late")
+    assert late_day["late_minutes"] == 9 and late_day["fine"] == 25
+    off_day = next(d for d in week["days"] if d["status"] == "OFF")
+    assert off_day["weekday"] == "Friday"
+
+
 def test_any_time_check_in_and_the_fine_preview(client, admin):
     _mk(client, admin, "QR-OFF", day_off="Saturday")
     r = _check(client, "QR-OFF", SHIFT_DAY.replace(hour=9, minute=4))
