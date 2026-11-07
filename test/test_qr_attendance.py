@@ -8,7 +8,7 @@ import os
 import sys
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -168,6 +168,24 @@ def test_absent_status_still_allows_the_correction_scan(client, admin):
     body = r.json()
     assert body["attendance"]["status"] == "Absent"
     assert body["can_check_in"] is True
+
+
+def test_night_shift_status_keeps_the_shift_day(client, admin):
+    emp = _mk(client, admin, "QR-N1", shift="10 PM - 6 AM")
+    db = app.SessionLocal()
+    db.add(app.Attendance(employee_id=emp["id"], attendance_date=SHIFT_DAY.date() - timedelta(days=1),
+                          status="Present", fine=0, reason="", note="حضور QR 22:05",
+                          recorded_by="QR"))
+    db.commit()
+    db.close()
+    app.qr_now_local = lambda: SHIFT_DAY.replace(hour=7, minute=0)
+    r = client.get("/api/attendance/qr/status",
+                   headers={"X-DAS-Secret": app.DAS_SECRET},
+                   params={"employee_code": "QR-N1"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["date"] == (SHIFT_DAY.date() - timedelta(days=1)).isoformat()
+    assert body["attendance"]["status"] == "Present"
 
 
 def test_wrong_branch_and_expired_token_are_refused(client, admin):
