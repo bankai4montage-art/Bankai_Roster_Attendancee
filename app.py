@@ -3778,7 +3778,7 @@ def das_employee(employee_code: str = Query(..., min_length=1, max_length=60),
     e = _qr_employee(db, employee_code)
     if not e:
         raise HTTPException(404, "الكود مش مسجل في الروستر")
-    sched = peek_week(db, week_start_of(today_local())).get(e.id)
+    sched = peek_week(db, week_start_of(qr_now_local().date())).get(e.id)
     return {
         "employee_id": e.id, "name": e.name, "employee_code": e.employee_code or "",
         "branch": e.branch, "shift": (sched.shift if sched else e.shift),
@@ -3998,7 +3998,8 @@ def qr_attendance_status(employee_code: str = Query(..., min_length=1, max_lengt
         "grace_min": QR_LATE_GRACE_MIN,
         "window": {"opens": hhmm(window[0] % 1440) if window else "",
                    "closes": hhmm(window[1] % 1440) if window else ""},
-        "can_check_in": bool(att is None and inside and not day_off and ctx.bounds),
+        "can_check_in": bool((att is None or (att.status or "") == "Absent")
+                              and inside and not day_off and ctx.bounds),
         "inside_shift": inside,
         "attendance": ({
             "status": att.status, "fine": float(att.fine or 0), "note": att.note or "",

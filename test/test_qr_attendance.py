@@ -152,6 +152,24 @@ def test_absent_is_corrected_with_audit_and_note(client, admin):
     db.close()
 
 
+def test_absent_status_still_allows_the_correction_scan(client, admin):
+    emp = _mk(client, admin, "QR-A2")
+    db = app.SessionLocal()
+    db.add(app.Attendance(employee_id=emp["id"], attendance_date=SHIFT_DAY.date(),
+                          status="Absent", fine=50, reason="", note="",
+                          recorded_by="المشرف"))
+    db.commit()
+    db.close()
+    app.qr_now_local = lambda: SHIFT_DAY.replace(hour=9, minute=4)
+    r = client.get("/api/attendance/qr/status",
+                   headers={"X-DAS-Secret": app.DAS_SECRET},
+                   params={"employee_code": "QR-A2"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["attendance"]["status"] == "Absent"
+    assert body["can_check_in"] is True
+
+
 def test_wrong_branch_and_expired_token_are_refused(client, admin):
     _mk(client, admin, "QR-W1")
     r = _check(client, "QR-W1", SHIFT_DAY.replace(hour=9, minute=4), branch="QCD 1")
