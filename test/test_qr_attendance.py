@@ -244,6 +244,7 @@ def test_weekly_history_lists_days_and_summary(client, admin):
     body = r.json()
     assert len(body["weeks"]) >= 1
     week = body["weeks"][0]
+    assert week["current"] is True
     assert week["week_start"] == "2026-11-01"
     assert len(week["days"]) == 7
     assert week["summary"]["present"] == 1
@@ -252,6 +253,9 @@ def test_weekly_history_lists_days_and_summary(client, admin):
     assert week["summary"]["excused"] == 1
     assert week["summary"]["off"] == 1
     assert week["summary"]["fine"] == 75
+    assert len(body["weeks"]) >= 5
+    assert body["weeks"][-1]["week_start"] == "2026-11-29"
+    assert any(w["summary"]["future"] > 0 for w in body["weeks"])
     late_day = next(d for d in week["days"] if d["status"] == "Late")
     assert late_day["late_minutes"] == 9 and late_day["fine"] == 25
     off_day = next(d for d in week["days"] if d["status"] == "OFF")

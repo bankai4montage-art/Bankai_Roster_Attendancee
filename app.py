@@ -4032,25 +4032,48 @@ def qr_attendance_history(employee_code: str = Query(..., min_length=1, max_leng
     now_local = qr_now_local()
     today = now_local.date()
     current_ws = week_start_of(today)
-    first_ws = current_ws - timedelta(weeks=weeks - 1)
+    try:
+        ensure_week(db, current_ws)
+    except Exception:
+        pass
+    past_weeks = max(1, min(weeks, 26))
+    future_weeks = 4
+    first_ws = current_ws - timedelta(weeks=past_weeks - 1)
+    last_ws = current_ws + timedelta(weeks=future_weeks)
     att_rows = (db.query(Attendance)
                 .filter(Attendance.employee_id == e.id,
                         Attendance.attendance_date >= first_ws,
-                        Attendance.attendance_date <= current_ws + timedelta(days=6))
+                        Attendance.attendance_date <= last_ws + timedelta(days=6))
                 .all())
     by_date = {row.attendance_date: row for row in att_rows}
     schedules = {row.week_start: row for row in
                  db.query(WeekSchedule).filter(
                      WeekSchedule.employee_id == e.id,
                      WeekSchedule.week_start >= first_ws,
-                     WeekSchedule.week_start <= current_ws).all()}
+                     WeekSchedule.week_start <= last_ws).all()}
+    fallback = schedules.get(current_ws)
+    fallback_shift = (fallback.shift if fallback else e.shift) or ""
+    fallback_off = (fallback.day_off if fallback else e.day_off) or ""
+    order = ([current_ws]
+             + [current_ws - timedelta(weeks=offset) for offset in range(1, past_weeks)]
+             + [current_ws + timedelta(weeks=offset) for offset in range(1, future_weeks + 1)])
     result = []
-    for offset in range(weeks):
-        ws = current_ws - timedelta(weeks=offset)
+    for ws in order:
         sched = schedules.get(ws)
+        week_dates = [ws + timedelta(days=index) for index in range(7)]
+        has_attendance = any(day in by_date for day in week_dates)
         if sched is None:
-            continue
-        day_off = sched.day_off or ""
+            # Past weeks with no schedule and no record are not meaningful; future
+            # weeks still show the current schedule as an upcoming preview.
+            if ws < current_ws and not has_attendance:
+                continue
+            day_off = fallback_off
+            shift = fallback_shift
+            scheduled = False
+        else:
+            day_off = sched.day_off or ""
+            shift = sched.shift or ""
+            scheduled = True
         days = []
         counts = {"present": 0, "late": 0, "absent": 0, "excused": 0,
                   "missing": 0, "off": 0, "future": 0}
@@ -4093,6 +4116,8 @@ def qr_attendance_history(employee_code: str = Query(..., min_length=1, max_leng
             "week_start": ws.isoformat(), "week_end": we.isoformat(),
             "label": f"Week {week_number(ws)[1]}",
             "range": f"{ws.day} {AR_MONTHS[ws.month - 1]} – {we.day} {AR_MONTHS[we.month - 1]} {we.year}",
+            "current": ws == current_ws, "scheduled": scheduled,
+            "shift": shift, "day_off": day_off,
             "days": days, "summary": dict(counts, fine=round(fine_total, 2)),
         })
     return {"employee": e.name, "employee_code": e.employee_code or "",
