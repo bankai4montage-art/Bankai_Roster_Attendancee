@@ -4071,21 +4071,33 @@ def qr_attendance_history(employee_code: str = Query(..., min_length=1, max_leng
                      .order_by(WeekSchedule.week_start.asc())
                      .all())
     by_week = {row.week_start: row for row in all_schedules}
-    current_rows = [by_week[current_ws]] if current_ws in by_week else []
-    future_rows = [row for row in all_schedules if row.week_start > current_ws]
-    past_rows = [row for row in all_schedules if row.week_start < current_ws][::-1]
-    ordered = (current_rows + future_rows + past_rows)[:limit]
+    current_sched = by_week.get(current_ws)
+    future_schedules = [row for row in all_schedules if row.week_start > current_ws]
+    next_sched = future_schedules[0] if future_schedules else None
+    past_schedules = [row for row in all_schedules if row.week_start < current_ws]
+    past_schedules = sorted(past_schedules, key=lambda row: row.week_start, reverse=True)[:limit]
+    past_start = min((row.week_start for row in past_schedules), default=current_ws)
+    last_start = max(current_ws, next_sched.week_start if next_sched else current_ws)
+    att_rows = (db.query(Attendance)
+                .filter(Attendance.employee_id == e.id,
+                        Attendance.attendance_date >= past_start,
+                        Attendance.attendance_date <= last_start + timedelta(days=6))
+                .all())
+    by_date = {row.attendance_date: row for row in att_rows}
+
+    def has_attendance(row) -> bool:
+        return any(row.week_start + timedelta(days=index) in by_date for index in range(7))
+
+    ordered = []
+    if current_sched is not None:
+        ordered.append(current_sched)
+    if next_sched is not None:
+        ordered.append(next_sched)
+    ordered.extend([row for row in past_schedules if has_attendance(row)])
+    ordered = ordered[:limit]
     if not ordered:
         return {"employee": e.name, "employee_code": e.employee_code or "",
                 "branch": e.branch, "weeks": []}
-    first_ws = min(row.week_start for row in ordered)
-    last_ws = max(row.week_start for row in ordered)
-    att_rows = (db.query(Attendance)
-                .filter(Attendance.employee_id == e.id,
-                        Attendance.attendance_date >= first_ws,
-                        Attendance.attendance_date <= last_ws + timedelta(days=6))
-                .all())
-    by_date = {row.attendance_date: row for row in att_rows}
     result = []
     for sched in ordered:
         ws = sched.week_start
