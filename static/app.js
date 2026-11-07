@@ -3457,6 +3457,12 @@ function initAttendanceQr() {
   const card = $("attQrCard");
   if (!card) return;
   if (!S.token) { card.classList.add("hidden"); stopAttendanceQr(); return; }
+  // QCD 2 is the attendance-first branch. A QCD 1 supervisor keeps the queue
+  // screen and does not need a QR card; the admin can still pick either branch.
+  if (S.supBranch && S.supBranch !== "QCD 2") {
+    card.classList.add("hidden");
+    return;
+  }
   card.classList.remove("hidden");
   const sel = $("attQrBranchSel"), tag = $("attQrBranchTag");
   const scoped = !!S.supBranch;
