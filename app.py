@@ -3980,6 +3980,15 @@ def qr_attendance_status(employee_code: str = Query(..., min_length=1, max_lengt
     att = (db.query(Attendance)
            .filter(Attendance.employee_id == e.id, Attendance.attendance_date == day)
            .first())
+    if att is None and ctx.bounds and ctx.bounds[1] > 1440:
+        # After an overnight shift ends, keep showing the shift's own day.
+        prev = day - timedelta(days=1)
+        prev_att = (db.query(Attendance)
+                    .filter(Attendance.employee_id == e.id,
+                            Attendance.attendance_date == prev)
+                    .first())
+        if prev_att is not None:
+            day, att = prev, prev_att
     window = _qr_shift_window(ctx)
     inside = bool(window and window[0] <= ctx.now_min <= window[1])
     day_off = bool(ctx.schedule and (ctx.schedule.day_off or "") == day.strftime("%A"))
