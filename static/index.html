@@ -248,14 +248,17 @@
           <p id="partnerSub">سجّل كل مرة مندوب يطلع شريك في أي يوم من أيام الأسبوع.</p>
         </div>
         <div class="row partner-head-actions">
-          <div class="partner-total"><b id="partnerTotal">0</b><span>مرة شريك هذا الأسبوع</span></div>
+          <div class="partner-total"><b id="partnerTotal">0</b><span id="partnerTotalLabel">مرة شريك هذا الأسبوع</span></div>
           <button class="btn primary" id="partnerAdd"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>إضافة مناديب</button>
         </div>
+      </div>
+      <div class="partner-toolbar" id="partnerToolbar">
+        <div class="seg-filter" id="partnerBranchSeg" role="group" aria-label="فلتر الفرع"></div>
+        <span class="partner-toolbar-hint" id="partnerHint">لكل يوم عدّاد مستقل، اضغط <b>+</b> لزيادة مرة</span>
       </div>
       <div class="panel partner-panel">
         <div class="panel-h partner-panel-h">
           <div><h3 id="partnerWeekTitle">سجل الشريك</h3><p id="partnerWeekRange"></p></div>
-          <span class="partner-hint" id="partnerHint">لكل يوم عدّاد مستقل، اضغط <b>+</b> لزيادة مرة</span>
         </div>
         <div class="panel-b partner-panel-b">
           <div class="partner-daybar" id="partnerDaybar" role="group" aria-label="أيام الأسبوع"></div>

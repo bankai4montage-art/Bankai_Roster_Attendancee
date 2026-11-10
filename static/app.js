@@ -648,7 +648,7 @@ const S = {
   emp: { q: "", branch: "", shift: "", type: "", day: "", active: "1", sort: { key: "name", dir: 1 }, page: 1, size: 50, selected: new Set(), filtered: [] },
   rep: { sum: null, emps: [], sort: { key: "name", dir: 1 }, page: 1, size: 50, preset: "week" },
   fines: { data: null, sort: { key: "date", dir: -1 }, page: 1, size: 50, preset: "week" },
-  partner: { data: null, loading: false, q: "", pick: [], selected: new Set(), busy: new Map(), queue: new Map() },
+  partner: { data: null, loading: false, filterBranch: "", q: "", pick: [], selected: new Set(), busy: new Map(), queue: new Map() },
   hist: { id: null },
   lang: "ar",
   stale: new Set(), /* صفوف اتغيّرت من مستخدم تاني وعندنا عليها مسودة مش محفوظة */
@@ -2167,19 +2167,97 @@ on("fineRows", "click", async ev => {
 
 
 /* ============================== الشريك (partner) ============================== */
-function partnerSubText(d) {
+function partnerSubText(d, stats = null) {
   if (!d) return bi("سجّل كل مرة مندوب يطلع شريك في أي يوم من أيام الأسبوع.",
                     "Record every time a courier goes out as a partner on any day of the week.");
-  if (!d.drivers.length) {
+  const s = stats || partnerStats();
+  const branch = S.partner.filterBranch;
+  if (!s.drivers.length) {
+    if (branch && d.drivers.length) {
+      return bi(`مفيش مناديب في ${branch} الأسبوع ده.`, `No couriers in ${branch} this week.`);
+    }
     return bi("أضف مناديب من قاعدة الموظفين، وبعدين سجّل كل مرة يطلع فيها مندوب شريك في أي يوم.",
               "Add couriers from the employee list, then record each partner trip on its day.");
   }
-  return S.lang === "en"
-    ? `${d.drivers.length} couriers in ${weekLabel(d.week.start)}`
-    : `${d.drivers.length} مناديب مضافين في ${weekLabel(d.week.start)}`;
+  const count = s.drivers.length;
+  if (S.lang === "en") {
+    return `${count} ${count === 1 ? "courier" : "couriers"}${branch ? " in " + branch : ""} · ${weekLabel(d.week.start)}`;
+  }
+  return `${count} ${count === 1 ? "مندوب" : "مناديب"}${branch ? " في " + branch : ""} · ${weekLabel(d.week.start)}`;
 }
 function partnerDayName(day) {
   return S.lang === "en" ? day.weekday : (WD_AR[day.weekday] || day.weekday);
+}
+function partnerDayShort(day) {
+  if (S.lang === "en") return String(day.weekday || "").slice(0, 3);
+  return ({ Sunday: "أحد", Monday: "اثنين", Tuesday: "ثلاثاء", Wednesday: "أربعاء",
+            Thursday: "خميس", Friday: "جمعة", Saturday: "سبت" })[day.weekday] || partnerDayName(day);
+}
+function partnerScopeBranches() {
+  return S.supBranch ? [S.supBranch] : ["QCD 1", "QCD 2"];
+}
+function partnerVisibleDrivers() {
+  const d = S.partner.data;
+  if (!d) return [];
+  const branch = S.partner.filterBranch;
+  return branch ? d.drivers.filter(dr => dr.branch === branch) : d.drivers.slice();
+}
+function partnerStats() {
+  const d = S.partner.data;
+  const drivers = partnerVisibleDrivers();
+  const totals = {};
+  for (const day of (d ? d.days : [])) totals[day.date] = 0;
+  for (const dr of drivers) {
+    for (const date of Object.keys(totals)) totals[date] += (+dr.counts[date] || 0);
+  }
+  return { drivers, totals, total: Object.values(totals).reduce((a, b) => a + b, 0) };
+}
+function partnerBranchCounts() {
+  const out = {};
+  for (const dr of (S.partner.data ? S.partner.data.drivers : [])) out[dr.branch] = (out[dr.branch] || 0) + 1;
+  return out;
+}
+function partnerTotalLabel() {
+  const b = S.partner.filterBranch;
+  return b ? bi(`مرة شريك · ${b}`, `partner trips · ${b}`) : bi("مرة شريك هذا الأسبوع", "partner trips this week");
+}
+function partnerStripLabel(day, n) {
+  return bi(`${partnerDayName(day)} ${fmtDay(day.date, { day: "numeric", month: "long" })}: ${n} مرة`,
+            `${partnerDayName(day)} ${fmtDay(day.date, { day: "numeric", month: "long" })}: ${n} trips`);
+}
+function renderPartnerBranchSeg(stats) {
+  const seg = $("partnerBranchSeg");
+  const branches = partnerScopeBranches();
+  if (branches.length < 2 || S.supBranch) {
+    S.partner.filterBranch = "";
+    seg.classList.add("hidden");
+    return;
+  }
+  seg.classList.remove("hidden");
+  const counts = partnerBranchCounts();
+  const total = S.partner.data ? S.partner.data.drivers.length : 0;
+  const btn = (val, label, n, active) =>
+    `<button type="button" data-pbranch="${val}" class="${active ? "on" : ""}" aria-pressed="${active}">${label} <small>${n}</small></button>`;
+  seg.innerHTML = btn("", bi("الكل", "All"), total, !S.partner.filterBranch) +
+    branches.map(b => btn(b, b, counts[b] || 0, S.partner.filterBranch === b)).join("");
+}
+function renderPartnerStrip(d, stats) {
+  const max = Math.max(1, ...Object.values(stats.totals));
+  $("partnerDaybar").innerHTML = `<span class="pdb-gutter">${bi("ملخص الأيام", "Week days")}</span>` +
+    d.days.map(day => {
+      const n = stats.totals[day.date] || 0;
+      const pct = max ? Math.round(n * 100 / max) : 0;
+      return `<button type="button" class="pdb${day.is_today ? " is-today" : ""}" data-pdb="${day.date}" aria-pressed="${day.is_today}" aria-label="${esc(partnerStripLabel(day, n))}">
+        <span class="pdb-dow"><span class="pdb-full">${esc(partnerDayName(day))}</span><span class="pdb-short">${esc(partnerDayShort(day))}</span></span>
+        <b class="pdb-date">${parseISO(day.date).getDate()}</b>
+        <em class="pdb-total" data-pdb-total="${day.date}">${n}</em>
+        <span class="pdb-track" aria-hidden="true"><i data-pdb-bar="${day.date}" style="width:${pct}%"></i></span>
+      </button>`;
+    }).join("") +
+    `<span class="pdb pdb-sum" role="group" aria-label="${bi(`إجمالي الأسبوع: ${stats.total}`, `Week total: ${stats.total}`)}">
+      <span class="pdb-dow">${bi("الأسبوع", "Week")}</span>
+      <em class="pdb-total" data-pdb-week-total="${stats.total}">${stats.total}</em>
+    </span>`;
 }
 async function loadPartners() {
   S.partner.loading = true;
@@ -2205,6 +2283,8 @@ async function loadPartnersSoft() {
 }
 function renderPartnerError(msg) {
   $("partnerTotal").textContent = "—";
+  $("partnerTotalLabel").textContent = partnerTotalLabel();
+  $("partnerToolbar").classList.add("hidden");
   $("partnerGrid").classList.add("hidden");
   $("partnerDaybar").classList.add("hidden");
   $("partnerEmpty").classList.remove("hidden");
@@ -2233,31 +2313,30 @@ function partnerCellHTML(dr, day) {
 function renderPartners() {
   const d = S.partner.data;
   if (!d) return;
-  $("partnerSub").textContent = partnerSubText(d);
-  $("partnerTotal").textContent = num(d.total);
+  const stats = partnerStats();
+  $("partnerToolbar").classList.remove("hidden");
+  renderPartnerBranchSeg(stats);
+  $("partnerSub").textContent = partnerSubText(d, stats);
+  $("partnerTotal").textContent = num(stats.total);
+  $("partnerTotalLabel").textContent = partnerTotalLabel();
   $("partnerWeekTitle").textContent = bi("سجل الشريك", "Partner log") + " · " + weekLabel(d.week.start);
-  $("partnerWeekRange").textContent = weekRangeText(d.week.start);
+  $("partnerWeekRange").textContent = (S.partner.filterBranch ? S.partner.filterBranch + " · " : "") + weekRangeText(d.week.start);
   $("partnerHint").innerHTML = bi('لكل يوم عدّاد مستقل، اضغط <b>+</b> لزيادة مرة',
     'Each day has its own counter. Press <b>+</b> to add one');
   $("partnerHeadRow").innerHTML =
     `<th class="pg-name-h" scope="col">${bi("المندوب", "Courier")}</th>` +
     d.days.map(day => `<th class="pg-day-h${day.is_today ? " is-today" : ""}${day.is_weekend ? " is-weekend" : ""}" scope="col" data-pg-head="${day.date}">
-      <span class="pg-dow">${esc(partnerDayName(day))}</span>
-      <span class="pg-date">${fmtDay(day.date, { day: "numeric", month: "short" })}</span>
-      <span class="pg-day-total"><b data-pg-day-total="${day.date}">${d.totals[day.date] || 0}</b> ${bi("مرة", "trips")}</span>
+      <span class="pg-dow">${esc(partnerDayName(day))}${day.is_today ? '<i class="pg-today-dot" aria-hidden="true"></i>' : ""}</span>
     </th>`).join("") +
     `<th class="pg-week-h" scope="col">${bi("الأسبوع", "Week")}</th>`;
-  $("partnerDaybar").innerHTML = d.days.map(day => `<button type="button" class="pdb${day.is_today ? " is-today" : ""}" data-pdb="${day.date}" aria-pressed="${day.is_today}" aria-label="${bi(`${partnerDayName(day)} ${fmtDay(day.date, { day: "numeric", month: "long" })}: ${d.totals[day.date] || 0} مرة`,
-    `${partnerDayName(day)} ${fmtDay(day.date, { day: "numeric", month: "long" })}: ${d.totals[day.date] || 0} trips`)}">
-      <span>${esc(partnerDayName(day))}</span><b>${parseISO(day.date).getDate()}</b><em data-pdb-total="${day.date}">${d.totals[day.date] || 0}</em>
-    </button>`).join("");
-  $("partnerRows").innerHTML = d.drivers.map(dr => {
-    const sub = [dr.branch, fmtShiftLabel(dr.shift)].filter(Boolean).join(" · ");
+  renderPartnerStrip(d, stats);
+  $("partnerRows").innerHTML = stats.drivers.map(dr => {
+    const sub = `<span class="pg-branch-name">${esc(dr.branch)}</span>${dr.shift ? " · " + esc(fmtShiftLabel(dr.shift)) : ""}`;
     return `<tr data-pg-driver="${dr.id}" data-pg-name="${esc(dr.name)}">
       <th scope="row" class="pg-name">
         <div class="pg-person">
           ${avHTML(dr.name)}
-          <div class="pg-txt"><b>${esc(dr.name)}</b><small>${esc(sub)}</small></div>
+          <div class="pg-txt"><b>${esc(dr.name)}</b><small>${sub}</small></div>
           <span class="pg-person-total" title="${bi("إجمالي الأسبوع", "Week total")}" aria-label="${bi(`إجمالي الأسبوع: ${dr.total}`, `Week total: ${dr.total}`)}"><b>${dr.total}</b><i>${bi("مرة", "trips")}</i></span>
           <button type="button" class="pg-remove" data-pg-remove aria-label="${bi(`إزالة ${dr.name} من الشريك`, `Remove ${dr.name} from Partner`)}" title="${bi("إزالة من الشريك", "Remove from Partner")}">
             <svg class="i" aria-hidden="true"><use href="#i-trash"/></svg>
@@ -2268,15 +2347,20 @@ function renderPartners() {
       <td class="pg-week"><b data-pg-week-total>${dr.total}</b><span>${bi("مرة", "trips")}</span></td>
     </tr>`;
   }).join("");
-  const has = d.drivers.length > 0;
+  const has = stats.drivers.length > 0;
   $("partnerGrid").classList.toggle("hidden", !has);
   $("partnerDaybar").classList.toggle("hidden", !has);
   $("partnerEmpty").classList.toggle("hidden", has);
   if (!has) {
     const b = qs("b", $("partnerEmpty"));
-    if (b) b.textContent = bi("لسه مفيش مناديب في الشريك", "No couriers in Partner yet");
-    $("partnerEmptyText").textContent = bi("أضف مناديب من قاعدة الموظفين، وبعدين سجّل كل مرة يطلع فيها مندوب شريك في أي يوم.",
-                                            "Add couriers from the employee list, then record each partner trip on its day.");
+    const branch = S.partner.filterBranch;
+    if (b) b.textContent = branch && d.drivers.length
+      ? bi(`مفيش مناديب في ${branch}`, `No couriers in ${branch}`)
+      : bi("لسه مفيش مناديب في الشريك", "No couriers in Partner yet");
+    $("partnerEmptyText").textContent = branch && d.drivers.length
+      ? bi("غيّر فلتر الفرع أو أضف مندوبين للفرع ده.", "Change the branch filter or add couriers to this branch.")
+      : bi("أضف مناديب من قاعدة الموظفين، وبعدين سجّل كل مرة يطلع فيها مندوب شريك في أي يوم.",
+           "Add couriers from the employee list, then record each partner trip on its day.");
     $("partnerEmptyAdd").classList.remove("hidden");
   }
   if (has) requestAnimationFrame(scrollPartnerToToday);
@@ -2298,18 +2382,59 @@ $("partnerDaybar").addEventListener("click", e => {
   const b = e.target.closest("[data-pdb]");
   if (b) scrollPartnerToDate(b.dataset.pdb);
 });
-function applyPartnerCount(driverId, date, count, res = null) {
+$("partnerBranchSeg").addEventListener("click", e => {
+  const b = e.target.closest("[data-pbranch]");
+  if (!b) return;
+  S.partner.filterBranch = b.dataset.pbranch || "";
+  renderPartners();
+  requestAnimationFrame(scrollPartnerToToday);
+});
+function partnerColumnHot(date, on) {
+  if (!date) return;
+  qsa(`#partnerGrid [data-pg-head="${date}"], #partnerGrid [data-pg-date="${date}"]`).forEach(el => el.classList.toggle("col-hot", on));
+  const card = qs(`#partnerDaybar [data-pdb="${date}"]`);
+  if (card) card.classList.toggle("col-hot", on);
+}
+$("partnerDaybar").addEventListener("mouseover", e => {
+  const b = e.target.closest("[data-pdb]");
+  if (b) partnerColumnHot(b.dataset.pdb, true);
+});
+$("partnerDaybar").addEventListener("mouseout", e => {
+  const b = e.target.closest("[data-pdb]");
+  if (b) partnerColumnHot(b.dataset.pdb, false);
+});
+$("partnerGrid").addEventListener("mouseover", e => {
+  const c = e.target.closest("[data-pg-date]");
+  if (c) partnerColumnHot(c.dataset.pgDate, true);
+});
+$("partnerGrid").addEventListener("mouseout", e => {
+  const c = e.target.closest("[data-pg-date]");
+  if (c) partnerColumnHot(c.dataset.pgDate, false);
+});
+function updatePartnerStrip(stats) {
+  const max = Math.max(1, ...Object.values(stats.totals));
+  qsa("#partnerDaybar [data-pdb]").forEach(btn => {
+    const date = btn.dataset.pdb;
+    const n = stats.totals[date] || 0;
+    const total = qs("[data-pdb-total]", btn);
+    if (total) total.textContent = n;
+    const bar = qs("[data-pdb-bar]", btn);
+    if (bar) bar.style.width = `${Math.round(n * 100 / max)}%`;
+    const day = (S.partner.data.days || []).find(x => x.date === date);
+    if (day) btn.setAttribute("aria-label", partnerStripLabel(day, n));
+  });
+  const sum = qs("[data-pdb-week-total]");
+  if (sum) sum.textContent = stats.total;
+  const sumWrap = qs(".pdb-sum");
+  if (sumWrap) sumWrap.setAttribute("aria-label", bi(`إجمالي الأسبوع: ${stats.total}`, `Week total: ${stats.total}`));
+}
+function applyPartnerCount(driverId, date, count) {
   const d = S.partner.data;
   if (!d) return;
   const dr = d.drivers.find(x => x.id === driverId);
   if (!dr) return;
   dr.counts[date] = count;
-  dr.total = (res && typeof res.driver_total === "number") ? res.driver_total
-    : Object.values(dr.counts).reduce((a, b) => a + (+b || 0), 0);
-  d.totals[date] = (res && typeof res.day_total === "number") ? res.day_total
-    : d.drivers.reduce((a, x) => a + (+x.counts[date] || 0), 0);
-  d.total = (res && typeof res.week_total === "number") ? res.week_total
-    : Object.values(d.totals).reduce((a, b) => a + (+b || 0), 0);
+  dr.total = Object.values(dr.counts).reduce((a, b) => a + (+b || 0), 0);
   const tr = qs(`#partnerRows tr[data-pg-driver="${driverId}"]`);
   if (tr) {
     const cell = qs(`[data-pg-date="${date}"]`, tr);
@@ -2326,12 +2451,11 @@ function applyPartnerCount(driverId, date, count, res = null) {
     const ptWrap = qs(".pg-person-total", tr);
     if (ptWrap) ptWrap.setAttribute("aria-label", bi(`إجمالي الأسبوع: ${dr.total}`, `Week total: ${dr.total}`));
   }
-  const dt = qs(`[data-pg-day-total="${date}"]`);
-  if (dt) dt.textContent = d.totals[date];
-  const dbt = qs(`[data-pdb-total="${date}"]`);
-  if (dbt) dbt.textContent = d.totals[date];
-  $("partnerTotal").textContent = num(d.total);
-  $("partnerSub").textContent = partnerSubText(d);
+  const stats = partnerStats();
+  updatePartnerStrip(stats);
+  $("partnerTotal").textContent = num(stats.total);
+  $("partnerTotalLabel").textContent = partnerTotalLabel();
+  $("partnerSub").textContent = partnerSubText(d, stats);
 }
 function partnerStep(driverId, date, delta) {
   const d = S.partner.data;
@@ -2358,7 +2482,7 @@ async function flushPartnerQueue(driverId, date) {
       const r = await api(`/api/partners/${driverId}/count`, {
         method: "PUT", body: { date, count: target }, silent: true,
       });
-      if (!S.partner.queue.has(key)) applyPartnerCount(driverId, date, r.count, r);
+      if (!S.partner.queue.has(key)) applyPartnerCount(driverId, date, r.count);
     }
   } catch (e) {
     S.partner.queue.delete(key);
@@ -2400,9 +2524,12 @@ function renderPartnerPicker() {
   $("partnerPickList").innerHTML = "";
   if (!list.length) {
     empty.classList.remove("hidden");
+    const branch = S.partner.filterBranch;
     $("partnerPickEmptyText").textContent = S.partner.pick.length
       ? bi("مفيش نتائج للبحث ده.", "No matches for this search.")
-      : bi("كل الموظفين النشطين مضافين بالفعل في الأسبوع ده.", "All active employees are already in this week.");
+      : (branch
+          ? bi(`كل موظفي ${branch} النشطين مضافين بالفعل في الأسبوع ده.`, `All active ${branch} employees are already in this week.`)
+          : bi("كل الموظفين النشطين مضافين بالفعل في الأسبوع ده.", "All active employees are already in this week."));
   } else {
     empty.classList.add("hidden");
     const groups = {};
@@ -2424,9 +2551,13 @@ function renderPartnerPicker() {
 }
 async function openPartnerDialog() {
   const dlg = $("partnerDialog");
+  const branch = S.partner.filterBranch;
   S.partner.q = "";
   S.partner.selected = new Set();
   $("partnerSearch").value = "";
+  $("partnerDialogSub").textContent = branch
+    ? bi(`اختار من موظفي ${branch} الموجودين في الأسبوع المفتوح.`, `Pick from ${branch} employees in the open week.`)
+    : bi("اختار من الموظفين الموجودين في الأسبوع المفتوح.", "Pick from the people already in this week.");
   $("partnerPickList").innerHTML = `<p class="muted" style="padding:18px 0">${bi("جارٍ التحميل…", "Loading…")}</p>`;
   $("partnerPickEmpty").classList.add("hidden");
   updatePartnerPickCount();
@@ -2435,7 +2566,7 @@ async function openPartnerDialog() {
   try {
     const all = await api(`/api/employees?week=${S.week}&active_only=true`, { silent: true });
     const existing = new Set((S.partner.data && S.partner.data.drivers || []).map(x => x.employee_id));
-    S.partner.pick = all.filter(e => e.active && !existing.has(e.id));
+    S.partner.pick = all.filter(e => e.active && !existing.has(e.id) && (!branch || e.branch === branch));
     renderPartnerPicker();
   } catch (e) {
     $("partnerPickList").innerHTML = "";
