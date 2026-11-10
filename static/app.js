@@ -97,7 +97,7 @@ const CLR = { present: "var(--ok)", late: "#e0a020", absent: "var(--bad)", excus
 const I18N = {
   ar: {
     // nav
-    "نظرة عامة": "نظرة عامة", "الحضور اليومي": "الحضور اليومي", "الجدول": "الجدول", "الموظفون": "الموظفون", "التقارير": "التقارير", "الغرامات": "الغرامات", "الإعدادات": "الإعدادات",
+    "نظرة عامة": "نظرة عامة", "الحضور اليومي": "الحضور اليومي", "الشريك": "الشريك", "الجدول": "الجدول", "الموظفون": "الموظفون", "التقارير": "التقارير", "الغرامات": "الغرامات", "الإعدادات": "الإعدادات",
     "البحث عن موظف": "ابحث عن موظف", "الأسبوع السابق": "الأسبوع السابق", "الأسبوع التالي": "الأسبوع التالي", "الأسبوع الحالي": "الأسبوع الحالي",
     "السبت": "السبت", "الأحد": "الأحد", "الاثنين": "الاثنين", "الثلاثاء": "الثلاثاء", "الأربعاء": "الأربعاء", "الخميس": "الخميس", "الجمعة": "الجمعة",
     "حاضر": "حاضر", "متأخر": "متأخر", "غائب": "غائب", "بعذر": "بعذر", "لم يُسجل": "لم يُسجل",
@@ -136,10 +136,24 @@ const I18N = {
     "نسخ من الأسبوع السابق": "نسخ من الأسبوع السابق", "استيراد من Excel": "استيراد من Excel",
     "تصدير": "تصدير", "Excel": "Excel", "طباعة": "طباعة",
     "الشكاوى": "الشكاوى", "السلف": "السلف", "الحضور — من سيستم الروستر": "الحضور — من سيستم الروستر",
+    "الشريك": "الشريك", "سجل الشريك": "سجل الشريك", "إضافة مناديب": "إضافة مناديب",
+    "مرة شريك هذا الأسبوع": "مرة شريك هذا الأسبوع", "لكل يوم عدّاد مستقل، اضغط + لزيادة مرة": "لكل يوم عدّاد مستقل، اضغط + لزيادة مرة",
+    "لسه مفيش مناديب في الشريك": "لسه مفيش مناديب في الشريك", "إضافة مناديب للشريك": "إضافة مناديب للشريك",
+    "اختار من الموظفين الموجودين في الأسبوع المفتوح.": "اختار من الموظفين الموجودين في الأسبوع المفتوح.",
+    "ابحث بالاسم أو الكود": "ابحث بالاسم أو الكود", "تحديد الكل": "تحديد الكل",
+    "مفيش مناديب متاحين": "مفيش مناديب متاحين", "إضافة المحدد": "إضافة المحدد",
+    "المندوب": "المندوب", "الأسبوع": "الأسبوع", "اليوم": "اليوم",
   },
   en: {
     // nav
     "نظرة عامة": "Overview", "الحضور اليومي": "Daily Attendance", "الجدول": "Schedule", "الموظفون": "Employees", "التقارير": "Reports", "الغرامات": "Fines", "الإعدادات": "Settings",
+    "الشريك": "Partner", "سجل الشريك": "Partner log", "إضافة مناديب": "Add couriers", "ملخص الشريك": "Partner summary",
+    "مرة شريك هذا الأسبوع": "partner trips this week", "لكل يوم عدّاد مستقل، اضغط + لزيادة مرة": "Each day has its own counter. Press + to add one",
+    "لسه مفيش مناديب في الشريك": "No couriers in Partner yet", "إضافة مناديب للشريك": "Add couriers to Partner",
+    "اختار من الموظفين الموجودين في الأسبوع المفتوح.": "Pick from the people already in this week.",
+    "ابحث بالاسم أو الكود": "Search by name or code", "تحديد الكل": "Select all",
+    "مفيش مناديب متاحين": "No couriers available", "إضافة المحدد": "Add selected",
+    "المندوب": "Courier", "اليوم": "Today",
     "البحث عن موظف": "Search employee...", "الأسبوع السابق": "Previous week", "الأسبوع التالي": "Next week", "الأسبوع الحالي": "Current week",
     "السبت": "Saturday", "الأحد": "Sunday", "الاثنين": "Monday", "الثلاثاء": "Tuesday", "الأربعاء": "Wednesday", "الخميس": "Thursday", "الجمعة": "Friday",
     "حاضر": "Present", "متأخر": "Late", "غائب": "Absent", "بعذر": "Excused", "لم يُسجل": "Not marked",
@@ -498,6 +512,7 @@ function refreshLangView() {
   try {
     if (p === "dashboard") { loadDashboard(); loadDasRequests(); }
     else if (p === "attendance") { renderAttendance(); }
+    else if (p === "partner") { if (S.partner.data) renderPartners(); }
     else if (p === "schedule") { if (S.sch.data) renderSchedule(); }
     else if (p === "employees") renderEmployees();
     else if (p === "reports") { if (S.rep.sum) renderReport(); renderReportRows(); }
@@ -633,6 +648,7 @@ const S = {
   emp: { q: "", branch: "", shift: "", type: "", day: "", active: "1", sort: { key: "name", dir: 1 }, page: 1, size: 50, selected: new Set(), filtered: [] },
   rep: { sum: null, emps: [], sort: { key: "name", dir: 1 }, page: 1, size: 50, preset: "week" },
   fines: { data: null, sort: { key: "date", dir: -1 }, page: 1, size: 50, preset: "week" },
+  partner: { data: null, loading: false, q: "", pick: [], selected: new Set(), busy: new Map(), queue: new Map() },
   hist: { id: null },
   lang: "ar",
   stale: new Set(), /* صفوف اتغيّرت من مستخدم تاني وعندنا عليها مسودة مش محفوظة */
@@ -817,7 +833,7 @@ function applyRole() {
   initAttendanceQr();
 }
 
-const PAGES = { dashboard: "نظرة عامة", attendance: "الحضور اليومي", schedule: "الجدول", employees: "الموظفون", reports: "التقارير", fines: "الغرامات", settings: "الإعدادات" };
+const PAGES = { dashboard: "نظرة عامة", attendance: "الحضور اليومي", partner: "الشريك", schedule: "الجدول", employees: "الموظفون", reports: "التقارير", fines: "الغرامات", settings: "الإعدادات" };
 qsa("[data-page]").forEach(b => b.addEventListener("click", () => { location.hash = b.dataset.page; }));
 window.addEventListener("hashchange", route);
 
@@ -912,6 +928,7 @@ function showPage(p) {
   } else { window.bkVtActive = false; vtPending = null; swap(); }
   if (p === "dashboard") { loadDashboard(); restartFeedTimer(); loadDasRequests(); } else stopFeedTimer();
   if (p === "attendance") { syncAttControls(); loadRoster(); }
+  if (p === "partner") loadPartners();
   if (p === "schedule") loadSchedulePage();
   if (p === "employees") { renderEmployees(); }
   if (p === "reports") { if (!$("repStart").value || S.rep.preset === "week") setPreset(S.rep.preset || "week"); else runReport(); }
@@ -998,6 +1015,7 @@ function setWeek(ws) {
   refreshEmployees().catch(() => {});
   if (S.page === "dashboard") { loadDashboard(); loadFeed(); }
   else if (S.page === "attendance") { syncAttControls(); loadRoster(); }
+  else if (S.page === "partner") loadPartners();
   else if (S.page === "schedule") loadSchedule();
   else if (S.page === "reports") setPreset("week");
   else if (S.page === "fines") { setFinePreset("week"); loadFines(); }
@@ -2148,6 +2166,336 @@ on("fineRows", "click", async ev => {
 });
 
 
+/* ============================== الشريك (partner) ============================== */
+function partnerSubText(d) {
+  if (!d) return bi("سجّل كل مرة مندوب يطلع شريك في أي يوم من أيام الأسبوع.",
+                    "Record every time a courier goes out as a partner on any day of the week.");
+  if (!d.drivers.length) {
+    return bi("أضف مناديب من قاعدة الموظفين، وبعدين سجّل كل مرة يطلع فيها مندوب شريك في أي يوم.",
+              "Add couriers from the employee list, then record each partner trip on its day.");
+  }
+  return S.lang === "en"
+    ? `${d.drivers.length} couriers in ${weekLabel(d.week.start)}`
+    : `${d.drivers.length} مناديب مضافين في ${weekLabel(d.week.start)}`;
+}
+function partnerDayName(day) {
+  return S.lang === "en" ? day.weekday : (WD_AR[day.weekday] || day.weekday);
+}
+async function loadPartners() {
+  S.partner.loading = true;
+  try {
+    S.partner.data = await api(`/api/partners?week=${S.week}`);
+    renderPartners();
+  } catch (e) {
+    toast(e.message, "err");
+    if (!S.partner.data) renderPartnerError(e.message);
+  } finally {
+    S.partner.loading = false;
+    window.bkVtDataReady && window.bkVtDataReady("partner");
+  }
+}
+async function loadPartnersSoft() {
+  if (S.page !== "partner" || S.partner.busy.size) return;
+  try {
+    const d = await api(`/api/partners?week=${S.week}`, { silent: true });
+    if (S.page !== "partner") return;
+    S.partner.data = d;
+    renderPartners();
+  } catch (e) { /* التحديث المباشر مش أساسي */ }
+}
+function renderPartnerError(msg) {
+  $("partnerTotal").textContent = "—";
+  $("partnerGrid").classList.add("hidden");
+  $("partnerDaybar").classList.add("hidden");
+  $("partnerEmpty").classList.remove("hidden");
+  const b = qs("b", $("partnerEmpty"));
+  if (b) b.textContent = bi("تعذر تحميل الشريك", "Couldn't load Partner");
+  $("partnerEmptyText").textContent = msg || bi("حاول تحديث الصفحة تاني.", "Try refreshing the page.");
+  $("partnerEmptyAdd").classList.add("hidden");
+  $("partnerSub").textContent = partnerSubText(null);
+}
+function partnerCellHTML(dr, day) {
+  const n = dr.counts[day.date] || 0;
+  const name = dr.name;
+  const label = `${partnerDayName(day)} ${fmtDay(day.date, { day: "numeric", month: "short" })}`;
+  return `<td class="pg-cell${day.is_today ? " is-today" : ""}${day.is_weekend ? " is-weekend" : ""}" data-pg-date="${day.date}">
+    <div class="pg-counter">
+      <button type="button" class="pg-step minus" data-pg-step="-1" aria-label="${bi(`تقليل مرة لـ ${name} يوم ${label}`, `Remove one for ${name} on ${label}`)}" ${n <= 0 ? "disabled" : ""}>
+        <svg class="i" aria-hidden="true"><use href="#i-minus"/></svg>
+      </button>
+      <b class="pg-count${n ? " on" : ""}" data-pg-count aria-live="polite">${n}</b>
+      <button type="button" class="pg-step plus" data-pg-step="1" aria-label="${bi(`زيادة مرة لـ ${name} يوم ${label}`, `Add one for ${name} on ${label}`)}">
+        <svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>
+      </button>
+    </div>
+  </td>`;
+}
+function renderPartners() {
+  const d = S.partner.data;
+  if (!d) return;
+  $("partnerSub").textContent = partnerSubText(d);
+  $("partnerTotal").textContent = num(d.total);
+  $("partnerWeekTitle").textContent = bi("سجل الشريك", "Partner log") + " · " + weekLabel(d.week.start);
+  $("partnerWeekRange").textContent = weekRangeText(d.week.start);
+  $("partnerHint").innerHTML = bi('لكل يوم عدّاد مستقل، اضغط <b>+</b> لزيادة مرة',
+    'Each day has its own counter. Press <b>+</b> to add one');
+  $("partnerHeadRow").innerHTML =
+    `<th class="pg-name-h" scope="col">${bi("المندوب", "Courier")}</th>` +
+    d.days.map(day => `<th class="pg-day-h${day.is_today ? " is-today" : ""}${day.is_weekend ? " is-weekend" : ""}" scope="col" data-pg-head="${day.date}">
+      <span class="pg-dow">${esc(partnerDayName(day))}</span>
+      <span class="pg-date">${fmtDay(day.date, { day: "numeric", month: "short" })}</span>
+      <span class="pg-day-total"><b data-pg-day-total="${day.date}">${d.totals[day.date] || 0}</b> ${bi("مرة", "trips")}</span>
+    </th>`).join("") +
+    `<th class="pg-week-h" scope="col">${bi("الأسبوع", "Week")}</th>`;
+  $("partnerDaybar").innerHTML = d.days.map(day => `<button type="button" class="pdb${day.is_today ? " is-today" : ""}" data-pdb="${day.date}" aria-pressed="${day.is_today}" aria-label="${bi(`${partnerDayName(day)} ${fmtDay(day.date, { day: "numeric", month: "long" })}: ${d.totals[day.date] || 0} مرة`,
+    `${partnerDayName(day)} ${fmtDay(day.date, { day: "numeric", month: "long" })}: ${d.totals[day.date] || 0} trips`)}">
+      <span>${esc(partnerDayName(day))}</span><b>${parseISO(day.date).getDate()}</b><em data-pdb-total="${day.date}">${d.totals[day.date] || 0}</em>
+    </button>`).join("");
+  $("partnerRows").innerHTML = d.drivers.map(dr => {
+    const sub = [dr.branch, fmtShiftLabel(dr.shift)].filter(Boolean).join(" · ");
+    return `<tr data-pg-driver="${dr.id}" data-pg-name="${esc(dr.name)}">
+      <th scope="row" class="pg-name">
+        <div class="pg-person">
+          ${avHTML(dr.name)}
+          <div class="pg-txt"><b>${esc(dr.name)}</b><small>${esc(sub)}</small></div>
+          <span class="pg-person-total" title="${bi("إجمالي الأسبوع", "Week total")}" aria-label="${bi(`إجمالي الأسبوع: ${dr.total}`, `Week total: ${dr.total}`)}"><b>${dr.total}</b><i>${bi("مرة", "trips")}</i></span>
+          <button type="button" class="pg-remove" data-pg-remove aria-label="${bi(`إزالة ${dr.name} من الشريك`, `Remove ${dr.name} from Partner`)}" title="${bi("إزالة من الشريك", "Remove from Partner")}">
+            <svg class="i" aria-hidden="true"><use href="#i-trash"/></svg>
+          </button>
+        </div>
+      </th>
+      ${d.days.map(day => partnerCellHTML(dr, day)).join("")}
+      <td class="pg-week"><b data-pg-week-total>${dr.total}</b><span>${bi("مرة", "trips")}</span></td>
+    </tr>`;
+  }).join("");
+  const has = d.drivers.length > 0;
+  $("partnerGrid").classList.toggle("hidden", !has);
+  $("partnerDaybar").classList.toggle("hidden", !has);
+  $("partnerEmpty").classList.toggle("hidden", has);
+  if (!has) {
+    const b = qs("b", $("partnerEmpty"));
+    if (b) b.textContent = bi("لسه مفيش مناديب في الشريك", "No couriers in Partner yet");
+    $("partnerEmptyText").textContent = bi("أضف مناديب من قاعدة الموظفين، وبعدين سجّل كل مرة يطلع فيها مندوب شريك في أي يوم.",
+                                            "Add couriers from the employee list, then record each partner trip on its day.");
+    $("partnerEmptyAdd").classList.remove("hidden");
+  }
+  if (has) requestAnimationFrame(scrollPartnerToToday);
+}
+function scrollPartnerToToday() {
+  const wrap = $("partnerScroll");
+  if (!wrap || wrap.scrollWidth <= wrap.clientWidth + 4) return;
+  const head = qs(".pg-day-h.is-today", wrap) || qs(".pg-day-h", wrap);
+  if (head) scrollPartnerToDate(head.dataset.pgHead, "auto");
+}
+function scrollPartnerToDate(date, behavior = "smooth") {
+  const wrap = $("partnerScroll");
+  if (!wrap || !date) return;
+  const head = qs(`[data-pg-head="${date}"]`, wrap);
+  if (head) head.scrollIntoView({ block: "nearest", inline: "center", behavior: reducedMotion() ? "auto" : behavior });
+  qsa("#partnerDaybar [data-pdb]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.pdb === date)));
+}
+$("partnerDaybar").addEventListener("click", e => {
+  const b = e.target.closest("[data-pdb]");
+  if (b) scrollPartnerToDate(b.dataset.pdb);
+});
+function applyPartnerCount(driverId, date, count, res = null) {
+  const d = S.partner.data;
+  if (!d) return;
+  const dr = d.drivers.find(x => x.id === driverId);
+  if (!dr) return;
+  dr.counts[date] = count;
+  dr.total = (res && typeof res.driver_total === "number") ? res.driver_total
+    : Object.values(dr.counts).reduce((a, b) => a + (+b || 0), 0);
+  d.totals[date] = (res && typeof res.day_total === "number") ? res.day_total
+    : d.drivers.reduce((a, x) => a + (+x.counts[date] || 0), 0);
+  d.total = (res && typeof res.week_total === "number") ? res.week_total
+    : Object.values(d.totals).reduce((a, b) => a + (+b || 0), 0);
+  const tr = qs(`#partnerRows tr[data-pg-driver="${driverId}"]`);
+  if (tr) {
+    const cell = qs(`[data-pg-date="${date}"]`, tr);
+    if (cell) {
+      const b = qs("[data-pg-count]", cell);
+      if (b) { b.textContent = count; b.classList.toggle("on", count > 0); }
+      const minus = qs('[data-pg-step="-1"]', cell);
+      if (minus) minus.disabled = count <= 0;
+    }
+    const rt = qs("[data-pg-week-total]", tr);
+    if (rt) rt.textContent = dr.total;
+    const pt = qs(".pg-person-total b", tr);
+    if (pt) pt.textContent = dr.total;
+    const ptWrap = qs(".pg-person-total", tr);
+    if (ptWrap) ptWrap.setAttribute("aria-label", bi(`إجمالي الأسبوع: ${dr.total}`, `Week total: ${dr.total}`));
+  }
+  const dt = qs(`[data-pg-day-total="${date}"]`);
+  if (dt) dt.textContent = d.totals[date];
+  const dbt = qs(`[data-pdb-total="${date}"]`);
+  if (dbt) dbt.textContent = d.totals[date];
+  $("partnerTotal").textContent = num(d.total);
+  $("partnerSub").textContent = partnerSubText(d);
+}
+function partnerStep(driverId, date, delta) {
+  const d = S.partner.data;
+  if (!d) return;
+  const dr = d.drivers.find(x => x.id === driverId);
+  if (!dr) return;
+  const next = Math.max(0, Math.min(999, (+dr.counts[date] || 0) + delta));
+  if (next === (+dr.counts[date] || 0)) return;
+  applyPartnerCount(driverId, date, next);
+  const key = driverId + ":" + date;
+  S.partner.queue.set(key, next);
+  flushPartnerQueue(driverId, date);
+}
+async function flushPartnerQueue(driverId, date) {
+  const key = driverId + ":" + date;
+  if (S.partner.busy.get(key)) return;
+  S.partner.busy.set(key, true);
+  const cell = qs(`#partnerRows tr[data-pg-driver="${driverId}"] [data-pg-date="${date}"]`);
+  if (cell) cell.classList.add("saving");
+  try {
+    while (S.partner.queue.has(key)) {
+      const target = S.partner.queue.get(key);
+      S.partner.queue.delete(key);
+      const r = await api(`/api/partners/${driverId}/count`, {
+        method: "PUT", body: { date, count: target }, silent: true,
+      });
+      if (!S.partner.queue.has(key)) applyPartnerCount(driverId, date, r.count, r);
+    }
+  } catch (e) {
+    S.partner.queue.delete(key);
+    toast(e.message, "err");
+    await loadPartners();
+  } finally {
+    S.partner.busy.delete(key);
+    if (cell) cell.classList.remove("saving");
+  }
+}
+async function removePartner(driverId, name) {
+  const msg = bi(`إزالة ${name} من ${weekLabel(S.week)}؟\nهتتمسح كل عدادات الأيام المسجلة له في الأسبوع ده.`,
+                 `Remove ${name} from ${weekLabel(S.week)}?\nAll recorded day counts for this week will be deleted.`);
+  if (!confirm(msg)) return;
+  try {
+    const r = await api(`/api/partners/${driverId}`, { method: "DELETE" });
+    S.partner.data = r.payload;
+    renderPartners();
+    toast(bi("تمت الإزالة", "Removed"), "ok");
+  } catch (e) { toast(e.message, "err"); }
+}
+function partnerFilteredPick() {
+  const q = S.partner.q.trim().toLowerCase();
+  if (!q) return S.partner.pick.slice();
+  return S.partner.pick.filter(e => `${e.name} ${e.employee_code || ""} ${e.shift || ""}`.toLowerCase().includes(q));
+}
+function updatePartnerPickCount() {
+  const n = S.partner.selected.size;
+  $("partnerPickCount").textContent = bi(`${n} محدد`, `${n} selected`);
+  $("partnerConfirm").disabled = n === 0;
+  const list = partnerFilteredPick();
+  const all = list.length > 0 && list.every(e => S.partner.selected.has(e.id));
+  $("partnerPickAll").textContent = all ? bi("إلغاء تحديد الكل", "Clear selection") : bi("تحديد الكل", "Select all");
+  $("partnerPickAll").disabled = list.length === 0;
+}
+function renderPartnerPicker() {
+  const list = partnerFilteredPick();
+  const empty = $("partnerPickEmpty");
+  $("partnerPickList").innerHTML = "";
+  if (!list.length) {
+    empty.classList.remove("hidden");
+    $("partnerPickEmptyText").textContent = S.partner.pick.length
+      ? bi("مفيش نتائج للبحث ده.", "No matches for this search.")
+      : bi("كل الموظفين النشطين مضافين بالفعل في الأسبوع ده.", "All active employees are already in this week.");
+  } else {
+    empty.classList.add("hidden");
+    const groups = {};
+    for (const e of list) (groups[e.branch] = groups[e.branch] || []).push(e);
+    $("partnerPickList").innerHTML = Object.keys(groups).sort().map(branch => `
+      <div class="pp-group">
+        <div class="pp-group-h"><span>${esc(branch)}</span><b>${groups[branch].length}</b></div>
+        ${groups[branch].map(e => {
+          const sub = [e.employee_code ? "#" + e.employee_code : "", fmtShiftLabel(e.shift)].filter(Boolean).join(" · ");
+          return `<label class="pp-row">
+            <input type="checkbox" value="${e.id}" ${S.partner.selected.has(e.id) ? "checked" : ""}>
+            ${avHTML(e.name)}
+            <span class="pp-txt"><b>${esc(e.name)}</b><small>${esc(sub)}</small></span>
+          </label>`;
+        }).join("")}
+      </div>`).join("");
+  }
+  updatePartnerPickCount();
+}
+async function openPartnerDialog() {
+  const dlg = $("partnerDialog");
+  S.partner.q = "";
+  S.partner.selected = new Set();
+  $("partnerSearch").value = "";
+  $("partnerPickList").innerHTML = `<p class="muted" style="padding:18px 0">${bi("جارٍ التحميل…", "Loading…")}</p>`;
+  $("partnerPickEmpty").classList.add("hidden");
+  updatePartnerPickCount();
+  if (!dlg.open) dlg.showModal();
+  $("partnerSearch").focus();
+  try {
+    const all = await api(`/api/employees?week=${S.week}&active_only=true`, { silent: true });
+    const existing = new Set((S.partner.data && S.partner.data.drivers || []).map(x => x.employee_id));
+    S.partner.pick = all.filter(e => e.active && !existing.has(e.id));
+    renderPartnerPicker();
+  } catch (e) {
+    $("partnerPickList").innerHTML = "";
+    $("partnerPickEmpty").classList.remove("hidden");
+    $("partnerPickEmptyText").textContent = e.message;
+    toast(e.message, "err");
+  }
+}
+on("partnerAdd", "click", openPartnerDialog);
+on("partnerEmptyAdd", "click", openPartnerDialog);
+on("partnerClose", "click", () => $("partnerDialog").close());
+on("partnerCancel", "click", () => $("partnerDialog").close());
+on("partnerSearch", "input", () => { S.partner.q = $("partnerSearch").value; renderPartnerPicker(); });
+on("partnerPickAll", "click", () => {
+  const list = partnerFilteredPick();
+  const all = list.length > 0 && list.every(e => S.partner.selected.has(e.id));
+  for (const e of list) { if (all) S.partner.selected.delete(e.id); else S.partner.selected.add(e.id); }
+  renderPartnerPicker();
+});
+$("partnerPickList").addEventListener("change", e => {
+  const cb = e.target.closest('input[type="checkbox"]');
+  if (!cb) return;
+  const id = +cb.value;
+  if (cb.checked) S.partner.selected.add(id); else S.partner.selected.delete(id);
+  updatePartnerPickCount();
+});
+on("partnerConfirm", "click", async () => {
+  const ids = [...S.partner.selected];
+  if (!ids.length) return;
+  const btn = $("partnerConfirm");
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = bi("جارٍ الإضافة…", "Adding…");
+  try {
+    const r = await api("/api/partners", { method: "POST", body: { week: S.week, employee_ids: ids } });
+    S.partner.data = r.payload;
+    renderPartners();
+    $("partnerDialog").close();
+    toast(r.added ? bi(`تمت إضافة ${r.added} مندوب`, `Added ${r.added} couriers`) : bi("المحددون مضافون بالفعل", "Already added"), r.added ? "ok" : "");
+  } catch (e) {
+    toast(e.message, "err");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+});
+$("partnerRows").addEventListener("click", e => {
+  const rm = e.target.closest("[data-pg-remove]");
+  if (rm) {
+    const tr = rm.closest("tr[data-pg-driver]");
+    if (tr) removePartner(+tr.dataset.pgDriver, tr.dataset.pgName || "");
+    return;
+  }
+  const step = e.target.closest("[data-pg-step]");
+  if (!step) return;
+  const tr = step.closest("tr[data-pg-driver]");
+  const td = step.closest("[data-pg-date]");
+  if (tr && td) partnerStep(+tr.dataset.pgDriver, td.dataset.pgDate, +step.dataset.pgStep);
+});
+
 /* ============================== schedule ============================== */
 const JS_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 S.sch = { branch: "QCD 1", data: null, base: new Map(), draft: new Map(), q: "", defaults: {}, built: false };
@@ -3092,6 +3440,16 @@ if (S.token) { showApp(); init(); }
     window.bkVtDataReady("attendance");
   };
 
+  /* ---------- 7.5 الشريك ---------- */
+  var _part = window.renderPartners;
+  window.renderPartners = function () {
+    _part.apply(null, arguments);
+    decorate("#page-partner");
+    var boot = bootPage === "partner" && revealBoot("partner");
+    if (boot) syncNavNow();
+    window.bkVtDataReady("partner");
+  };
+
   /* ---------- 8. الموظفون ---------- */
   var _emp = window.renderEmployees;
   window.renderEmployees = function () {
@@ -3266,7 +3624,7 @@ function startLive() {
 function stopLive() { liveRun = false; if ($("livePill")) setLive(false, "متوقف"); }
 
 /* -------- تطبيق الأحداث على الشاشة -------- */
-const KIND_AR = { attendance: "تسجيلات الحضور", employees: "بيانات الموظفين", schedule: "الجدول", settings: "الإعدادات", fines: "الغرامات", das_requests: "طلبات حضور DAS" };
+const KIND_AR = { attendance: "تسجيلات الحضور", employees: "بيانات الموظفين", schedule: "الجدول", settings: "الإعدادات", fines: "الغرامات", das_requests: "طلبات حضور DAS", partners: "الشريك" };
 function applyEvents(events) {
   /* بنتجاهل بس الأحداث اللي مصدرها التاب نفسها. أي حدث من غير معرّف تاب (كتابة
      من بره الواجهة مثلًا) بنعتبره من حد تاني وبنطبّقه. */
@@ -3299,6 +3657,11 @@ function liveRefresh(ev) {
     return true;
   }
   if (S.page === "employees") { loadEmployeesSoft(); return true; }
+  if (S.page === "partner") {
+    if (kind === "partners") { if (ev.week && ev.week !== S.week) return false; loadPartnersSoft(); return true; }
+    if (kind === "employees" || kind === "schedule") { loadPartnersSoft(); return true; }
+    return false;
+  }
   if (S.page === "fines") { loadFines(); return true; }
   if (S.page === "reports") { if ($("repStart").value) runReport(); return true; }
   if (S.page === "schedule") { if (S.sch && !S.sch.draft.size) loadSchedulePage(); return true; }
@@ -3308,6 +3671,7 @@ function liveRefreshPage() {
   if (S.page === "attendance") loadRosterSoft();
   else if (S.page === "dashboard") { loadDashboard(); loadFeed(); loadDasRequests(); }
   else if (S.page === "employees") loadEmployeesSoft();
+  else if (S.page === "partner") loadPartnersSoft();
   else if (S.page === "fines") loadFines();
   else if (S.page === "reports" && $("repStart").value) runReport();
   else if (S.page === "schedule" && S.sch && !S.sch.draft.size) loadSchedulePage();

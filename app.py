@@ -120,6 +120,34 @@ class Fine(Base):
     employee = relationship("Employee")
 
 
+class PartnerDriver(Base):
+    """مندوب مضاف لصفحة «الشريك» في أسبوع معيّن.
+
+    العضوية أسبوعية عشان الصفحة تفضل شغّالة بنفس منطق الجدول: تفتح الأسبوع
+    وتلاقي نفس المناديب، والعدّاد بيتسجل لكل يوم لوحده في PartnerCount."""
+    __tablename__ = "partner_drivers"
+    id = Column(Integer, primary_key=True, index=True)
+    week_start = Column(Date, nullable=False, index=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
+    created_by = Column(String(60), nullable=True, default="")
+    created_at = Column(DateTime, default=utcnow)
+    employee = relationship("Employee")
+    __table_args__ = (UniqueConstraint("week_start", "employee_id", name="uq_partner_week_employee"),)
+
+
+class PartnerCount(Base):
+    """عدّاد مرات الشريك لمندوب في يوم واحد (بيتحدّث من علامة + في الصفحة)."""
+    __tablename__ = "partner_counts"
+    id = Column(Integer, primary_key=True)
+    partner_id = Column(Integer, ForeignKey("partner_drivers.id"), nullable=False, index=True)
+    work_date = Column(Date, nullable=False, index=True)
+    count = Column(Integer, nullable=False, default=0)
+    updated_by = Column(String(60), nullable=True, default="")
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+    driver = relationship("PartnerDriver")
+    __table_args__ = (UniqueConstraint("partner_id", "work_date", name="uq_partner_day"),)
+
+
 class ShiftDef(Base):
     """شيفتات معرّفة لكل فرع (عشان نقدر نضيف شيفت فاضي ونوزّع عليه بعدين)."""
     __tablename__ = "shift_defs"
@@ -557,6 +585,19 @@ class FineEditIn(BaseModel):
     amount: Optional[float] = Field(default=None, ge=0, le=1000000)
     reason: Optional[str] = Field(default=None, max_length=500)
     note: Optional[str] = Field(default=None, max_length=500)
+
+
+class PartnerAddIn(BaseModel):
+    """إضافة مناديب لصفحة الشريك في أسبوع. الأسبوع فاضي = الأسبوع الحالي."""
+    week: Optional[date] = None
+    employee_ids: List[int]
+
+
+class PartnerCountIn(BaseModel):
+    """العدد المطلق لمرات الشريك لمندوب في يوم (مش فرق) عشان النقرات السريعة تتحفظ مرة واحدة."""
+    date: date
+    count: int = Field(ge=0, le=999)
+
 
 
 # ---------------------------------------------------------------- helpers
@@ -1271,6 +1312,174 @@ def export_employees(week: Optional[date] = None, role: str = Depends(require_au
         [[e.name, e.employee_code or "", e.branch, s.shift, e.employment_type, s.day_off,
           e.phone or "", "yes" if e.active else "no"] for e, s in rows],
         f"bankai_employees_week{week_number(ws)[1]}.csv")
+
+
+# ---------------------------------------------------------------- الشريك (partner counts)
+def _partner_payload(db: Session, ws: date, role: str) -> dict:
+    """صفحة الشريك كاملة: المناديب المضافين للأسبوع + عدّاد كل يوم + الإجماليات."""
+    q = (db.query(PartnerDriver, Employee)
+         .join(Employee, PartnerDriver.employee_id == Employee.id)
+         .filter(PartnerDriver.week_start == ws))
+    scope = supervisor_scope(role)
+    if scope:
+        q = q.filter(Employee.branch == scope)
+    pairs = q.all()
+    ids = [p.id for p, _ in pairs]
+
+    starts = [ws + timedelta(days=i) for i in range(7)]
+    totals = {d.isoformat(): 0 for d in starts}
+    by_driver: Dict[int, Dict[str, int]] = {}
+    if ids:
+        for row in (db.query(PartnerCount)
+                    .filter(PartnerCount.partner_id.in_(ids),
+                            PartnerCount.work_date >= starts[0],
+                            PartnerCount.work_date <= starts[-1]).all()):
+            k = row.work_date.isoformat()
+            if k in totals:
+                by_driver.setdefault(row.partner_id, {})[k] = int(row.count or 0)
+
+    drivers = []
+    for p, e in sorted(pairs, key=lambda pair: (pair[1].branch, pair[1].name)):
+        counts = {k: by_driver.get(p.id, {}).get(k, 0) for k in totals}
+        for k, n in counts.items():
+            totals[k] += n
+        drivers.append({
+            "id": p.id, "employee_id": e.id, "name": e.name,
+            "employee_code": e.employee_code or "", "branch": e.branch,
+            "shift": e.shift, "day_off": e.day_off, "active": bool(e.active),
+            "counts": counts, "total": sum(counts.values()),
+        })
+
+    week = week_info(ws)
+    today = today_local().isoformat()
+    return {
+        "week": week,
+        "days": [{
+            "date": d.isoformat(), "weekday": d.strftime("%A"),
+            "is_today": d.isoformat() == today,
+            "is_weekend": d.strftime("%A") in ("Friday", "Saturday"),
+        } for d in starts],
+        "drivers": drivers,
+        "totals": totals,
+        "total": sum(totals.values()),
+    }
+
+
+def _partner_for_role(db: Session, partner_id: int, role: str):
+    p = db.query(PartnerDriver).filter(PartnerDriver.id == partner_id).first()
+    if not p:
+        raise HTTPException(404, "المندوب غير موجود في صفحة الشريك")
+    e = db.query(Employee).filter(Employee.id == p.employee_id).first()
+    if not e:
+        raise HTTPException(404, "الموظف غير موجود")
+    scope = supervisor_scope(role)
+    if scope and e.branch != scope:
+        raise HTTPException(403, "المندوب تابع لفرع تاني")
+    return p, e
+
+
+@app.get("/api/partners")
+def list_partners(week: Optional[date] = None, role: str = Depends(require_auth),
+                  db: Session = Depends(get_db)):
+    return _partner_payload(db, week_param(week), role)
+
+
+@app.post("/api/partners")
+def add_partners(data: PartnerAddIn, request: Request, role: str = Depends(require_auth),
+                 db: Session = Depends(get_db)):
+    ids = list(dict.fromkeys(int(i) for i in (data.employee_ids or [])))
+    if not ids:
+        raise HTTPException(400, "اختار مندوب واحد على الأقل")
+    if len(ids) > 200:
+        raise HTTPException(400, "العدد المحدد كبير جدًا")
+    ws = week_param(data.week)
+    emps = db.query(Employee).filter(Employee.id.in_(ids)).all()
+    found = {e.id for e in emps}
+    missing = [i for i in ids if i not in found]
+    if missing:
+        raise HTTPException(404, "بعض الموظفين غير موجودين")
+    scope = supervisor_scope(role)
+    if scope and any(e.branch != scope for e in emps):
+        raise HTTPException(403, "تقدر تضيف مناديب فرعك بس")
+    blocked = [e.name for e in emps if not e.active]
+    if blocked:
+        raise HTTPException(400, "فيه موظف موقوف: " + "، ".join(blocked))
+
+    existing = {p.employee_id for p in
+                db.query(PartnerDriver).filter(PartnerDriver.week_start == ws,
+                                               PartnerDriver.employee_id.in_(ids)).all()}
+    added = []
+    for e in emps:
+        if e.id in existing:
+            continue
+        db.add(PartnerDriver(week_start=ws, employee_id=e.id, created_by=who_role(role)))
+        added.append(e)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+    if added:
+        publish_event("partners", action="add", week=ws.isoformat(),
+                      names=[e.name for e in added], by=who_role(role), client=client_tag(request))
+    return {"added": len(added), "already": len(ids) - len(added),
+            "payload": _partner_payload(db, ws, role)}
+
+
+@app.delete("/api/partners/{partner_id}")
+def remove_partner(partner_id: int, request: Request, role: str = Depends(require_auth),
+                   db: Session = Depends(get_db)):
+    p, e = _partner_for_role(db, partner_id, role)
+    ws = p.week_start
+    db.query(PartnerCount).filter(PartnerCount.partner_id == p.id).delete(synchronize_session=False)
+    db.delete(p)
+    db.commit()
+    publish_event("partners", action="remove", week=ws.isoformat(), names=[e.name],
+                  by=who_role(role), client=client_tag(request))
+    return {"message": f"تمت إزالة {e.name} من الشريك", "payload": _partner_payload(db, ws, role)}
+
+
+@app.put("/api/partners/{partner_id}/count")
+def set_partner_count(partner_id: int, data: PartnerCountIn, request: Request,
+                      role: str = Depends(require_auth), db: Session = Depends(get_db)):
+    p, e = _partner_for_role(db, partner_id, role)
+    ws = p.week_start
+    end = ws + timedelta(days=6)
+    if data.date < ws or data.date > end:
+        raise HTTPException(400, "التاريخ خارج أسبوع المندوب")
+    row = (db.query(PartnerCount)
+           .filter(PartnerCount.partner_id == p.id, PartnerCount.work_date == data.date).first())
+    if data.count == 0:
+        if row:
+            db.delete(row)
+    elif row:
+        row.count = data.count
+        row.updated_by = who_role(role)
+    else:
+        db.add(PartnerCount(partner_id=p.id, work_date=data.date, count=data.count,
+                            updated_by=who_role(role)))
+    try:
+        db.commit()
+    except IntegrityError:
+        # طلب تاني أنشأ نفس الصف في نفس اللحظة: نكتب القيمة الأخيرة فوقه بدل 500.
+        db.rollback()
+        row = (db.query(PartnerCount)
+               .filter(PartnerCount.partner_id == p.id, PartnerCount.work_date == data.date).first())
+        if row:
+            row.count = data.count
+            row.updated_by = who_role(role)
+            db.commit()
+    payload = _partner_payload(db, ws, role)
+    mine = next((d for d in payload["drivers"] if d["id"] == p.id), None)
+    publish_event("partners", action="count", week=ws.isoformat(), names=[e.name],
+                  date=data.date.isoformat(), count=data.count,
+                  by=who_role(role), client=client_tag(request))
+    return {
+        "date": data.date.isoformat(),
+        "count": data.count,
+        "driver_total": mine["total"] if mine else data.count,
+        "day_total": payload["totals"].get(data.date.isoformat(), 0),
+        "week_total": payload["total"],
+    }
 
 
 # ---------------------------------------------------------------- roster & attendance
