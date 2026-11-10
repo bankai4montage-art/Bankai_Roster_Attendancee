@@ -340,6 +340,20 @@ Object.assign(I18N.en, {
   "نقل…": "Move…",
   "حاضر للباقي": "Present the rest",
   "دوام كامل": "Full Time", "دوام جزئي": "Part Time", "بدون بريك": "No break",
+  // تعديل سجل الحضور من نافذة السجل
+  "تعديل تسجيل الحضور": "Edit attendance entry",
+  "تعديل التسجيل": "Edit entry",
+  "مسح التسجيل": "Clear entry",
+  "مسح تسجيل الحضور لهذا اليوم؟": "Clear this attendance entry?",
+  "تم تحديث تسجيل الحضور.": "Attendance entry updated.",
+  "تم مسح تسجيل الحضور.": "Attendance entry cleared.",
+  "اكتب سبب الغرامة الأول.": "Enter the fine reason first.",
+  "اختار حالة الحضور الأول.": "Choose an attendance status first.",
+  "تعذر حفظ التعديل.": "Could not save the change.",
+  "التعديل بيغيّر سجل اليوم ده بس، وبيتسجل باسمك في خانة «بواسطة».": "This changes only this day's record and is saved under your name in the “By” column.",
+  "الغرامة (ج.م)": "Fine (EGP)",
+  "ملاحظة إضافية (اختياري)": "Extra note (optional)",
+  "حالة الحضور": "Attendance status",
 });
 
 /* خريطة عكسية: من إجابات EN رجّع عربي عند الرجوع للوضع العربي */
@@ -649,7 +663,7 @@ const S = {
   rep: { sum: null, emps: [], sort: { key: "name", dir: 1 }, page: 1, size: 50, preset: "week" },
   fines: { data: null, sort: { key: "date", dir: -1 }, page: 1, size: 50, preset: "week" },
   partner: { data: null, loading: false, filterBranch: "", q: "", pick: [], selected: new Set(), busy: new Map(), queue: new Map() },
-  hist: { id: null },
+  hist: { id: null, records: [], employee: null, edit: null },
   lang: "ar",
   stale: new Set(), /* صفوف اتغيّرت من مستخدم تاني وعندنا عليها مسودة مش محفوظة */
 };
@@ -1879,13 +1893,129 @@ async function loadHistory() {
   try {
     const r = await api(`/api/reports/employee/${S.hist.id}?start=${start}&end=${end}`);
     const e = r.employee, s = r.stats;
+    S.hist.records = r.records || [];
+    S.hist.employee = e;
     $("histTitle").textContent = e.name;
     $("histSub").innerHTML = `${esc(e.branch)} · ${sh(e.shift)} · ${esc(e.employee_code || "بدون كود")} · إجازة ${WD_AR[e.day_off] || e.day_off}${e.active ? "" : " · موقوف"}`;
     $("histStats").innerHTML = `<span class="tag">تسجيلات: ${s.total}</span><span class="tag ok">حضور: ${s.present}</span><span class="tag warn">تأخير: ${s.late}</span><span class="tag bad">غياب: ${s.absent}</span><span class="tag info">بعذر: ${s.excused}</span><span class="tag admin">غرامات إدارية: ${s.standalone || 0} — ${money(s.standalone_total || 0)}</span>`;
-    $("histRows").innerHTML = r.records.map(a => `<tr><td>${WD_AR[a.weekday] || ""} ${fmtDay(a.attendance_date, { day: "numeric", month: "short" })}</td><td><span class="tag ${a.status}">${ST[a.status]?.[0] || a.status}</span></td><td>${esc(a.reason) || "—"}</td><td>${esc(a.note) || "—"}</td><td>${esc(a.recorded_by || a.created_by || "") || "—"}</td></tr>`).join("");
+    $("histRows").innerHTML = r.records.map(a => {
+      const canEdit = isAdmin() && a.source === "attendance";
+      const editTitle = bi("تعديل التسجيل", "Edit entry");
+      const editCell = `<td class="admin-only">${canEdit ? `<button type="button" class="btn sm icon" data-hist-edit="${a.attendance_date}" title="${editTitle}" aria-label="${editTitle}"><svg class="i"><use href="#i-edit"/></svg></button>` : ""}</td>`;
+      return `<tr><td>${WD_AR[a.weekday] || ""} ${fmtDay(a.attendance_date, { day: "numeric", month: "short" })}</td><td><span class="tag ${a.status}">${ST[a.status]?.[0] || a.status}</span></td><td>${esc(a.reason) || "—"}</td><td>${esc(a.note) || "—"}</td><td>${esc(a.recorded_by || a.created_by || "") || "—"}</td>${editCell}</tr>`;
+    }).join("");
     $("histEmpty").classList.toggle("hidden", r.records.length > 0);
   } catch (err) { toast(err.message, "err"); }
 }
+
+/* تعديل تسجيل حضور موجود من نافذة سجل الموظف.
+   متاح للأدمن فقط (زرار التعديل نفسه مخفي عن المشرفين بـ admin-only)،
+   والحفظ بيمر على نفس مسار /api/attendance/bulk بتاع صفحة الحضور —
+   فالتعارض مع مستخدم تاني بيتعامل معاه بنفس الطريقة. */
+function histEditApplyStatus(st, resetFine) {
+  const e = S.hist.employee;
+  if (!e || !S.hist.edit) return;
+  const prev = S.hist.edit.status;
+  const fineOn = st === "Late" || st === "Absent";
+  if (resetFine && st !== prev && !S.hist.edit.fineTouched) {
+    $("histEditFine").value = fineOn ? (defaultFineFor(e, st) || "") : "";
+    if (st === "Present") $("histEditReason").value = "";
+  }
+  S.hist.edit.status = st;
+  $("histEditFine").disabled = !fineOn;
+  $("histEditReason").disabled = !st || st === "Present";
+  if (!fineOn) $("histEditFine").value = "";
+  if (st === "Present") $("histEditReason").value = "";
+  qsa("#histEditSeg button").forEach(b => {
+    const on = b.dataset.set === st;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", String(on));
+  });
+}
+
+function openHistEdit(date) {
+  const a = (S.hist.records || []).find(x => x.source === "attendance" && x.attendance_date === date);
+  const e = S.hist.employee;
+  if (!a || !e) return;
+  S.hist.edit = { date, status: a.status, fineTouched: false };
+  $("histEditDate").value = date;
+  $("histEditEmployee").value = e.id;
+  $("histEditStamp").value = a.updated_at || "";
+  $("histEditSub").textContent = `${e.name} · ${fmtDay(date, { weekday: "long", day: "numeric", month: "long" })}`;
+  $("histEditSeg").innerHTML = STK.map(k => `<button type="button" class="${k}${a.status === k ? " on" : ""}" data-set="${k}" aria-pressed="${a.status === k}">${translateText(ST[k][0])}</button>`).join("");
+  $("histEditFine").value = a.fine ? a.fine : "";
+  $("histEditReason").value = a.reason || "";
+  $("histEditNote").value = a.note || "";
+  $("histEditError").textContent = "";
+  histEditApplyStatus(a.status, false);
+  if (!$("histEditDialog").open) $("histEditDialog").showModal();
+}
+
+async function saveHistEdit(status, cleared) {
+  const edit = S.hist.edit, e = S.hist.employee;
+  if (!edit || !e) return;
+  const fineOn = status === "Late" || status === "Absent";
+  const fine = fineOn ? Math.max(0, Number($("histEditFine").value || 0) || 0) : 0;
+  const reason = status === "Present" ? "" : $("histEditReason").value.trim();
+  const note = $("histEditNote").value.trim();
+  const err = $("histEditError");
+  err.textContent = "";
+  if (!cleared && !status) { err.textContent = bi("اختار حالة الحضور الأول.", "Choose an attendance status first."); return; }
+  if (fineOn && fine > 0 && !reason) {
+    err.textContent = bi("اكتب سبب الغرامة الأول.", "Enter the fine reason first.");
+    $("histEditReason").focus();
+    return;
+  }
+  const btn = $("histEditForm").querySelector('button[type="submit"]');
+  btn.disabled = true;
+  try {
+    const r = await api("/api/attendance/bulk", {
+      method: "POST",
+      body: {
+        attendance_date: edit.date,
+        items: [{
+          employee_id: e.id, status, fine, reason, note,
+          expected_updated_at: $("histEditStamp").value || "-"
+        }]
+      }
+    });
+    const first = (r.errors || [])[0];
+    if (first) {
+      err.textContent = first.detail || bi("تعذر حفظ التعديل.", "Could not save the change.");
+      if (first.conflict) { $("histEditDialog").close(); await loadHistory(); }
+      return;
+    }
+    $("histEditDialog").close();
+    toast(cleared ? bi("تم مسح تسجيل الحضور.", "Attendance entry cleared.") : bi("تم تحديث تسجيل الحضور.", "Attendance entry updated."), "ok");
+    await loadHistory();
+  } catch (ex) {
+    err.textContent = ex.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+on("histRows", "click", ev => {
+  const b = ev.target.closest("[data-hist-edit]");
+  if (b) openHistEdit(b.dataset.histEdit);
+});
+on("histEditSeg", "click", ev => {
+  const b = ev.target.closest("button[data-set]");
+  if (b) histEditApplyStatus(b.dataset.set, true);
+});
+on("histEditFine", "input", () => { if (S.hist.edit) S.hist.edit.fineTouched = true; });
+on("histEditForm", "submit", ev => {
+  ev.preventDefault();
+  saveHistEdit(S.hist.edit?.status || "", false);
+});
+on("histEditClear", "click", () => {
+  if (!S.hist.edit) return;
+  if (!confirm(bi("مسح تسجيل الحضور لهذا اليوم؟", "Clear this attendance entry?"))) return;
+  saveHistEdit("", true);
+});
+on("histEditCancel", "click", () => $("histEditDialog").close());
+on("histEditClose", "click", () => $("histEditDialog").close());
+$("histEditDialog").addEventListener("click", e => { if (e.target === $("histEditDialog")) $("histEditDialog").close(); });
 
 /* ============================== reports ============================== */
 function setPreset(p) {

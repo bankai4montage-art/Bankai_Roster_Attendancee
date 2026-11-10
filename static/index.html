@@ -646,10 +646,40 @@
       <button class="btn sm admin-only" id="histFineAdd"><svg class="i"><use href="#i-plus"/></svg>غرامة إدارية</button>
     </div>
     <div class="hist-stats" id="histStats"></div>
-    <div class="table-wrap"><table class="tbl" style="min-width:600px"><thead><tr><th>اليوم</th><th>الحالة</th><th>السبب</th><th>ملاحظة</th><th>بواسطة</th></tr></thead><tbody id="histRows"></tbody></table></div>
+    <div class="table-wrap"><table class="tbl" style="min-width:680px"><thead><tr><th>اليوم</th><th>الحالة</th><th>السبب</th><th>ملاحظة</th><th>بواسطة</th><th class="admin-only">تعديل</th></tr></thead><tbody id="histRows"></tbody></table></div>
     <div id="histEmpty" class="empty hidden" style="margin-top:10px"><b>لا توجد تسجيلات</b>في الفترة المختارة.</div>
   </div>
   <div class="dlg-f"><button type="button" class="btn" id="histClose2">إغلاق</button></div>
+</dialog>
+
+<dialog id="histEditDialog" class="dlg">
+  <form id="histEditForm" method="dialog" novalidate>
+    <div class="dlg-h">
+      <div><h3 id="histEditTitle">تعديل تسجيل الحضور</h3><p id="histEditSub"></p></div>
+      <button type="button" class="btn icon sm" id="histEditClose" aria-label="إغلاق"><svg class="i"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="dlg-b">
+      <input type="hidden" id="histEditDate">
+      <input type="hidden" id="histEditEmployee">
+      <input type="hidden" id="histEditStamp">
+      <div class="field wide" style="margin-bottom:14px">
+        <span>الحالة</span>
+        <div class="seg hist-edit-seg" id="histEditSeg" role="group" aria-label="حالة الحضور"></div>
+      </div>
+      <div class="form-grid">
+        <label class="field">الغرامة (ج.م)<input id="histEditFine" class="inp" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></label>
+        <label class="field">السبب<input id="histEditReason" class="inp" list="reasonList" maxlength="500" placeholder="السبب" autocomplete="off"></label>
+        <label class="field wide">ملاحظة<input id="histEditNote" class="inp" maxlength="500" placeholder="ملاحظة إضافية (اختياري)" autocomplete="off"></label>
+      </div>
+      <p class="hint">التعديل بيغيّر سجل اليوم ده بس، وبيتسجل باسمك في خانة «بواسطة».</p>
+      <p id="histEditError" class="error" role="alert"></p>
+    </div>
+    <div class="dlg-f">
+      <button type="submit" class="btn primary">حفظ</button>
+      <button type="button" class="btn danger" id="histEditClear">مسح التسجيل</button>
+      <button type="button" class="btn" id="histEditCancel">إلغاء</button>
+    </div>
+  </form>
 </dialog>
 
 <dialog id="partnerDialog" class="dlg wide">
