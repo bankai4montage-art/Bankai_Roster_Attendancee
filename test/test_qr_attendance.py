@@ -314,7 +314,7 @@ def test_any_time_check_in_and_the_fine_preview(client, admin):
     assert r.json()["status"] == "Present" and r.json()["fine"] == 0
 
 
-def test_checkout_request_waits_for_approval(client, admin):
+def test_checkout_is_instant_and_records_worked_time(client, admin):
     emp = _mk(client, admin, "QR-C1")
     r = _check(client, "QR-C1", SHIFT_DAY.replace(hour=9, minute=4))
     assert r.status_code == 200, r.text
@@ -325,26 +325,25 @@ def test_checkout_request_waits_for_approval(client, admin):
                     json={"employee_code": "QR-C1"})
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["status"] == "Pending" and body["already"] is False
-    req_id = body["request_id"]
+    assert body["status"] == "Approved" and body["already"] is False
+    assert body["worked_minutes"] == 536
+    assert body["early"] is False
 
     r = client.post("/api/attendance/qr/checkout", headers=headers,
                     json={"employee_code": "QR-C1"})
     assert r.status_code == 200 and r.json()["already"] is True
-
-    r = client.post(f"/api/das/requests/{req_id}/decide", headers=_auth(admin),
-                    json={"decision": "approve"})
-    assert r.status_code == 200, r.text
-    assert r.json()["status"] == "Approved" and r.json()["source"] == "QR"
+    assert r.json()["worked_minutes"] == 536
 
     db = app.SessionLocal()
     co = db.execute(app.text(
-        "SELECT checked_out_at FROM attendance_checkouts WHERE employee_id=:eid"
+        "SELECT checked_out_at, worked_minutes, early_minutes FROM attendance_checkouts "
+        "WHERE employee_id=:eid"
     ), {"eid": emp["id"]}).first()
     row = (db.query(app.Attendance)
            .filter(app.Attendance.employee_id == emp["id"]).first())
     assert co is not None and co[0]
-    assert "انصراف QR" in (row.note or "")
+    assert int(co[1] or 0) == 536 and int(co[2] or 0) == 0
+    assert "حضور QR" in (row.note or "")
     assert row.status == "Present"  # الانصراف ما بيغيّرش الحضور ولا الغرامة
     db.close()
 
@@ -355,3 +354,24 @@ def test_checkout_request_waits_for_approval(client, admin):
     assert status["attendance"]["status"] == "Present"
     assert status["checkout"]["status"] == "Approved"
     assert status["checkout"]["checked_out_at"]
+    assert status["checkout"]["worked_minutes"] == 536
+
+
+def test_early_qr_checkout_marks_the_alert(client, admin):
+    emp = _mk(client, admin, "QR-C2")
+    assert _check(client, "QR-C2", SHIFT_DAY.replace(hour=9, minute=4)).status_code == 200
+    app.qr_now_local = lambda: SHIFT_DAY.replace(hour=17, minute=0)
+    headers = {"X-DAS-Secret": app.DAS_SECRET}
+    r = client.post("/api/attendance/qr/checkout", headers=headers,
+                    json={"employee_code": "QR-C2"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "Approved"
+    assert body["early"] is True and body["early_minutes"] == 60
+    assert body["worked_minutes"] == 476
+    assert "قبل نهاية الشيفت" in body["message"]
+
+    ev = next(x for x in reversed(app.EVENTS.snapshot(0)["events"])
+              if x.get("kind") == "attendance" and x.get("action") == "check_out"
+              and x.get("names") == [emp["name"]])
+    assert ev["early"] is True and ev["early_minutes"] == 60

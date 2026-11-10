@@ -524,7 +524,7 @@ function refreshLangView() {
   const p = S.page;
   if (!p || !S.shown) return;
   try {
-    if (p === "dashboard") { loadDashboard(); loadDasRequests(); }
+    if (p === "dashboard") { loadDashboard(); }
     else if (p === "attendance") { renderAttendance(); }
     else if (p === "partner") { if (S.partner.data) renderPartners(); }
     else if (p === "schedule") { if (S.sch.data) renderSchedule(); }
@@ -940,7 +940,7 @@ function showPage(p) {
     }, 160);
     vtGuard = myGuard;
   } else { window.bkVtActive = false; vtPending = null; swap(); }
-  if (p === "dashboard") { loadDashboard(); restartFeedTimer(); loadDasRequests(); } else stopFeedTimer();
+  if (p === "dashboard") { loadDashboard(); restartFeedTimer(); } else stopFeedTimer();
   if (p === "attendance") { syncAttControls(); loadRoster(); }
   if (p === "partner") loadPartners();
   if (p === "schedule") loadSchedulePage();
@@ -1117,95 +1117,6 @@ async function loadFeed() {
 }
 function restartFeedTimer() { stopFeedTimer(); loadFeed(); feedTimer = setInterval(loadFeed, 30000); }
 function stopFeedTimer() { if (feedTimer) { clearInterval(feedTimer); feedTimer = null; } }
-
-/* ============================== طلبات حضور DAS ============================== */
-/* المناديب بيسجّلوا حضور/انصراف من صفحة DAS — الطلب بيجي Pending هنا والموافقة
-   بتسجّل حضور رسمي في جدول attendance، والرفض بيرجّعه للمندوب في DAS. */
-const DAS_REQ_ST = {
-  Pending:  { ar: "قيد الموافقة", en: "Pending",  cls: "warn" },
-  Approved: { ar: "معتمد",        en: "Approved", cls: "ok" },
-  Rejected: { ar: "مرفوض",        en: "Rejected", cls: "bad" },
-};
-const DAS_REQ_ACTION = { check_in: ["تسجيل حضور", "Check in"], check_out: ["تسجيل انصراف", "Check out"] };
-
-/* وقت الطلب موثّق من سيرفر الروستر (UTC) — بنعرضه بتوقيت القاهرة */
-function dasReqHM(iso) {
-  try {
-    const d = new Date(String(iso || "").endsWith("Z") ? iso : (iso || "") + "Z");
-    if (isNaN(d)) return "";
-    return d.toLocaleTimeString(S.lang === "en" ? "en-GB" : "ar-EG-u-nu-latn", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Cairo" });
-  } catch (e) { return String(iso || "").slice(11, 16); }
-}
-
-let dasSig = null, dasViewer = null;
-async function loadDasRequests() {
-  const el = $("dasReqList");
-  if (!el || !S.token) return;
-  let d;
-  try { d = await api("/api/das/requests/inbox", { silent: true }); }
-  catch (e) {
-    if (S.page !== "dashboard") return;
-    el.innerHTML = `<p class="muted" style="padding:18px 0">${esc(e.message)}</p>`;
-    return;
-  }
-  dasViewer = d.viewer || null;
-  const sig = JSON.stringify([d.requests.map(r => [r.id, r.status, r.decided_by, r.decision_note]), d.viewer && d.viewer.can_decide, S.lang]);
-  if (sig === dasSig && S.page === "dashboard") return;
-  dasSig = sig;
-
-  if (!d.requests.length) {
-    el.innerHTML = `<p class="muted" style="padding:18px 0">${bi("مفيش طلبات حضور من DAS.", "No DAS attendance requests yet.")}</p>`;
-    return;
-  }
-  const can = !!(d.viewer && d.viewer.can_decide);
-  el.innerHTML = `<div class="table-wrap" style="max-height:420px"><table class="tbl"><thead><tr>
-      <th>${bi("المندوب", "Employee")}</th><th>${bi("الطلب", "Action")}</th><th>${bi("يوم الشيفت", "Shift day")}</th>
-      <th>${bi("وقت الطلب", "Requested")}</th><th>${bi("الحالة", "Status")}</th><th>${bi("القرار", "Decision")}</th>
-    </tr></thead><tbody>${d.requests.map(r => {
-      const st = DAS_REQ_ST[r.status] || { ar: r.status, en: r.status, cls: "" };
-      const act = DAS_REQ_ACTION[r.action] || [r.action, r.action];
-      const stBadge = `<span class="tag ${st.cls}">${S.lang === "en" ? st.en : st.ar}</span>`;
-      const decided = r.status !== "Pending" ? `${esc(r.decided_by || "")}${r.decided_at ? " · " + esc(r.decided_at.slice(0, 10)) : ""}${r.decision_note ? `<br><small class="muted">${esc(r.decision_note)}</small>` : ""}` : "—";
-      const actBtns = can
-        ? `<button class="btn sm primary" data-dasdec="${r.id}" data-d="approve">${bi("موافقة", "Approve")}</button>
-           <button class="btn sm danger" data-dasdec="${r.id}" data-d="reject">${bi("رفض", "Reject")}</button>`
-        : `<small class="muted">${bi("مشاهدة فقط", "Read only")}</small>`;
-      const note = r.courier_local_at && r.source !== "QR" ? `<br><small class="muted">${bi("وقت الجهاز (للعرض):", "Device time:")} ${esc(r.courier_local_at)}</small>` : "";
-      const srcTag = r.source === "QR" ? ` <span class="tag ok">QR</span>` : "";
-      return `<tr data-dasrow="${r.id}">
-        <td class="who">${whoHTML(r.employee_name, `<b>${esc(r.employee_name)}</b><br><small class="muted">${esc(r.employee_code || "")} · ${sh(r.shift || "")}</small>`)}</td>
-        <td>${esc(S.lang === "en" ? act[1] : act[0])}${srcTag}</td>
-        <td class="num">${fmtDay(r.attendance_date, { day: "numeric", month: "short" })}</td>
-        <td class="num">${dasReqHM(r.requested_at)}${note}</td>
-        <td>${stBadge}</td>
-        <td>${r.status === "Pending" ? actBtns : decided}</td>
-      </tr>`;
-    }).join("")}</tbody></table></div>`;
-}
-
-on("dasReqList", "click", async ev => {
-  const btn = ev.target.closest("[data-dasdec]");
-  if (!btn) return;
-  const id = btn.dataset.dasdec, decision = btn.dataset.d;
-  if (!dasViewer || !dasViewer.can_decide) { toast(bi("القرار متاح لمشرف الفرع أو الأدمن.", "Decisions are for the branch supervisor or admin."), "err"); return; }
-  let note = "";
-  if (decision === "reject") {
-    note = window.prompt(bi("سبب الرفض (اختياري):", "Rejection note (optional):"), "") || "";
-    if (note === null) return;
-  }
-  btn.disabled = true;
-  try {
-    const r = await api(`/api/das/requests/${id}/decide`, { method: "POST", body: { decision, note } });
-    toast(bi(decision === "approve" ? "تمت الموافقة — الحضور اتسجّل في الروستر" : "تم الرفض — الحالة هتتحدّث عند المندوب في DAS",
-             decision === "approve" ? "Approved — attendance recorded" : "Rejected"), "ok");
-    dasSig = null;
-    loadDasRequests();
-    if (S.page === "attendance") loadRoster();
-  } catch (e) {
-    toast(e.message, "err");
-    btn.disabled = false;
-  }
-});
 
 function branchPanel(name, b, date) {
   const done = b.scheduled - b.unmarked, pct = b.scheduled ? Math.round(done * 100 / b.scheduled) : 0;
@@ -3885,7 +3796,13 @@ function startLive() {
 function stopLive() { liveRun = false; if ($("livePill")) setLive(false, "متوقف"); }
 
 /* -------- تطبيق الأحداث على الشاشة -------- */
-const KIND_AR = { attendance: "تسجيلات الحضور", employees: "بيانات الموظفين", schedule: "الجدول", settings: "الإعدادات", fines: "الغرامات", das_requests: "طلبات حضور DAS", partners: "الشريك" };
+function fmtShortMin(m) {
+  m = Math.max(0, Math.round(Number(m) || 0));
+  const h = Math.floor(m / 60), r = m % 60;
+  if (S.lang === "en") return h ? `${h}h${r ? " " + r + "m" : ""}` : `${r}m`;
+  return h ? `${h} س${r ? " " + r + " د" : ""}` : `${r} د`;
+}
+const KIND_AR = { attendance: "تسجيلات الحضور", employees: "بيانات الموظفين", schedule: "الجدول", settings: "الإعدادات", fines: "الغرامات", partners: "الشريك" };
 function applyEvents(events) {
   /* بنتجاهل بس الأحداث اللي مصدرها التاب نفسها. أي حدث من غير معرّف تاب (كتابة
      من بره الواجهة مثلًا) بنعتبره من حد تاني وبنطبّقه. */
@@ -3894,7 +3811,29 @@ function applyEvents(events) {
   if (!fresh.length) return;
   let hit = false;
   for (const ev of fresh) if (liveRefresh(ev)) hit = true;
-  if (!hit) return;
+  /* تسجيل الحضور/الانصراف من التطبيق بيوصل كحدث attendance — بنطلّع توست واضح
+     للمشرف حتى لو هو مش على صفحة الداشبورد أو على يوم تاني. */
+  const punch = fresh.find(ev => ev.action === "check_out" && ev.names && ev.names.length)
+            || fresh.find(ev => ev.action === "check_in" && ev.names && ev.names.length);
+  if (!hit && !punch) return;
+  if (punch) {
+    const name = punch.names[0] || bi("مندوب", "Courier");
+    const at = punch.time ? ` — ${punch.time}` : "";
+    if (punch.action === "check_in") {
+      toast(bi(`${name} سجّل حضوره الآن${at}`, `${name} checked in now${punch.time ? " at " + punch.time : ""}`), "ok");
+    } else if (punch.early && Number(punch.early_min || 0) > 0) {
+      const m = Number(punch.early_min || 0);
+      toast(bi(`${name} سجّل انصراف قبل نهاية الشيفت بـ ${fmtShortMin(m)}${at}`,
+               `${name} checked out ${fmtShortMin(m)} before the shift ended${at}`), "err");
+    } else {
+      const dur = Number(punch.duration_min || 0);
+      toast(bi(`${name} سجّل انصرافه${at}${dur ? " · مدة العمل " + fmtShortMin(dur) : ""}`,
+               `${name} checked out${at}${dur ? " · worked " + fmtShortMin(dur) : ""}`), "ok");
+    }
+    beep();
+    pulse($("livePill"), "bump");
+    return;
+  }
   const names = [...new Set(fresh.flatMap(ev => ev.names || []))].filter(Boolean);
   const what = names.length ? names.slice(0, 2).join("، ") + (names.length > 2 ? ` +${names.length - 2}` : "")
     : (KIND_AR[fresh[0].kind] || "بيانات");
@@ -3913,7 +3852,6 @@ function liveRefresh(ev) {
   }
   if (S.page === "dashboard") {
     if (kind === "attendance" && ev.date && ev.date !== S.dash.date) return false;
-    if (kind === "das_requests") { loadDasRequests(); return true; }
     loadDashboard(); if (kind === "attendance") loadFeed();
     return true;
   }
@@ -3930,7 +3868,7 @@ function liveRefresh(ev) {
 }
 function liveRefreshPage() {
   if (S.page === "attendance") loadRosterSoft();
-  else if (S.page === "dashboard") { loadDashboard(); loadFeed(); loadDasRequests(); }
+  else if (S.page === "dashboard") { loadDashboard(); loadFeed(); }
   else if (S.page === "employees") loadEmployeesSoft();
   else if (S.page === "partner") loadPartnersSoft();
   else if (S.page === "fines") loadFines();

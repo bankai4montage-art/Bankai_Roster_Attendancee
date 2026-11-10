@@ -2485,11 +2485,12 @@ def _das_owned_checkin(db: Session, e: Employee) -> Optional[DasRequest]:
 
 @app.post("/api/das/requests", dependencies=[Depends(require_das_secret)])
 def create_das_request(data: DasRequestIn, db: Session = Depends(get_db)):
-    """DAS بيبعت طلب حضور/انصراف جديد — بيتسجل Pending والمشرف يقرّر بعدها في داشبورد الروستر.
+    """DAS بيبعت حضور/انصراف — بيتسجل فورًا من غير موافقة مشرف.
 
     الموظف بيتعرّف من employee_code حصرًا (مش من الاسم)، ووقت الطلب بيتسجل من السيرفر.
-    يوم الشيفت بيتحدد من توقيت القاهرة: الحضور = اليوم، والانصراف بيرث يوم موافقته
-    الحضور — فالشيفت الليلي بعد منتصف الليل بيفضل على نفس يوم الحضور من غير لفّ."""
+    الحضور بيستخدم نفس قواعد QR (التأخير والغرامة)، والانصراف بيحسب مدة العمل
+    وبيرجّع إنذار لو حصل قبل نهاية الشيفت. صف DasRequest بيتسجل Approved عشان
+    مزامنة DAS والحالة في صفحة المندوب تفضل شغالة."""
     if data.action not in DAS_ACTIONS:
         raise HTTPException(400, "نوع الطلب غير صحيح")
     code = data.employee_code.strip()
@@ -2501,50 +2502,81 @@ def create_das_request(data: DasRequestIn, db: Session = Depends(get_db)):
 
     now = utcnow()
     if data.action == "check_in":
-        day = das_shift_day(now)
-        dup = (db.query(DasRequest)
+        ctx = qr_shift_context(db, e, qr_now_local())
+        day_hint = ctx.day
+        done_co = db.execute(text(
+            "SELECT 1 FROM attendance_checkouts WHERE employee_id = :eid AND checkout_date = :day"
+        ), {"eid": e.id, "day": day_hint.isoformat()}).first()
+        if done_co:
+            raise HTTPException(409, "حضورك وانصرافك اتسجلوا النهاردة — مش هينفع حضور تاني")
+        result = _record_checkin(db, e, "DAS", "DAS")
+        day = date.fromisoformat(result["attendance_date"])
+        row = (db.query(DasRequest)
                .filter(DasRequest.employee_id == e.id, DasRequest.action == "check_in",
-                       DasRequest.attendance_date == day, DasRequest.status == "Pending").first())
-        if dup:
-            raise HTTPException(409, "طلب حضور اليوم قيد الموافقة بالفعل")
-        done = (db.query(DasRequest)
-                .filter(DasRequest.employee_id == e.id, DasRequest.action == "check_in",
-                        DasRequest.attendance_date == day, DasRequest.status == "Approved").first())
-        if done:
-            raise HTTPException(409, "حضورك اليوم مسجّل ومعتمد بالفعل — سجّل الانصراف")
-        pending_out = db.query(DasRequest).filter(
-            DasRequest.employee_id == e.id, DasRequest.action == "check_out",
-            DasRequest.status == "Pending").first()
-        if pending_out:
-            raise HTTPException(409, "في طلب انصراف لسه مستني موافقة — استنى قرار المشرف الأول")
-        row = DasRequest(employee_id=e.id, action="check_in", attendance_date=day,
-                         status="Pending", requested_at=now,
-                         courier_local_at=(data.courier_local_at or "")[:40])
+                       DasRequest.attendance_date == day,
+                       DasRequest.status.in_(("Pending", "Approved")))
+               .order_by(DasRequest.id.desc()).first())
+        if row is None:
+            row = DasRequest(employee_id=e.id, action="check_in", attendance_date=day,
+                             status="Approved", requested_at=now,
+                             courier_local_at=(data.courier_local_at or "")[:40],
+                             decided_by="تلقائي", decided_at=now,
+                             decision_note="تسجيل حضور تلقائي")
+            db.add(row)
+        else:
+            row.status = "Approved"
+            row.requested_at = row.requested_at or now
+            row.decided_by = "تلقائي"
+            row.decided_at = now
+            row.decision_note = row.decision_note or "تسجيل حضور تلقائي"
+        result_message = f"تم تسجيل حضورك — {result.get('time') or now.strftime('%H:%M')}"
     else:
-        checkin = _das_owned_checkin(db, e)
+        ctx = qr_shift_context(db, e, qr_now_local())
+        checkin = (db.query(DasRequest)
+                   .filter(DasRequest.employee_id == e.id, DasRequest.action == "check_in",
+                           DasRequest.attendance_date == ctx.day,
+                           DasRequest.status == "Approved")
+                   .order_by(DasRequest.id.desc()).first())
         if checkin is None:
-            raise HTTPException(409, "مفيش حضور معتمد ينفع تسجّل انصراف بعده — سجّل حضور الأول واستنى موافقة المشرف")
-        open_co = (db.query(DasRequest)
-                   .filter(DasRequest.checkin_id == checkin.id,
-                           DasRequest.action == "check_out",
-                           DasRequest.status.in_(("Pending", "Approved"))).first())
-        if open_co:
-            msg = "طلب الانصراف ده قيد الموافقة بالفعل" if open_co.status == "Pending" else "انصرافك مسجّل ومعتمد بالفعل"
-            raise HTTPException(409, msg)
-        row = DasRequest(employee_id=e.id, action="check_out", attendance_date=checkin.attendance_date,
-                         status="Pending", requested_at=now, checkin_id=checkin.id,
-                         courier_local_at=(data.courier_local_at or "")[:40])
+            checkin = (db.query(DasRequest)
+                       .filter(DasRequest.employee_id == e.id, DasRequest.action == "check_in",
+                               DasRequest.status == "Approved")
+                       .order_by(DasRequest.attendance_date.desc(), DasRequest.id.desc()).first())
+        result = _record_checkout(db, e, "DAS", "DAS", checkin)
+        day = date.fromisoformat(result["attendance_date"])
+        row = (db.query(DasRequest)
+               .filter(DasRequest.employee_id == e.id, DasRequest.action == "check_out",
+                       DasRequest.attendance_date == day)
+               .order_by(DasRequest.id.desc()).first())
+        if row is None:
+            row = DasRequest(employee_id=e.id, action="check_out", attendance_date=day,
+                             status="Approved", requested_at=now,
+                             courier_local_at=(data.courier_local_at or "")[:40],
+                             checkin_id=checkin.id if checkin is not None else None,
+                             decided_by="تلقائي", decided_at=now,
+                             decision_note=result.get("message") or "تسجيل انصراف تلقائي")
+            db.add(row)
+        else:
+            row.status = "Approved"
+            row.requested_at = row.requested_at or now
+            row.decided_by = "تلقائي"
+            row.decided_at = now
+            row.decision_note = result.get("message") or row.decision_note or "تسجيل انصراف تلقائي"
+        result_message = result.get("message") or "تم تسجيل انصرافك"
 
-    db.add(row)
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(409, "طلب متكرر — فيه طلب شبه ده مفتوح في نفس اللحظة")
+        raise HTTPException(409, "طلب متكرر — جرّب تحديث الصفحة تاني")
     db.refresh(row)
-    publish_event("das_requests", action="create",
-                  names=[(data.courier_name or "").strip() or e.name], branch=e.branch, by="DAS", client="")
-    return das_request_dict(row, e)
+    out = das_request_dict(row, e)
+    for key in ("time", "late_minutes", "fine", "worked_minutes", "early",
+                "early_minutes", "already", "corrected"):
+        if key in result:
+            out[key] = result[key]
+    out["message"] = result_message
+    return out
 
 
 @app.get("/api/das/requests", dependencies=[Depends(require_das_secret)])
@@ -3780,6 +3812,12 @@ with engine.begin() as _conn:
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_checkout_employee_day "
         "ON attendance_checkouts(employee_id, checkout_date)"
     ))
+    # وقت العمل والانصراف المبكر — بيتحسبوا وقت التسجيل عشان يظهروا في التطبيق والتقارير.
+    _co_cols = {c["name"] for c in inspect(_conn).get_columns("attendance_checkouts")}
+    if "worked_minutes" not in _co_cols:
+        _conn.execute(text("ALTER TABLE attendance_checkouts ADD COLUMN worked_minutes INTEGER DEFAULT 0"))
+    if "early_minutes" not in _co_cols:
+        _conn.execute(text("ALTER TABLE attendance_checkouts ADD COLUMN early_minutes INTEGER DEFAULT 0"))
 
 
 def qr_now_local() -> datetime:
@@ -3914,7 +3952,8 @@ def _qr_late_from_row(row: Attendance, ctx) -> int:
     return max(0, stamp_min - ctx.bounds[0])
 
 
-def _qr_checkout_state(req, checked_out_at) -> Optional[dict]:
+def _qr_checkout_state(req, checked_out_at, worked_minutes: int = 0,
+                       early_minutes: int = 0) -> Optional[dict]:
     if req is not None:
         return {
             "status": req.status, "request_id": req.id,
@@ -3922,9 +3961,13 @@ def _qr_checkout_state(req, checked_out_at) -> Optional[dict]:
             "decided_at": req.decided_at.isoformat() if req.decided_at else "",
             "decision_note": req.decision_note or "",
             "checked_out_at": checked_out_at or "",
+            "worked_minutes": int(worked_minutes or 0),
+            "early_minutes": int(early_minutes or 0),
         }
     if checked_out_at:
-        return {"status": "Approved", "checked_out_at": checked_out_at}
+        return {"status": "Approved", "checked_out_at": checked_out_at,
+                "worked_minutes": int(worked_minutes or 0),
+                "early_minutes": int(early_minutes or 0)}
     return None
 
 
@@ -3943,15 +3986,24 @@ def _qr_write_audit(db: Session, e: Employee, day: date, old_status: str, old_fi
         db.rollback()
 
 
-def save_attendance_checkout(db: Session, e: Employee, day: date, requested_at: datetime) -> None:
-    """وقت الانصراف المعتمد — في جدول منفصل عشان ما يلمسش حالة الحضور أو الغرامة."""
+def save_attendance_checkout(db: Session, e: Employee, day: date, requested_at: datetime,
+                             worked_minutes: int = 0, early_minutes: int = 0) -> None:
+    """وقت الانصراف — في جدول منفصل عشان ما يلمسش حالة الحضور أو الغرامة.
+
+    `worked_minutes` مدة العمل من وقت الحضور، و`early_minutes` دقايق الانصراف
+    قبل نهاية الشيفت (صفر لو انصرف في ميعاده أو بعده).
+    """
     stamp = cairo_wall(requested_at).strftime("%Y-%m-%d %H:%M:%S")
     db.execute(text("""
-        INSERT INTO attendance_checkouts (employee_id, checkout_date, checked_out_at, method, note)
-        VALUES (:eid, :day, :stamp, 'QR', '')
+        INSERT INTO attendance_checkouts
+            (employee_id, checkout_date, checked_out_at, method, note, worked_minutes, early_minutes)
+        VALUES (:eid, :day, :stamp, 'QR', '', :worked, :early)
         ON CONFLICT(employee_id, checkout_date)
-        DO UPDATE SET checked_out_at = :stamp, method = 'QR'
-    """), {"eid": e.id, "day": day.isoformat(), "stamp": stamp})
+        DO UPDATE SET checked_out_at = :stamp, method = 'QR',
+                      worked_minutes = :worked, early_minutes = :early
+    """), {"eid": e.id, "day": day.isoformat(), "stamp": stamp,
+           "worked": max(0, int(worked_minutes or 0)),
+           "early": max(0, int(early_minutes or 0))})
 
 
 class QrAttendanceIn(BaseModel):
@@ -4004,6 +4056,87 @@ def das_employee(employee_code: str = Query(..., min_length=1, max_length=60),
     }
 
 
+def _checkin_local_for(att: Attendance, day: date) -> Optional[datetime]:
+    """وقت الحضور المحلي من ملاحظة التسجيل، أو من updated_at لو الملاحظة قديمة."""
+    match = re.search(r"حضور (?:QR|DAS)\s+([0-2]\d):([0-5]\d)", att.note or "")
+    if match:
+        return datetime(day.year, day.month, day.day, int(match.group(1)), int(match.group(2)))
+    if att.updated_at:
+        return cairo_wall(att.updated_at)
+    return None
+
+
+def _record_checkin(db: Session, e: Employee, source: str = "QR", actor: str = "QR",
+                    request: Optional[Request] = None) -> dict:
+    """تسجيل حضور فوري (QR أو DAS) — نفس قواعد الحضور اليومي والتأخير والغرامة."""
+    now_local = qr_now_local()
+    ctx = qr_shift_context(db, e, now_local)
+    day = ctx.day
+    if not ctx.schedule:
+        raise HTTPException(409, "مش مضاف في جدول الأسبوع ده — كلّم المشرف")
+    if (ctx.schedule.day_off or "") == day.strftime("%A"):
+        raise HTTPException(409, "النهاردة إجازتك — مفيش تسجيل حضور")
+    if not ctx.bounds:
+        raise HTTPException(409, f"شيفتك «{ctx.shift}» مش مقروء — كلّم المشرف يظبطه")
+
+    status, fine = _qr_status_for(ctx, db, e)
+    clock = now_local.strftime("%H:%M")
+    note = f"حضور {source} {clock}"
+    if status == "Late":
+        note += f" · متأخر {ctx.late_minutes} دقيقة"
+
+    existing = (db.query(Attendance)
+                .filter(Attendance.employee_id == e.id, Attendance.attendance_date == day)
+                .first())
+
+    def event(**extra):
+        publish_event("attendance", date=day.isoformat(), ids=[e.id], names=[e.name],
+                      count=1, by=actor,
+                      client=client_tag(request) if request is not None else "",
+                      action="check_in", time=clock, **extra)
+
+    if existing is not None:
+        old_status = existing.status or ""
+        old_fine = float(existing.fine or 0)
+        if old_status in ("Present", "Late"):
+            return {"ok": True, "already": True, "corrected": False, "status": old_status,
+                    "time": _qr_clock_for(existing), "late_minutes": _qr_late_from_row(existing, ctx),
+                    "fine": old_fine, "employee": e.name, "branch": e.branch,
+                    "attendance_date": day.isoformat(), "shift": ctx.shift}
+        if old_status == "Absent":
+            correction_note = ((existing.note or "") + ("\n" if existing.note else "")
+                               + f"تصحيح بعد {source} {clock}")[:500]
+            item = AttendanceItem(employee_id=e.id, status=status, fine=fine,
+                                  reason="", note=correction_note)
+            res = _save_items(db, day, [item], actor=actor)
+            if res["errors"]:
+                raise HTTPException(400, res["errors"][0].get("detail", "تعذر تصحيح الحضور"))
+            _qr_write_audit(db, e, day, old_status, old_fine, status, fine,
+                            f"تصحيح بعد {source} {clock}")
+            event(corrected=True)
+            return {"ok": True, "already": False, "corrected": True, "status": status,
+                    "time": clock, "late_minutes": ctx.late_minutes, "fine": float(fine),
+                    "employee": e.name, "branch": e.branch,
+                    "attendance_date": day.isoformat(), "shift": ctx.shift}
+        # Excused أو أي حالة يدوية تانية: ما بنكتبش فوق قرار المشرف.
+        return {"ok": True, "already": True, "corrected": False, "status": old_status,
+                "time": _qr_clock_for(existing), "late_minutes": 0, "fine": old_fine,
+                "employee": e.name, "branch": e.branch,
+                "attendance_date": day.isoformat(), "shift": ctx.shift}
+
+    item = AttendanceItem(employee_id=e.id, status=status, fine=fine, reason="", note=note)
+    res = _save_items(db, day, [item], actor=actor)
+    if res["errors"]:
+        raise HTTPException(400, res["errors"][0].get("detail", "تعذر تسجيل الحضور"))
+
+    _qr_write_audit(db, e, day, "", 0, status, fine, note)
+    event()
+    return {"ok": True, "already": False, "corrected": False, "status": status,
+            "time": clock, "late_minutes": ctx.late_minutes, "fine": float(fine),
+            "employee": e.name, "branch": e.branch,
+            "attendance_date": day.isoformat(), "shift": ctx.shift}
+
+
 @app.post("/api/attendance/qr")
 def attendance_qr(data: QrAttendanceIn, request: Request, db: Session = Depends(get_db)):
     """تسجيل حضور فوري بعد مسح QR — بدون GPS وبدون موافقة مشرف."""
@@ -4019,86 +4152,21 @@ def attendance_qr(data: QrAttendanceIn, request: Request, db: Session = Depends(
     if (e.branch or "").strip() != branch:
         raise HTTPException(409, f"الـQR ده بتاع {branch} — امسح الـQR بتاع فرعك ({e.branch})")
 
+    return _record_checkin(db, e, "QR", "QR", request)
+
+
+def _record_checkout(db: Session, e: Employee, source: str = "QR", actor: str = "QR",
+                     checkin_row: Optional[DasRequest] = None,
+                     request: Optional[Request] = None) -> dict:
+    """تسجيل انصراف فوري — بيحسب مدة العمل، ولو قبل نهاية الشيفت بيتعلّم كإنذار."""
     now_local = qr_now_local()
+    now_utc = utcnow()
     ctx = qr_shift_context(db, e, now_local)
-    day = ctx.day
-    if not ctx.schedule:
-        raise HTTPException(409, "مش مضاف في جدول الأسبوع ده — كلّم المشرف")
-    if (ctx.schedule.day_off or "") == day.strftime("%A"):
-        raise HTTPException(409, "النهاردة إجازتك — مفيش تسجيل حضور")
-    if not ctx.bounds:
-        raise HTTPException(409, f"شيفتك «{ctx.shift}» مش مقروء — كلّم المشرف يظبطه")
-
-    status, fine = _qr_status_for(ctx, db, e)
-    clock = now_local.strftime("%H:%M")
-    note = f"حضور QR {clock}"
-    if status == "Late":
-        note += f" · متأخر {ctx.late_minutes} دقيقة"
-
-    existing = (db.query(Attendance)
-                .filter(Attendance.employee_id == e.id, Attendance.attendance_date == day)
-                .first())
-
-    if existing is not None:
-        old_status = existing.status or ""
-        old_fine = float(existing.fine or 0)
-        if old_status in ("Present", "Late"):
-            return {"ok": True, "already": True, "corrected": False, "status": old_status,
-                    "time": _qr_clock_for(existing), "late_minutes": _qr_late_from_row(existing, ctx),
-                    "fine": old_fine, "employee": e.name, "branch": e.branch,
-                    "attendance_date": day.isoformat(), "shift": ctx.shift}
-        if old_status == "Absent":
-            correction_note = ((existing.note or "") + ("\n" if existing.note else "")
-                               + f"تصحيح بعد QR {clock}")[:500]
-            item = AttendanceItem(employee_id=e.id, status=status, fine=fine,
-                                  reason="", note=correction_note)
-            res = _save_items(db, day, [item], actor="QR")
-            if res["errors"]:
-                raise HTTPException(400, res["errors"][0].get("detail", "تعذر تصحيح الحضور"))
-            _qr_write_audit(db, e, day, old_status, old_fine, status, fine,
-                            f"تصحيح بعد QR {clock}")
-            publish_event("attendance", date=day.isoformat(), ids=[e.id], names=[e.name],
-                          count=1, by="QR", client=client_tag(request))
-            return {"ok": True, "already": False, "corrected": True, "status": status,
-                    "time": clock, "late_minutes": ctx.late_minutes, "fine": float(fine),
-                    "employee": e.name, "branch": e.branch,
-                    "attendance_date": day.isoformat(), "shift": ctx.shift}
-        # Excused أو أي حالة يدوية تانية: ما بنكتبش فوق قرار المشرف.
-        return {"ok": True, "already": True, "corrected": False, "status": old_status,
-                "time": _qr_clock_for(existing), "late_minutes": 0, "fine": old_fine,
-                "employee": e.name, "branch": e.branch,
-                "attendance_date": day.isoformat(), "shift": ctx.shift}
-
-    item = AttendanceItem(employee_id=e.id, status=status, fine=fine, reason="", note=note)
-    res = _save_items(db, day, [item], actor="QR")
-    if res["errors"]:
-        raise HTTPException(400, res["errors"][0].get("detail", "تعذر تسجيل الحضور"))
-
-    _qr_write_audit(db, e, day, "", 0, status, fine, note)
-    publish_event("attendance", date=day.isoformat(), ids=[e.id], names=[e.name],
-                  count=1, by="QR", client=client_tag(request))
-    return {"ok": True, "already": False, "corrected": False, "status": status,
-            "time": clock, "late_minutes": ctx.late_minutes, "fine": float(fine),
-            "employee": e.name, "branch": e.branch,
-            "attendance_date": day.isoformat(), "shift": ctx.shift}
-
-
-@app.post("/api/attendance/qr/checkout", dependencies=[Depends(require_das_secret)])
-def qr_checkout_request(data: QrCheckoutIn, request: Request, db: Session = Depends(get_db)):
-    """طلب انصراف من التطبيق — بيتسجل Pending والمشرف يوافق عليه من الروستر."""
-    e = _qr_employee(db, data.employee_code)
-    if not e:
-        raise HTTPException(404, "كودك مش متسجل في الروستر — كلّم المشرف")
-    if not e.active:
-        raise HTTPException(403, "حسابك موقوف في الروستر")
-
-    now_local = qr_now_local()
-    ctx = qr_shift_context(db, e, now_local)
-    day = ctx.day
+    day = checkin_row.attendance_date if checkin_row is not None else ctx.day
     att = (db.query(Attendance)
            .filter(Attendance.employee_id == e.id, Attendance.attendance_date == day)
            .first())
-    if att is None and ctx.bounds and ctx.bounds[1] > 1440:
+    if att is None and checkin_row is None:
         # الشيفت الليلي: لو الانصراف بعد نهاية الشيفت، سجل الحضور على اليوم السابق.
         prev = day - timedelta(days=1)
         prev_att = (db.query(Attendance)
@@ -4109,42 +4177,54 @@ def qr_checkout_request(data: QrCheckoutIn, request: Request, db: Session = Depe
     if att is None or (att.status or "") not in ("Present", "Late"):
         raise HTTPException(409, "مفيش حضور مسجل في اليوم ده — سجّل حضورك الأول")
 
-    existing = (db.query(DasRequest)
-                .filter(DasRequest.employee_id == e.id, DasRequest.action == "check_out",
-                        DasRequest.attendance_date == day,
-                        DasRequest.status.in_(("Pending", "Approved")))
-                .order_by(DasRequest.id.desc()).first())
+    existing = db.execute(text(
+        "SELECT checked_out_at, worked_minutes, early_minutes FROM attendance_checkouts "
+        "WHERE employee_id = :eid AND checkout_date = :day"
+    ), {"eid": e.id, "day": day.isoformat()}).first()
     if existing is not None:
-        return {"ok": True, "already": True, "status": existing.status,
-                "request_id": existing.id, "attendance_date": day.isoformat(),
-                "time": cairo_wall(existing.requested_at).strftime("%H:%M") if existing.requested_at else "",
-                "message": "طلب الانصراف قيد موافقة المشرف" if existing.status == "Pending"
-                           else "انصرافك معتمد بالفعل"}
+        return {"ok": True, "already": True, "status": "Approved",
+                "attendance_date": day.isoformat(),
+                "time": (existing[0] or "")[11:16],
+                "worked_minutes": int(existing[1] or 0),
+                "early": bool(int(existing[2] or 0)),
+                "early_minutes": int(existing[2] or 0),
+                "message": "انصرافك مسجّل بالفعل"}
 
-    row = DasRequest(employee_id=e.id, action="check_out", attendance_date=day,
-                     status="Pending", requested_at=utcnow(), courier_local_at="",
-                     checkin_id=None, source="QR")
-    db.add(row)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        existing = (db.query(DasRequest)
-                    .filter(DasRequest.employee_id == e.id, DasRequest.action == "check_out",
-                            DasRequest.attendance_date == day,
-                            DasRequest.status.in_(("Pending", "Approved")))
-                    .order_by(DasRequest.id.desc()).first())
-        if existing is None:
-            raise HTTPException(409, "طلب متكرر — جرّب تاني")
-        return {"ok": True, "already": True, "status": existing.status,
-                "request_id": existing.id, "attendance_date": day.isoformat(),
-                "time": "", "message": "طلب الانصراف قيد موافقة المشرف"}
-    db.refresh(row)
-    publish_event("das_requests", action="create", names=[e.name], branch=e.branch,
-                  by="QR", client=client_tag(request))
-    return {"ok": True, "already": False, "status": "Pending", "request_id": row.id,
-            "attendance_date": day.isoformat(), "time": now_local.strftime("%H:%M"),
-            "message": "تم إرسال طلب الانصراف — مستني موافقة المشرف"}
+    start_local = _checkin_local_for(att, day)
+    worked = max(0, int((now_local - start_local).total_seconds() // 60)) if start_local else 0
+    early = 0
+    if ctx.bounds:
+        now_min = ctx.now_min + (1440 if day != ctx.day else 0)
+        early = max(0, int(ctx.bounds[1] - now_min))
+
+    save_attendance_checkout(db, e, day, now_utc, worked, early)
+    db.commit()
+    clock = now_local.strftime("%H:%M")
+    publish_event("attendance", date=day.isoformat(), ids=[e.id], names=[e.name],
+                  count=1, by=actor,
+                  client=client_tag(request) if request is not None else "",
+                  action="check_out", time=clock, duration_min=worked,
+                  early=bool(early), early_min=early, early_minutes=early)
+    msg = f"تم تسجيل انصرافك — {clock}"
+    if worked:
+        msg += f" · مدة العمل {worked} دقيقة"
+    if early:
+        msg += f" · قبل نهاية الشيفت بـ {early} دقيقة"
+    return {"ok": True, "already": False, "status": "Approved",
+            "attendance_date": day.isoformat(), "time": clock,
+            "worked_minutes": worked, "early": bool(early),
+            "early_minutes": early, "message": msg}
+
+
+@app.post("/api/attendance/qr/checkout", dependencies=[Depends(require_das_secret)])
+def qr_checkout_request(data: QrCheckoutIn, request: Request, db: Session = Depends(get_db)):
+    """تسجيل انصراف فوري من التطبيق — من غير موافقة مشرف."""
+    e = _qr_employee(db, data.employee_code)
+    if not e:
+        raise HTTPException(404, "كودك مش متسجل في الروستر — كلّم المشرف")
+    if not e.active:
+        raise HTTPException(403, "حسابك موقوف في الروستر")
+    return _record_checkout(db, e, "QR", "QR", None, request)
 
 
 @app.get("/api/attendance/qr/checkout/status", dependencies=[Depends(require_das_secret)])
@@ -4153,24 +4233,22 @@ def qr_checkout_status(employee_code: str = Query(..., min_length=1, max_length=
     e = _qr_employee(db, employee_code)
     if not e:
         raise HTTPException(404, "كودك مش متسجل في الروستر")
-    row = (db.query(DasRequest)
-           .filter(DasRequest.employee_id == e.id, DasRequest.action == "check_out")
-           .order_by(DasRequest.id.desc()).first())
-    co = None
-    if row is not None:
-        co = db.execute(text(
-            "SELECT checked_out_at FROM attendance_checkouts "
-            "WHERE employee_id = :eid AND checkout_date = :day"
-        ), {"eid": e.id, "day": row.attendance_date.isoformat()}).first()
+    co = db.execute(text(
+        "SELECT checkout_date, checked_out_at, worked_minutes, early_minutes "
+        "FROM attendance_checkouts WHERE employee_id = :eid "
+        "ORDER BY checkout_date DESC LIMIT 1"
+    ), {"eid": e.id}).first()
     return {
-        "status": row.status if row else "",
-        "request_id": row.id if row else None,
-        "attendance_date": row.attendance_date.isoformat() if row else "",
-        "requested_at": row.requested_at.isoformat() if row and row.requested_at else "",
-        "decided_by": (row.decided_by or "") if row else "",
-        "decided_at": row.decided_at.isoformat() if row and row.decided_at else "",
-        "decision_note": (row.decision_note or "") if row else "",
-        "checked_out_at": (co[0] if co else ""),
+        "status": "Approved" if co else "",
+        "request_id": None,
+        "attendance_date": co[0] if co else "",
+        "requested_at": "",
+        "decided_by": "تلقائي" if co else "",
+        "decided_at": "",
+        "decision_note": "",
+        "checked_out_at": (co[1] if co else "") or "",
+        "worked_minutes": int(co[2] or 0) if co else 0,
+        "early_minutes": int(co[3] or 0) if co else 0,
         "checkout_method": "QR",
     }
 
@@ -4215,7 +4293,7 @@ def qr_attendance_status(employee_code: str = Query(..., min_length=1, max_lengt
             "at": now_local.strftime("%H:%M"),
         }
     co = db.execute(text(
-        "SELECT checked_out_at FROM attendance_checkouts "
+        "SELECT checked_out_at, worked_minutes, early_minutes FROM attendance_checkouts "
         "WHERE employee_id = :eid AND checkout_date = :day"
     ), {"eid": e.id, "day": day.isoformat()}).first()
     req = (db.query(DasRequest)
@@ -4225,7 +4303,7 @@ def qr_attendance_status(employee_code: str = Query(..., min_length=1, max_lengt
     prev_co = prev_req = None
     if prev_day is not None:
         prev_co = db.execute(text(
-            "SELECT checked_out_at FROM attendance_checkouts "
+            "SELECT checked_out_at, worked_minutes, early_minutes FROM attendance_checkouts "
             "WHERE employee_id = :eid AND checkout_date = :day"
         ), {"eid": e.id, "day": prev_day.isoformat()}).first()
         prev_req = (db.query(DasRequest)
@@ -4249,12 +4327,15 @@ def qr_attendance_status(employee_code: str = Query(..., min_length=1, max_lengt
             "recorded_by": att.recorded_by or "", "time": _qr_clock_for(att),
             "late_minutes": _qr_late_from_row(att, ctx),
         } if att else None),
-        "checkout": _qr_checkout_state(req, co[0] if co else ""),
+        "checkout": _qr_checkout_state(req, co[0] if co else "",
+                                       co[1] if co else 0, co[2] if co else 0),
         "previous": ({
             "date": prev_day.isoformat(),
             "status": prev_att.status, "fine": float(prev_att.fine or 0),
             "note": prev_att.note or "", "time": _qr_clock_for(prev_att),
-            "checkout": _qr_checkout_state(prev_req, prev_co[0] if prev_co else ""),
+            "checkout": _qr_checkout_state(prev_req, prev_co[0] if prev_co else "",
+                                           prev_co[1] if prev_co else 0,
+                                           prev_co[2] if prev_co else 0),
         } if prev_att is not None else None),
     }
 
@@ -4388,3 +4469,41 @@ def qr_screen(pw: str = "", branch: Optional[str] = None):
 <p>الكود يتغيّر كل 30 ثانية · يتجدد خلال {expires} ث</p></div>
 </body></html>"""
     return HTMLResponse(html)
+
+# -- ????? ??????? ???????: ??? ??????? ???? ????? ?????? ?????? ?????? ??????.
+# ??? ????? ????????? ?????? ?? ??? Pending ???? ???????? ?????? ???? ?? ??????
+# ???? ???????? ???? ?????? ?? ??????? ?? ?????? ??????? ?????.
+def migrate_pending_das_requests() -> None:
+    db = SessionLocal()
+    try:
+        rows = (db.query(DasRequest)
+                .filter(DasRequest.status == "Pending")
+                .order_by(DasRequest.id).all())
+        for row in rows:
+            e = db.query(Employee).filter(Employee.id == row.employee_id).first()
+            if e is None or not e.active:
+                continue
+            try:
+                # بنسجّل على يوم الطلب الأصلي ووقته — مش على وقت تشغيل السيرفر.
+                source = row.source or "DAS"
+                record_das_attendance(db, e, row.attendance_date, row.action,
+                                      row.requested_at, actor="تلقائي", source=source)
+                if row.action == "check_out":
+                    save_attendance_checkout(db, e, row.attendance_date, row.requested_at)
+                row.status = "Approved"
+                row.decided_by = "تلقائي"
+                row.decided_at = utcnow()
+                row.decision_note = "اعتماد تلقائي بعد إلغاء الموافقة"
+                db.commit()
+            except Exception as exc:
+                db.rollback()
+                print(f"[DAS] pending request {row.id} could not be auto-approved: {exc}")
+    finally:
+        db.close()
+
+
+
+try:
+    migrate_pending_das_requests()
+except Exception as _exc:  # ?? ???? ????? ??????? ?? ??????? ???
+    print(f"[DAS] pending migration skipped: {_exc}")

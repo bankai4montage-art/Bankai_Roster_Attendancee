@@ -37,6 +37,13 @@ def client():
     return c
 
 
+@pytest.fixture(autouse=True)
+def _restore_qr_clock():
+    original = app.qr_now_local
+    yield
+    app.qr_now_local = original
+
+
 def _login(client, password):
     r = client.post("/api/login", json={"password": password})
     assert r.status_code == 200, r.text
@@ -47,10 +54,11 @@ def _auth(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-def _mk_employee(client, admin, name, code, branch="QCD 1"):
-    r = client.post("/api/employees", headers=_auth(admin), json={
+def _mk_employee(client, admin, name, code, branch="QCD 1", shift=None, week=None):
+    url = "/api/employees" + (f"?week={week}" if week else "")
+    r = client.post(url, headers=_auth(admin), json={
         "name": name, "employee_code": code, "branch": branch,
-        "shift": "10 PM - 6 AM" if branch != "QCD 1" else "8 AM - 4 PM",
+        "shift": shift or ("10 PM - 6 AM" if branch != "QCD 1" else "8 AM - 4 PM"),
         "employment_type": "FT", "day_off": "Friday",
     })
     assert r.status_code == 200, r.text
@@ -103,126 +111,109 @@ def test_unmapped_code_is_rejected(client, admin):
 
 
 # ---------------------------------------------------------------- دورة الموافقة
-def test_checkin_full_flow(client, admin):
+def test_checkin_and_checkout_are_instant(client, admin):
     e = _mk_employee(client, admin, "مندوب فلو", "C100", "QCD 1")
-    today = app.das_shift_day().isoformat()
+    today_d = app.das_shift_day()
+    today = today_d.isoformat()
+    app.qr_now_local = lambda: app.datetime(today_d.year, today_d.month, today_d.day, 8, 0)
 
     # 1) انصراف قبل أي حضور → مرفوض
     r = _das(client, "check_out", "C100")
     assert r.status_code == 409
     assert "حضور" in r.json()["detail"]
 
-    # 2) حضور → Pending
+    # 2) حضور → Approved فورًا (من غير Pending)
     r = _das(client, "check_in", "C100")
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["status"] == "Pending"
+    assert body["status"] == "Approved"
     assert body["attendance_date"] == today
     assert body["requested_at"]
     assert body["branch"] == "QCD 1"
+    assert "حضور" in body["message"]
     rid = body["id"]
 
-    # 3) الطلب يظهر في صندوق الأدمن
-    inbox = client.get("/api/das/requests/inbox", headers=_auth(admin)).json()
-    ids = [x["id"] for x in inbox["requests"]]
-    assert rid in ids
-
-    # 4) انصراف قبل موافقة الحضور → مرفوض (مفيش حضور معتمد)
-    r = _das(client, "check_out", "C100")
-    assert r.status_code == 409
-
-    # 5) تكرار الحضور → مرفوض
-    assert _das(client, "check_in", "C100").status_code == 409
-
-    # 6) موافقة الأدمن → معتمد
-    r = _approve(client, admin, rid, decision="approve", note="تمام")
-    assert r.status_code == 200 and r.json()["status"] == "Approved"
-    assert r.json()["decided_by"] == "أدمن"
-
-    # 7) حضور رسمي في جدول attendance بوقت الطلب (مش وقت الموافقة) وبدون غرامة
+    # 3) الحضور اتسجل رسمي في attendance
     row = _emp_attendance_row(e["id"], today)
-    assert row is not None
-    assert row.status == "Present"
-    assert row.fine == 0
-    clock = app.cairo_dt(app.datetime.fromisoformat(body["requested_at"].replace("Z", ""))).strftime("%H:%M")
-    assert clock in (row.note or "")
+    assert row is not None and row.status == "Present" and float(row.fine or 0) == 0
+    assert "حضور DAS" in (row.note or "")
 
-    # 8) حضور تاني في نفس اليوم بعد الاعتماد → مرفوض
-    assert _das(client, "check_in", "C100").status_code == 409
+    # 4) مفيش Pending في صندوق المشرف — القسم ده اتشال
+    inbox = client.get("/api/das/requests/inbox", headers=_auth(admin)).json()
+    assert all(x["id"] != rid or x["status"] == "Approved" for x in inbox["requests"])
 
-    # 9) انصراف → Pending ويرث يوم الحضور
+    # 5) تكرار الحضور قبل الانصراف → already بنفس السجل
+    r = _das(client, "check_in", "C100")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "Approved" and r.json()["already"] is True
+    assert r.json()["id"] == rid
+
+    # 6) انصراف → Approved فورًا وبياخد يوم الحضور
     r = _das(client, "check_out", "C100")
     assert r.status_code == 200, r.text
     out = r.json()
+    assert out["status"] == "Approved"
     assert out["checkin_id"] == rid
     assert out["attendance_date"] == today
+    assert out["time"]
 
-    # 10) تكرار الانصراف → مرفوض
-    assert _das(client, "check_out", "C100").status_code == 409
+    db = app.SessionLocal()
+    try:
+        co = db.execute(app.text(
+            "SELECT checked_out_at, worked_minutes, early_minutes FROM attendance_checkouts "
+            "WHERE employee_id = :eid AND checkout_date = :day"
+        ), {"eid": e["id"], "day": today}).first()
+    finally:
+        db.close()
+    assert co is not None and co[0]
 
-    # 11) موافقة الانصراف → الملاحظة فيها الحضور والانصراف والخاتمة
-    r = _approve(client, admin, out["id"])
-    assert r.status_code == 200
-    row = _emp_attendance_row(e["id"], today)
-    assert "انصراف DAS" in (row.note or "")
-    assert "حضور DAS" in (row.note or "")
-    assert row.status == "Present"
+    # 7) تكرار الانصراف → already
+    r = _das(client, "check_out", "C100")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "Approved" and r.json()["already"] is True
 
-    # 12) حضور تاني في نفس يوم الشيفت بعد الاعتماد → مرفوض (حضور واحد معتمد لكل يوم)
+    # 8) حضور تاني بعد ما الدورة كملت → مرفوض
     r = _das(client, "check_in", "C100")
     assert r.status_code == 409
 
 
-def test_reject_flow(client, admin):
-    _mk_employee(client, admin, "مندوب رفض", "C101", "QCD 1")
-    r = _das(client, "check_in", "C101")
-    rid = r.json()["id"]
-    r = _approve(client, admin, rid, decision="reject", note="غلط تقفيل")
-    assert r.status_code == 200 and r.json()["status"] == "Rejected"
-    # بعد الرفض ينفع طلب حضور جديد
-    r = _das(client, "check_in", "C101")
-    assert r.status_code == 200
+def test_early_checkout_records_worked_time_and_alerts_supervisor(client, admin):
+    e = _mk_employee(client, admin, "مندوب بدري", "C110", "QCD 1")
+    d = app.das_shift_day()
+    app.qr_now_local = lambda: app.datetime(d.year, d.month, d.day, 9, 4)
+    r = _das(client, "check_in", "C110")
+    assert r.status_code == 200, r.text
+
+    # الشيفت 8 ص - 4 م: انصراف 3 م يعني ساعة قبل النهاية
+    app.qr_now_local = lambda: app.datetime(d.year, d.month, d.day, 15, 0)
+    r = _das(client, "check_out", "C110")
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["status"] == "Approved"
+    assert out["early"] is True and out["early_minutes"] == 60
+    assert out["worked_minutes"] == 356
+    assert "قبل نهاية الشيفت" in out["message"]
+
+    # المشرف بياخد حدث فيه الإنذار والوقت
+    events = app.EVENTS.snapshot(0)["events"]
+    ev = next(x for x in reversed(events)
+              if x.get("kind") == "attendance" and x.get("action") == "check_out"
+              and x.get("names") == [e["name"]])
+    assert ev["early"] is True and ev["early_minutes"] == 60
+    assert ev["duration_min"] == 356 and ev["time"] == "15:00"
 
 
-def test_decide_twice_is_conflict(client, admin):
-    _mk_employee(client, admin, "مندوب تكرار", "C102", "QCD 1")
-    r = _das(client, "check_in", "C102")
-    rid = r.json()["id"]
-    assert _approve(client, admin, rid).status_code == 200
-    r = _approve(client, admin, rid)
-    assert r.status_code == 409
-
-
-# ---------------------------------------------------------------- عزل الفروع والصلاحيات
-def test_branch_isolation_in_decisions(client, admin):
-    e = _mk_employee(client, admin, "مشرف اختبار", "C200", "QCD 2")
-    r = _das(client, "check_in", "C200")
-    rid = r.json()["id"]
-
-    sup1 = _login(client, "sup-qcd1")   # مشرف QCD 1
-    sup2 = _login(client, "sup-qcd2")   # مشرف QCD 2
-    r = _approve(client, sup1, rid)
-    assert r.status_code == 403
-    r = _approve(client, sup2, rid)
-    assert r.status_code == 200
-    assert r.json()["decided_by"] == "مشرف QCD 2"
-
-    # صندوق مشرف QCD 2 بيظهر الطلب بتاعه بس
-    inbox = client.get("/api/das/requests/inbox", headers=_auth(sup2)).json()
-    assert inbox["viewer"]["branch"] == "QCD 2"
-    assert all(x["branch"] == "QCD 2" for x in inbox["requests"])
-
-
-def test_general_supervisor_readonly_when_branch_passwords_set(client, admin):
-    """لو كلمات مرور الفرع متحدة، المشرف العام مشاهدة فقط من غير قرارات."""
-    _mk_employee(client, admin, "مشرف عام تيست", "C201", "QCD 1")
-    r = _das(client, "check_in", "C201")
-    rid = r.json()["id"]
-    gen = _login(client, "gen-sup-pass")
-    inbox = client.get("/api/das/requests/inbox", headers=_auth(gen)).json()
-    assert inbox["viewer"]["can_decide"] is False
-    r = _approve(client, gen, rid)
-    assert r.status_code == 403
+def test_checkout_after_shift_end_is_not_early(client, admin):
+    emp = _mk_employee(client, admin, "مندوب منتظم", "C120", "QCD 1")
+    d = app.das_shift_day()
+    app.qr_now_local = lambda: app.datetime(d.year, d.month, d.day, 8, 0)
+    assert _das(client, "check_in", "C120").status_code == 200
+    app.qr_now_local = lambda: app.datetime(d.year, d.month, d.day, 16, 0)
+    r = _das(client, "check_out", "C120")
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["early"] is False and out["early_minutes"] == 0
+    assert out["worked_minutes"] == 480
 
 
 def test_general_supervisor_bounds_when_no_branch_passwords():
@@ -241,57 +232,48 @@ def test_general_supervisor_bounds_when_no_branch_passwords():
 # ---------------------------------------------------------------- الشيفت الليلي (لفّ منتصف الليل)
 def test_night_shift_checkout_inherits_shift_day(client, admin):
     """انصراف بعد منتصف الليل بيفضل على يوم الحضور — مش يوم القاهرة الجديد."""
-    e = _mk_employee(client, admin, "شilibift ليلي", "C300", "QCD 1")
-    today = app.das_shift_day().isoformat()
+    day = app.date.fromisoformat("2026-10-29")
+    week = app.week_start_of(day).isoformat()
+    e = _mk_employee(client, admin, "شيفت ليلي", "C300", "QCD 2",
+                    shift="10 PM - 6 AM", week=week)
+    app.qr_now_local = lambda: app.datetime(2026, 10, 29, 22, 0)
     r = _das(client, "check_in", "C300")
-    rid = r.json()["id"]
+    assert r.status_code == 200, r.text
+    assert r.json()["attendance_date"] == day.isoformat()
 
-    # بنحاكي إن الحضور كان إمبارح بالليل — بحقن الطلب مباشرة (بعد الموافقة)
-    db = app.SessionLocal()
-    try:
-        row = db.query(app.DasRequest).filter(app.DasRequest.id == rid).first()
-        row.attendance_date = app.date.fromisoformat("2026-10-29")
-        row.requested_at = app.datetime(2026, 10, 29, 19, 0, 0)
-        db.commit()
-    finally:
-        db.close()
-
-    r = _approve(client, admin, rid)
-    assert r.status_code == 200
-
-    # الانصراف (الوقت الحقيقي بعد منتصف الليل) بيرث يوم الحضور 29-10 مش يوم النهاردة
+    # 5 الصبح: لسه جوه الشيفت اللي بدأ 10 بالليل، ويومه 29-10
+    app.qr_now_local = lambda: app.datetime(2026, 10, 30, 5, 0)
     r = _das(client, "check_out", "C300")
     assert r.status_code == 200, r.text
-    assert r.json()["attendance_date"] == "2026-10-29"
+    out = r.json()
+    assert out["attendance_date"] == day.isoformat()
+    assert out["worked_minutes"] == 420
+    assert out["early"] is True and out["early_minutes"] == 60
 
-    # والتسجيل الرسمي اتحط على نفس اليوم
-    _approve(client, admin, r.json()["id"])
-    row = _emp_attendance_row(e["id"], app.date.fromisoformat("2026-10-29"))
+    row = _emp_attendance_row(e["id"], day)
     assert row is not None and row.status == "Present"
 
 
-# ---------------------------------------------------------------- الحفاظ على تسجيلات المشرف
-def test_approval_never_overwrites_supervisor_record(client, admin):
-    """لو المشرف سجل الحضور قبل الموافقة، موافقة DAS بتضيف توثيق بس وتحافظ على الحالة والغرامة."""
+# ---------------------------------------------------------------- تصحيح الحضور
+def test_auto_checkin_corrects_an_absent_record(client, admin):
+    """لو الروستر سجّل غياب والمندوب عمل حضور، الحضور يتصحح فورًا والغرامة تتصفّر."""
     e = _mk_employee(client, admin, "حافظ", "C400", "QCD 1")
-    today = app.das_shift_day()
+    day = app.das_shift_day()
+    app.qr_now_local = lambda: app.datetime(day.year, day.month, day.day, 8, 0)
     db = app.SessionLocal()
     try:
-        db.add(app.Attendance(employee_id=e["id"], attendance_date=today, status="Absent",
+        db.add(app.Attendance(employee_id=e["id"], attendance_date=day, status="Absent",
                               fine=50, reason="غياب بدون إذن", updated_at=app.utcnow()))
         db.commit()
     finally:
         db.close()
 
     r = _das(client, "check_in", "C400")
-    rid = r.json()["id"]
-    today_iso = today.isoformat()
-    r = _approve(client, admin, rid)
-    assert r.status_code == 200
-    row = _emp_attendance_row(e["id"], today)
-    assert row.status == "Absent"          # الحالة ما اتلمستش
-    assert row.fine == 50                  # الغرامة ما اتلمستش
-    assert "حضور DAS" in (row.note or "")  # التوثيق اتضاف في الملاحظة
+    assert r.status_code == 200, r.text
+    row = _emp_attendance_row(e["id"], day)
+    assert row.status in ("Present", "Late")
+    assert float(row.fine or 0) == 0          # غرامة الغياب اتصفّرت
+    assert "تصحيح بعد DAS" in (row.note or "")
 
 
 # ---------------------------------------------------------------- مزامنة DAS
@@ -305,11 +287,15 @@ def test_das_sync_endpoint_filters(client, admin):
     assert r.status_code == 200
     assert any(x["id"] == rid for x in r.json()["requests"])
 
-    # بتوقيت مستقبلي: المطلوب لسه Pending يرجع؛ اللي اتقرر بعد التوقيت بس يترجع
+    # بتوقيت مستقبلي: مفيش طلبات جديدة → مفيش نتايج
     r = client.get("/api/das/requests?employee_code=C500&updated_since=2030-01-01T00:00:00", headers=DAS_HDR)
     assert r.status_code == 200
-    data = r.json()["requests"]
-    assert any(x["id"] == rid for x in data)      # لسه Pending → لازم يرجع
+    assert not any(x["id"] == rid for x in r.json()["requests"])
+
+    # من بداية الزمن: الطلب المعتمد يرجع للمزامنة
+    r = client.get("/api/das/requests?employee_code=C500&updated_since=2000-01-01T00:00:00", headers=DAS_HDR)
+    assert r.status_code == 200
+    assert any(x["id"] == rid for x in r.json()["requests"])
 
     # كود مش موجود
     r = client.get("/api/das/requests?employee_code=GHOST", headers=DAS_HDR)
@@ -380,39 +366,6 @@ def test_named_supervisor_fines_attribution(client, admin):
     assert r.status_code == 403
 
 
-def test_named_supervisor_decides_das_with_name(client, admin):
-    e = _mk_employee(client, admin, "بنانا", "N100", "QCD 2")
-    r = _das(client, "check_in", "N100")
-    rid = r.json()["id"]
-    s2 = _login(client, "karim-pass")
-    r = _approve(client, s2, rid)
-    assert r.status_code == 200, r.text
-    assert r.json()["decided_by"] == "مشرف Karim — QCD 2"
-    row = _emp_attendance_row(e["id"], app.das_shift_day().isoformat())
-    assert row is not None and row.recorded_by == "مشرف Karim — QCD 2"
-    # مشرف فرع تاني → 403
-    s1 = _login(client, "elsuid-pass")
-    _mk_employee(client, admin, "بجدي", "N101", "QCD 1")
-    r2 = _das(client, "check_in", "N101")
-    r = _approve(client, s1, r2.json()["id"]) if False else _approve(client, s2, r2.json()["id"])
-    assert r.status_code == 403
-    # مشرف فرع بصوره (بلا اسم) لسه بيمشي مع القاعدة القديمة — نفس الطلب اللي استنى (N101 = QCD 1)
-    legacy = _login(client, "sup-qcd1")
-    r2b2 = _approve(client, legacy, r2.json()["id"])
-    assert r2b2.status_code == 200
-    assert r2b2.json()["decided_by"] == "مشرف QCD 1"
-
-
-def test_general_supervisor_readonly_when_any_branch_accounts(client, admin):
-    _mk_employee(client, admin, "بنوب", "N102", "QCD 1")
-    r = _das(client, "check_in", "N102")
-    rid = r.json()["id"]
-    gen = _login(client, "gen-sup-pass")
-    r = _approve(client, gen, rid)
-    assert r.status_code == 403
-
-
-# ----------------------------------------------------------------
 @pytest.fixture(scope="module")
 def admin(client):
     return _login(client, "admin-test-pass")
