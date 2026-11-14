@@ -654,6 +654,7 @@ const S = {
   supBranch: "",     /* مشرف فرع: البيانات بتفلتل على فرعه من السيرفر وكمان في الواجهة */
   page: "", shown: false,
   settings: { fine_late: 0, fine_absent: 0, branch_fines: {} },
+  supervisors: [],
   employees: [],
   week: "",
   dash: { date: todayISO() },
@@ -778,7 +779,7 @@ function markSort(selector, attr, st) {
 
 /* ============================== auth & navigation ============================== */
 /* المشرف إما supervisor (بلا فرع) أو supervisor:QCD 1 (مشرف فرع من كلمة مرور الفرع) */
-const isSupervisor = () => S.role === "supervisor" || (S.role || "").startsWith("supervisor:");
+const isSupervisor = () => S.role === "supervisor" || (S.role || "").startsWith("supervisor:") || (S.role || "").startsWith("sup:");
 const isAdmin = () => !isSupervisor(); // الدور الافتراضي أدمن (بيتحدد من السيرفر بعد الدخول)
 on("loginForm", "submit", async e => {
   e.preventDefault();
@@ -788,6 +789,7 @@ on("loginForm", "submit", async e => {
     S.token = r.token; localStorage.setItem("bankai_token", S.token);
     S.role = r.role || "admin"; localStorage.setItem("bankai_role", S.role);
     const me = await api("/api/me").catch(() => ({}));
+    S.role = me.role || S.role; localStorage.setItem("bankai_role", S.role);
     S.supBranch = me.branch || ""; S.supName = me.name || "";
     document.documentElement.dataset.auth = "1"; /* نفس القفل بتاع الـ head: شاشة الدخول مقفولة من هنا لقدام */
     $("password").value = "";
@@ -843,6 +845,14 @@ function applyRole() {
   $("setFineLate").disabled = $("setFineAbsent").disabled = sup;
   /* مشرف الفرع: من غير جدول ومن غير إعدادات — كله قراءة + حضور لفرعه بس */
   qsa('.nav-btn[data-page="schedule"],.nav-btn[data-page="settings"]').forEach(b => b.classList.toggle("hidden", sup));
+  /* فلاتر الفرع في الموظفين/التقارير/الغرامات تتقفل على فرعه بدل ما تسمح باختيار فرع تاني */
+  [["empBranch", "branch"], ["repBranch", "branch"], ["fineBranch", "branch"]].forEach(([id]) => {
+    const el = $(id); if (!el) return;
+    if (sup && S.supBranch) { el.value = S.supBranch; el.disabled = true; }
+    else { el.disabled = false; if (!sup) el.value = ""; }
+  });
+  if (sup && S.supBranch) S.emp.branch = S.supBranch;
+  else if (!sup) { S.emp.branch = ""; S.att.branch = ""; S.partner.filterBranch = ""; }
   if (window.syncNavInd) window.syncNavInd();
   initAttendanceQr();
 }
@@ -1225,19 +1235,33 @@ function contactHTML(e) {
   return `<span class="contact"><a href="tel:${esc(e.phone)}" aria-label="اتصال" title="اتصال"><svg class="i"><use href="#i-phone"/></svg></a><a href="https://wa.me/${wa}" target="_blank" rel="noopener" aria-label="واتساب" title="واتساب"><svg class="i"><use href="#i-msg"/></svg></a></span>`;
 }
 
+/* بوابة الشيفتات: المشرف مايسجّلش شيفت قبل ما يخلّص اللي قبله.
+   السيرفر هو الحارس الحقيقي؛ ده بس بيوضّح القفل في الواجهة ومنع الضغط الغلط. */
+function shiftGateFor(e) {
+  if (isAdmin() || !S.roster || !S.roster.shift_gate) return null;
+  const g = S.roster.shift_gate[e.branch];
+  if (!g || !Array.isArray(g.locked) || !g.locked.includes(e.shift)) return null;
+  return g;
+}
+function shiftLockText(g) {
+  return g && g.open ? `مقفول — خلّص شيفت ${fmtShiftLabel(g.open)} الأول` : "مقفول";
+}
+
 function rowHTML(e) {
   const d = rowState(e), st = d.status || "";
+  const lock = shiftGateFor(e);
   const fineOn = st === "Late" || st === "Absent";
   const sub = [esc(e.employee_code || "بدون كود"), e.employment_type];
   if (e.break_start) sub.push(`بريك <span class="num">${esc(e.break_start)}</span>`);
   if (!S.att.group) sub.push(esc(e.branch), sh(e.shift));
-  return `<div class="arow${S.draft.has(e.id) ? " dirty" : ""}${S.stale.has(e.id) ? " stale" : ""}" data-id="${e.id}" data-st="${st}">
+  if (lock) sub.push(`<span class="lock-tag">${esc(shiftLockText(lock))}</span>`);
+  return `<div class="arow${S.draft.has(e.id) ? " dirty" : ""}${S.stale.has(e.id) ? " stale" : ""}${lock ? " locked" : ""}" data-id="${e.id}" data-st="${st}">
     <div class="a-who">${whoHTML(e.name, `<div class="a-name">${esc(e.name)}${contactHTML(e)}</div><div class="a-sub">${sub.join(" · ")}</div>`)}</div>
-    <div class="seg" role="group" aria-label="حالة ${esc(e.name)}">${STK.map(k => `<button type="button" class="${k}${st === k ? " on" : ""}" data-set="${k}" aria-pressed="${st === k}">${ST[k][0]}</button>`).join("")}</div>
-    <input class="inp f-fine" type="number" min="0" step="1" inputmode="numeric" value="${fineOn && d.fine ? d.fine : ""}" placeholder="غرامة" aria-label="الغرامة" ${fineOn ? "" : "disabled"}>
-    <input class="inp f-reason" list="reasonList" maxlength="500" value="${esc(d.reason || "")}" placeholder="السبب" aria-label="السبب" ${st && st !== "Present" ? "" : "disabled"}>
-    <button type="button" class="note-btn${d.note ? " has" : ""}" data-note title="ملاحظة" aria-label="ملاحظة"><svg class="i"><use href="#i-note"/></svg></button>
-    <input class="inp f-note${d.note ? "" : " hidden"}" maxlength="500" value="${esc(d.note || "")}" placeholder="ملاحظة إضافية (اختياري)" aria-label="ملاحظة" ${st ? "" : "disabled"}>
+    <div class="seg" role="group" aria-label="حالة ${esc(e.name)}">${STK.map(k => `<button type="button" class="${k}${st === k ? " on" : ""}" data-set="${k}" aria-pressed="${st === k}"${lock ? " disabled" : ""}>${ST[k][0]}</button>`).join("")}</div>
+    <input class="inp f-fine" type="number" min="0" step="1" inputmode="numeric" value="${fineOn && d.fine ? d.fine : ""}" placeholder="غرامة" aria-label="الغرامة" ${fineOn && !lock ? "" : "disabled"}>
+    <input class="inp f-reason" list="reasonList" maxlength="500" value="${esc(d.reason || "")}" placeholder="السبب" aria-label="السبب" ${st && st !== "Present" && !lock ? "" : "disabled"}>
+    <button type="button" class="note-btn${d.note ? " has" : ""}" data-note title="ملاحظة" aria-label="ملاحظة"${lock ? " disabled" : ""}><svg class="i"><use href="#i-note"/></svg></button>
+    <input class="inp f-note${d.note ? "" : " hidden"}" maxlength="500" value="${esc(d.note || "")}" placeholder="ملاحظة إضافية (اختياري)" aria-label="ملاحظة" ${st && !lock ? "" : "disabled"}>
   </div>`;
 }
 
@@ -1263,7 +1287,9 @@ function renderAttendance() {
     list.forEach(e => { const k = `${e.branch}||${e.shift}`; if (!S.view.groups.has(k)) S.view.groups.set(k, []); S.view.groups.get(k).push(e); });
     for (const [k, arr] of S.view.groups) {
       const [b, s] = k.split("||"), c = countsOf(arr);
-      html += `<section class="agroup${S.att.collapsed.has(k) ? " collapsed" : ""}" data-g="${esc(k)}"><header class="ghead" data-gtoggle><svg class="i chev"><use href="#i-chev"/></svg><span class="g-title">${esc(b)}</span><span class="g-shift">${sh(s)}</span><span class="g-n">${arr.length} موظف</span><div class="stack g-bar">${stackInner(asStack(c))}</div><span class="g-sum">${sumText(c)}</span><button type="button" class="btn sm" data-gpresent>حاضر للباقي</button></header><div class="gbody">${arr.map(rowHTML).join("")}</div></section>`;
+      const gate = isAdmin() ? null : ((S.roster.shift_gate || {})[b] || null);
+      const locked = !!(gate && (gate.locked || []).includes(s));
+      html += `<section class="agroup${S.att.collapsed.has(k) ? " collapsed" : ""}${locked ? " locked" : ""}" data-g="${esc(k)}"><header class="ghead" data-gtoggle><svg class="i chev"><use href="#i-chev"/></svg><span class="g-title">${esc(b)}</span><span class="g-shift">${sh(s)}</span><span class="g-n">${arr.length} موظف</span>${locked ? `<span class="lock-tag">${esc(shiftLockText(gate))}</span>` : ""}<div class="stack g-bar">${stackInner(asStack(c))}</div><span class="g-sum">${sumText(c)}</span><button type="button" class="btn sm" data-gpresent${locked ? " disabled" : ""}>حاضر للباقي</button></header><div class="gbody">${arr.map(rowHTML).join("")}</div></section>`;
     }
   } else html = `<div class="gbody">${list.map(rowHTML).join("")}</div>`;
   $("attList").innerHTML = html;
@@ -1321,6 +1347,8 @@ function defaultFineFor(e, st) {
 }
 
 function setStatus(e, st) {
+  const lock = shiftGateFor(e);
+  if (lock) { toast(shiftLockText(lock) + ".", "err"); return; }
   const d = getDraft(e);
   S.stale.delete(e.id); /* المستخدم بيعدّل الصف بنفسه: التنبيه بتاع «اتغيّر من حد تاني» خلص */
   if (d.status === st) st = "";
@@ -1335,16 +1363,20 @@ function setStatus(e, st) {
 }
 
 function markPresent(arr) {
-  let n = 0;
+  let n = 0, locked = 0;
   arr.forEach(e => {
+    if (shiftGateFor(e)) { locked++; return; }
     if (curStatus(e) !== "") return;
     const d = getDraft(e); d.status = "Present"; d.fine = 0; d.reason = ""; n++;
   });
-  if (!n) { toast("كل الموظفين في العرض الحالي ليهم حالة بالفعل."); return; }
+  if (!n) {
+    toast(locked ? "الشيفتات دي مقفولة — خلّص الشيفت اللي قبلها الأول." : "كل الموظفين في العرض الحالي ليهم حالة بالفعل.");
+    return;
+  }
   renderAttendance(); updateSaveBar();
   /* نبضة جماعية على الصفوف اللي اتسجلت (قراءة layout واحدة للمجموعة كلها) */
   pulseAll(qsa("#attList .arow.dirty"), "just-set");
-  toast(`تم تحديد ${n} موظف كحاضر. اضغط «حفظ الكل» للتأكيد.`, "ok");
+  toast(`تم تحديد ${n} موظف كحاضر${locked ? ` — ${locked} في شيفتات مقفولة اتخطّوا` : ""}. اضغط «حفظ الكل» للتأكيد.`, "ok");
 }
 
 function updateSaveBar() {
@@ -1401,6 +1433,9 @@ async function saveAttendance() {
       toast(`تعذر حفظ ${failed.size} موظف — ${x.name ? x.name + ": " : ""}${x.detail}`, "err");
     } else if (r.saved || r.cleared) {
       toast(`تم حفظ ${r.saved + r.cleared} تسجيل.`, "ok");
+      /* إعادة تحميل كاملة بعد الحفظ عشان بوابة الشيفتات تتحدّث: أول ما شيفت يكتمل
+         الشيفت اللي بعده بيتفتح فورًا. */
+      loadRosterSoft({ reset: true });
     }
   } catch (e) { toast(e.message, "err"); }
   finally { btn.disabled = false; }
@@ -3254,18 +3289,86 @@ function renderBranchFines() {
 }
 
 /* تحذير لو فيه كلمات مرور مشرفين شغالة من غير اسم — التسجيلات بتاعتها بتظهر
-   «مشرف» عموما في عمود «بواسطة» من غير اسم شخصي. بيوجّه لصيغة SUPERVISOR_ACCOUNTS. */
+   «مشرف» عموما في عمود «بواسطة» من غير اسم شخصي. */
 function legacySupervisorsHint(d) {
   const legacy = [];
   if ((d.branch_passwords || []).length) legacy.push(`باسوردات فروع بدون اسم (${d.branch_passwords.join("، ")})`);
   if (d.general_supervisor) legacy.push("باسورد المشرف العام");
   if (!legacy.length) return "";
   return `<br><span class="tag admin">تنبيه</span> شغّال كمان بـ ${esc(legacy.join(" و "))} — ` +
-    `التسجيلات بتاعة هدول بتظهر «مشرف» أو «مشرف فرع» من غير اسم. عشان اسم كل مشرف يظهر في السجل، ` +
-    `عرّف الحسابات في <b class="num">SUPERVISOR_ACCOUNTS</b> بصيغة ` +
-    `<b class="num">الاسم:الباسورد:الفرع</b> (مثال: <span class="num">HAMED:pass1:QCD 1;Karim:pass2:QCD 2</span>) ` +
-    `وسجّل الدخول من جديد. التسجيلات القديمة اللي متسجلة «مشرف» بس بتفضل زي ما هي.`;
+    `التسجيلات بتاعة هدول بتظهر «مشرف» أو «مشرف فرع» من غير اسم. ` +
+    `تقدر تسجّلهم كحسابات بالاسم من قسم «حسابات المشرفين» فوق، وتسجّل الدخول من جديد.`;
 }
+
+function supBranchLabel(b) { return b || "كل الفروع"; }
+function renderSupervisors(list) {
+  S.supervisors = Array.isArray(list) ? list : [];
+  const box = $("supList"); if (!box) return;
+  if (!S.supervisors.length) {
+    box.innerHTML = `<div class="sup-empty">مفيش حسابات مشرفين لسه — ضيف أول واحد من تحت.</div>`;
+    return;
+  }
+  box.innerHTML = S.supervisors.map(s => `<div class="sup-row${s.active ? "" : " off"}" data-sup="${s.id}">
+    <div class="sup-name">${esc(s.name)}<small>${esc(supBranchLabel(s.branch))}${s.active ? "" : " · موقوف"}</small></div>
+    <select class="sel" data-sup-branch aria-label="فرع ${esc(s.name)}">
+      <option value=""${!s.branch ? " selected" : ""}>كل الفروع</option>
+      <option${s.branch === "QCD 1" ? " selected" : ""}>QCD 1</option>
+      <option${s.branch === "QCD 2" ? " selected" : ""}>QCD 2</option>
+    </select>
+    <div class="sup-actions">
+      <button class="btn sm" type="button" data-sup-pass>تغيير الباسورد</button>
+      <button class="btn sm" type="button" data-sup-toggle>${s.active ? "إيقاف" : "تفعيل"}</button>
+      <button class="btn sm danger" type="button" data-sup-del>حذف</button>
+    </div>
+  </div>`).join("");
+}
+async function saveSupervisor(id, body, okMsg) {
+  try {
+    const r = await api(`/api/admin/supervisors/${id}`, { method: "PATCH", body });
+    renderSupervisors(r.managed);
+    toast(okMsg || r.message || "تم التحديث.", "ok");
+  } catch (e) { toast(e.message, "err"); renderSupervisors(S.supervisors); }
+}
+on("supList", "change", ev => {
+  const sel = ev.target.closest("[data-sup-branch]"); if (!sel) return;
+  const row = sel.closest("[data-sup]"), id = +row.dataset.sup;
+  saveSupervisor(id, { branch: sel.value }, "تم تحديث فرع المشرف — الصلاحيات بتتطبق على طول.");
+});
+on("supList", "click", ev => {
+  const row = ev.target.closest("[data-sup]"); if (!row) return;
+  const id = +row.dataset.sup;
+  const s = S.supervisors.find(x => x.id === id); if (!s) return;
+  if (ev.target.closest("[data-sup-toggle]")) {
+    saveSupervisor(id, { active: !s.active }, s.active ? "تم إيقاف المشرف — جلساته اتقفلت." : "تم تفعيل المشرف.");
+    return;
+  }
+  if (ev.target.closest("[data-sup-del]")) {
+    if (!confirm(`هتحذف حساب المشرف ${s.name}؟ جلساته المفتوحة هتقفل.`)) return;
+    api(`/api/admin/supervisors/${id}`, { method: "DELETE" })
+      .then(r => { renderSupervisors(r.managed); toast(r.message || "تم الحذف.", "ok"); })
+      .catch(e => toast(e.message, "err"));
+    return;
+  }
+  if (ev.target.closest("[data-sup-pass]")) {
+    const pw = prompt(`كلمة المرور الجديدة لـ ${s.name} (على الأقل 4 حروف):`);
+    if (pw === null) return;
+    if (pw.length < 4) { toast("كلمة المرور قصيرة — 4 حروف على الأقل.", "err"); return; }
+    saveSupervisor(id, { password: pw }, "تم تغيير كلمة المرور.");
+  }
+});
+on("supAddForm", "submit", async ev => {
+  ev.preventDefault();
+  const name = $("supNewName").value.trim(), password = $("supNewPass").value;
+  if (!name) { toast("اكتب اسم المشرف.", "err"); return; }
+  if (password.length < 4) { toast("كلمة المرور قصيرة — 4 حروف على الأقل.", "err"); return; }
+  try {
+    const r = await api("/api/admin/supervisors", { method: "POST",
+      body: { name, password, branch: $("supNewBranch").value } });
+    renderSupervisors(r.managed);
+    $("supNewName").value = ""; $("supNewPass").value = ""; $("supNewBranch").value = "";
+    toast(r.message || "تم إضافة المشرف.", "ok");
+  } catch (e) { toast(e.message, "err"); }
+});
 
 async function loadSettings() {
   try {
@@ -3273,13 +3376,13 @@ async function loadSettings() {
     $("setFineLate").value = S.settings.fine_late; $("setFineAbsent").value = S.settings.fine_absent;
     renderBranchFines();
   } catch (e) { toast(e.message, "err"); }
-  /* إظهار حسابات المشرفين اللي السيرفر شايفها فعلاً (بدون كلمات مرور) */
+  /* حسابات المشرفين المُدارة (بدون كلمات مرور) + تشخيص الحسابات القديمة */
   try {
     const d = await api("/api/admin/supervisors", { silent: true });
-    const acc = (d.accounts || []).map(a => `${a.name} (${a.branch})`).join("، ");
-    $("supAccountsInfo").innerHTML = `حسابات المشرفين المتشغّلة: <b class="num">${d.count}</b>` +
-      (acc ? ` — ${esc(acc)}` : ' — <b>مفيش ولا حساب!</b>') +
-      (d.message ? `<br>${esc(d.message)}` : "") +
+    renderSupervisors(d.managed || []);
+    const managed = (d.managed || []).length;
+    $("supAccountsInfo").innerHTML = `حسابات المشرفين المُدارة: <b class="num">${managed}</b>` +
+      (managed ? "" : ' — <b>مفيش ولا حساب!</b>') +
       `<br>ربط DAS (${esc("DAS_SECRET")}): ${d.das_integration ? "مفعّل" : "غير مفعّل"}` +
       legacySupervisorsHint(d);
   } catch (e) {
@@ -3842,9 +3945,24 @@ function applyEvents(events) {
   pulse($("livePill"), "bump");
 }
 
+/* الأدمن غيّر فرع المشرف/فعّل أو أوقف حساب: بنعيد قراءة هوية الجلسة فورًا
+   عشان المشرف يتحوّل لفرعه الجديد من غير ما يعمل refresh بنفسه. */
+async function refreshIdentity() {
+  if (isAdmin()) return;
+  try {
+    const me = await api("/api/me", { silent: true });
+    S.role = me.role || S.role; localStorage.setItem("bankai_role", S.role);
+    S.supBranch = me.branch || ""; S.supName = me.name || "";
+    applyRole();
+    if (S.page === "attendance") { S.att.branch = S.supBranch; S.att.shift = ""; syncAttControls(); loadRoster(); }
+    else liveRefreshPage();
+  } catch (e) { /* 401 بيتعامل معاه api() نفسه */ }
+}
+
 /* بيحدّث الصفحة الحالية لو الحدث يعنيها، وبيرجّع true لو اتأثرت فعلاً */
 function liveRefresh(ev) {
   const kind = ev.kind;
+  if (kind === "supervisors") { refreshIdentity(); return true; }
   if (S.page === "attendance") {
     if (kind === "attendance" && (!ev.date || ev.date === S.att.date)) { loadRosterSoft(ev); return true; }
     if (kind !== "attendance") { loadRosterSoft(ev); return true; } /* بيانات موظفين/جدول: الروستر كله */
@@ -3885,7 +4003,8 @@ async function loadRosterSoft(ev = {}) {
   catch (e) { return; }                        /* التحديث التلقائي مش أساسي: نسيب الشاشة زي ما هي */
   if (S.page !== "attendance" || date !== S.att.date) return;
   const only = (ev.ids && ev.ids.length) ? new Set(ev.ids) : null;
-  let full = !!ev.reset;
+  const prevGate = JSON.stringify(S.roster?.shift_gate || null);
+  let full = !!ev.reset || JSON.stringify(r.shift_gate || null) !== prevGate;
   const hit = id => !only || only.has(id);
   const list = [];
   for (const e of r.employees) {

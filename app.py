@@ -163,6 +163,23 @@ class Setting(Base):
     value = Column(String(500), nullable=False, default="")
 
 
+class Supervisor(Base):
+    """حساب مشرف مُدار من صفحة الإعدادات عند الأدمن.
+
+    كل حساب ليه اسم وكلمة مرور وفرع مسئول (فاضي = كل الفروع). الفرع بيتقرأ من
+    قاعدة البيانات مع كل طلب، فلو الأدمن غيّره بيسري على جلسات المشرف المفتوحة
+    من غير ما يسجّل دخول تاني. التوكن بيشيل id الحساب ومفتاح جلسة عشوائي مش الفرع."""
+    __tablename__ = "supervisors"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(60), nullable=False, unique=True)
+    password_hash = Column(String(200), nullable=False)
+    token_key = Column(String(32), nullable=True, default=lambda: secrets.token_hex(16))
+    branch = Column(String(20), nullable=True)      # None = كل الفروع
+    active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class WeekSchedule(Base):
     """جدول الموظف في أسبوع معيّن (الشيفت + يوم الإجازة + البريك). كل أسبوع له نسخته المستقلة."""
     __tablename__ = "week_schedule"
@@ -185,6 +202,8 @@ def ensure_columns():
     cols = {c["name"] for c in inspect(engine).get_columns("employees")}
     att_cols = {c["name"] for c in inspect(engine).get_columns("attendance")}
     fine_cols = {c["name"] for c in inspect(engine).get_columns("fines")}
+    sup_cols = ({c["name"] for c in inspect(engine).get_columns("supervisors")}
+                if inspect(engine).has_table("supervisors") else None)
     with engine.begin() as conn:
         if "phone" not in cols:
             conn.execute(text("ALTER TABLE employees ADD COLUMN phone VARCHAR(30)"))
@@ -200,6 +219,9 @@ def ensure_columns():
             conn.execute(text("ALTER TABLE attendance ADD COLUMN recorded_by VARCHAR(60)"))
         if "created_by" not in fine_cols:
             conn.execute(text("ALTER TABLE fines ADD COLUMN created_by VARCHAR(60)"))
+        # مفتاح جلسة مستقل لكل حساب مشرف (لو الجدول اتعمل قبل إضافته)
+        if sup_cols is not None and "token_key" not in sup_cols:
+            conn.execute(text("ALTER TABLE supervisors ADD COLUMN token_key VARCHAR(32)"))
 
 
 ensure_columns()
@@ -414,6 +436,27 @@ def get_db():
 
 
 # ---------------------------------------------------------------- auth
+_PW_ITERATIONS = 120_000
+
+
+def hash_password(password: str) -> str:
+    """تخزين كلمة مرور المشرف كـ PBKDF2-SHA256 بملح عشوائي (مش نص صريح)."""
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), _PW_ITERATIONS).hex()
+    return f"pbkdf2_sha256${_PW_ITERATIONS}${salt}${digest}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    try:
+        algo, iterations, salt, digest = (stored or "").split("$", 3)
+        if algo != "pbkdf2_sha256":
+            return False
+        calc = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), int(iterations)).hex()
+        return hmac.compare_digest(calc, digest)
+    except Exception:
+        return False
+
+
 def _sign(payload: str) -> str:
     return hmac.new(SECRET_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
@@ -427,12 +470,21 @@ def token_role(token: str) -> Optional[str]:
     """يرجع الدور لو التوكن سليم، وإلا None.
 
     الأدوار:_admin / supervisor (مشرف عام) / supervisor:فرع (كلمة مرور فرع) /
-    supervisor:الاسم:فرع (حساب مشرف بالاسم). التوكنات القديمة بتبقى غير صالحة."""
+    supervisor:الاسم:فرع (حساب مشرف بالاسم) / sup:id:key (حساب مشرف من الإعدادات).
+    التوكنات القديمة بتبقى غير صالحة."""
     try:
         role, exp, sig = token.split(".", 2)
-        if not (role == "admin" or role == "supervisor" or role.startswith("supervisor:")):
+        if not (role == "admin" or role == "supervisor" or role.startswith("supervisor:")
+                or role.startswith("sup:")):
             return None
-        if role.startswith("supervisor:"):
+        if role.startswith("sup:"):
+            try:
+                parts = role.split(":")
+                if len(parts) != 3 or int(parts[1]) <= 0 or len(parts[2]) < 8:
+                    return None
+            except ValueError:
+                return None
+        elif role.startswith("supervisor:"):
             parts = role.split(":")
             if len(parts) == 2:
                 if parts[1] not in BRANCHES:
@@ -455,6 +507,25 @@ def require_auth(credentials: HTTPAuthorizationCredentials = Depends(security)):
     role = token_role(credentials.credentials) if credentials else None
     if not role:
         raise HTTPException(status_code=401, detail="جلسة الدخول غير صالحة. سجّل الدخول مرة أخرى.")
+    if role.startswith("sup:"):
+        # حساب مشرف من الإعدادات: الفرع والاسم بيتقرأوا من قاعدة البيانات مع كل طلب،
+        # فأي تعديل من الأدمن بيسري فورًا وحذف/إيقاف الحساب بيقفل جلساته.
+        # بنستخدم جلسة قصيرة هنا (مش جلسة الطلب) عشان /api/events اللي بيستنى
+        # طويل ما يمسكش اتصال قاعدة بيانات طول مدة الانتظار.
+        try:
+            _, sid_raw, key = role.split(":", 2)
+            sid = int(sid_raw)
+        except ValueError:
+            raise HTTPException(status_code=401, detail="جلسة الدخول غير صالحة. سجّل الدخول مرة أخرى.")
+        session = SessionLocal()
+        try:
+            acc = session.query(Supervisor).filter(Supervisor.id == sid,
+                                                   Supervisor.active.is_(True)).first()
+            if acc is None or not acc.token_key or not hmac.compare_digest(acc.token_key, key):
+                raise HTTPException(status_code=401, detail="حساب المشرف اتوقف أو اتحذف. كلّم الأدمن.")
+            role = f"supervisor:{acc.name}:{acc.branch or 'ALL'}"
+        finally:
+            session.close()
     return role
 
 
@@ -568,6 +639,22 @@ class SettingsIn(BaseModel):
     fine_absent: float = Field(default=0, ge=0, le=100000)
     # قاموس {فرع: غرامات} — الفرع لازم يكون من BRANCHES، والقيم لكل نوع تعاقد (FT/PT)
     branch_fines: Optional[Dict[str, BranchFinesIn]] = None
+
+
+class SupervisorIn(BaseModel):
+    """مشرف جديد من إعدادات الأدمن: اسم + كلمة مرور + الفرع المسئول عنه."""
+    name: str = Field(min_length=1, max_length=60)
+    password: str = Field(min_length=4, max_length=128)
+    branch: Optional[str] = None      # فاضي / "" = كل الفروع
+    active: bool = True
+
+
+class SupervisorEditIn(BaseModel):
+    """تعديل مشرف: اللي مش مبعوت بيفضل زي ما هو."""
+    name: Optional[str] = Field(default=None, min_length=1, max_length=60)
+    password: Optional[str] = Field(default=None, min_length=4, max_length=128)
+    branch: Optional[str] = None
+    active: Optional[bool] = None
 
 
 class FineIn(BaseModel):
@@ -690,6 +777,35 @@ def _parse_supervisor_accounts():
 BRANCH_SUPERVISOR_ACCOUNTS = _parse_supervisor_accounts()
 
 
+def seed_supervisors_from_env() -> None:
+    """مرة واحدة: حسابات SUPERVISOR_ACCOUNTS اللي في متغيرات البيئة بتتحوّل لحسابات
+    قابلة للتعديل من الإعدادات (اسم + فرع). بعد كده الإعدادات هي المصدر، ومتغير
+    البيئة بيفضل شغّال كـ fallback للدخول عشان محدش يتقفل بره السيستم."""
+    db = SessionLocal()
+    try:
+        # علامة تمنع إعادة الاستيراد بعد ما الأدمن يحذف/يعدّل الحسابات بنفسه
+        if db.query(Setting).filter(Setting.key == "sup_seed_v1").first():
+            return
+        if db.query(Supervisor.id).first() is None:
+            for pw, acc in BRANCH_SUPERVISOR_ACCOUNTS.items():
+                name = (acc.get("name") or "").strip()
+                branch = acc.get("branch")
+                if not name or branch not in BRANCHES:
+                    continue
+                if db.query(Supervisor).filter(func.lower(Supervisor.name) == name.lower()).first():
+                    continue
+                db.add(Supervisor(name=name, password_hash=hash_password(pw), branch=branch, active=True))
+        db.add(Setting(key="sup_seed_v1", value="1"))
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
+seed_supervisors_from_env()
+
+
 def role_branch(role: str) -> Optional[str]:
     """فرع المشرف لو الدور مقيّد بفرع، وإلا None (الأدمن والمشرف العام لأي حاجة)."""
     if not role or not role.startswith("supervisor:"):
@@ -717,23 +833,141 @@ def supervisor_scope(role: str) -> Optional[str]:
 
 
 def _has_branch_supervisors() -> bool:
-    """هل في حسابات مشرفين مرتبطة بفروع (حسابات بالاسم أو كلمات مرور الفرع)."""
-    return bool(BRANCH_SUPERVISOR_ACCOUNTS or BRANCH_SUPERVISOR_PASSWORDS)
+    """هل في حسابات مشرفين مرتبطة بفروع (حسابات بالاسم أو كلمات مرور الفرع أو
+    حسابات مُدارة من الإعدادات)."""
+    if BRANCH_SUPERVISOR_ACCOUNTS or BRANCH_SUPERVISOR_PASSWORDS:
+        return True
+    db = SessionLocal()
+    try:
+        return db.query(Supervisor.id).filter(Supervisor.active.is_(True),
+                                              Supervisor.branch.isnot(None)).first() is not None
+    finally:
+        db.close()
+
+
+def _supervisor_dict(s: Supervisor) -> dict:
+    return {"id": s.id, "name": s.name, "branch": s.branch or "", "active": bool(s.active)}
+
+
+def _clean_supervisor_name(raw) -> str:
+    name = " ".join(str(raw or "").split())
+    if not name:
+        raise HTTPException(400, "اسم المشرف مطلوب")
+    if len(name) > 60:
+        raise HTTPException(400, "اسم المشرف أطول من 60 حرف")
+    if ":" in name or "|" in name:
+        raise HTTPException(400, "اسم المشرف ما ينفعش يحتوي على «:» أو «|»")
+    return name
+
+
+def _supervisor_branch(raw) -> Optional[str]:
+    """فاضي / ALL = مشرف عام على كل الفروع، وغير كده لازم QCD 1 أو QCD 2."""
+    value = str(raw or "").strip()
+    if not value or value.upper() in ("ALL", "*", "كل الفروع"):
+        return None
+    branch = norm_branch(value) or (value if value in BRANCHES else None)
+    if branch not in BRANCHES:
+        raise HTTPException(400, "الفرع يجب أن يكون QCD 1 أو QCD 2 أو «كل الفروع»")
+    return branch
+
+
+def _supervisor_name_taken(db: Session, name: str, exclude_id: Optional[int] = None) -> bool:
+    q = db.query(Supervisor).filter(func.lower(Supervisor.name) == name.lower())
+    if exclude_id is not None:
+        q = q.filter(Supervisor.id != exclude_id)
+    return q.first() is not None
+
+
+def _supervisor_password_taken(db: Session, password: str, exclude_id: Optional[int] = None) -> bool:
+    """كلمة المرور هي مفتاح الدخول الوحيد، فلازم تبقى مميزة بين حسابات المشرفين."""
+    for acc in db.query(Supervisor).all():
+        if exclude_id is not None and acc.id == exclude_id:
+            continue
+        if verify_password(password, acc.password_hash):
+            return True
+    return False
+
+
+def _managed_supervisors(db: Session) -> List[dict]:
+    return [_supervisor_dict(s) for s in db.query(Supervisor).order_by(Supervisor.name).all()]
 
 
 @app.get("/api/admin/supervisors")
-def supervisors_debug(request: Request, role: str = Depends(require_admin)):
-    """تشخيص حسابات المشرفين — للأدمن بس. بيرجّع الأسماء والفروع **بدون أي كلمات مرور**
-    عشان تتأكد إن متغيرات البيئة وصلت واتفسّرت صح بعد النشر."""
+def supervisors_debug(request: Request, role: str = Depends(require_admin),
+                      db: Session = Depends(get_db)):
+    """حسابات المشرفين المُدارة + تشخيص متغيرات البيئة القديمة — للأدمن بس
+    وبيرجّع الأسماء والفروع **بدون أي كلمات مرور**."""
     accounts = [{"name": acc["name"], "branch": acc["branch"]} for acc in BRANCH_SUPERVISOR_ACCOUNTS.values()]
     return {
+        "managed": _managed_supervisors(db),
         "accounts": accounts,
         "count": len(accounts),
         "branch_passwords": sorted(BRANCH_SUPERVISOR_PASSWORDS.keys()),
         "general_supervisor": bool(SUPERVISOR_PASSWORD),
         "das_integration": bool(DAS_SECRET),
-        "message": "لو القايمة فاضية والباسوردات مش شغالة: متغير SUPERVISOR_ACCOUNTS مش متسجل على السيرفر أو النشر ماخدش قيمته." if not accounts else "",
+        "message": "",
     }
+
+
+@app.post("/api/admin/supervisors")
+def create_supervisor(data: SupervisorIn, request: Request, role: str = Depends(require_admin),
+                      db: Session = Depends(get_db)):
+    name = _clean_supervisor_name(data.name)
+    branch = _supervisor_branch(data.branch)
+    if _supervisor_name_taken(db, name):
+        raise HTTPException(409, "في مشرف بنفس الاسم بالفعل")
+    if _supervisor_password_taken(db, data.password):
+        raise HTTPException(409, "كلمة المرور دي مستخدمة لمشرف تاني — اختار كلمة مرور مختلفة")
+    acc = Supervisor(name=name, password_hash=hash_password(data.password),
+                     branch=branch, active=data.active)
+    db.add(acc)
+    db.commit()
+    db.refresh(acc)
+    publish_event("supervisors", action="create", names=[acc.name],
+                  by=who_role(role), client=client_tag(request))
+    return {"managed": _managed_supervisors(db), "message": f"تم إضافة المشرف {acc.name}"}
+
+
+@app.patch("/api/admin/supervisors/{supervisor_id}")
+def update_supervisor(supervisor_id: int, data: SupervisorEditIn, request: Request,
+                      role: str = Depends(require_admin), db: Session = Depends(get_db)):
+    acc = db.query(Supervisor).filter(Supervisor.id == supervisor_id).first()
+    if acc is None:
+        raise HTTPException(404, "حساب المشرف غير موجود")
+    if data.name is not None:
+        name = _clean_supervisor_name(data.name)
+        if _supervisor_name_taken(db, name, exclude_id=acc.id):
+            raise HTTPException(409, "في مشرف بنفس الاسم بالفعل")
+        acc.name = name
+    if data.branch is not None:
+        acc.branch = _supervisor_branch(data.branch)
+    if data.active is not None:
+        acc.active = data.active
+    if data.password is not None:
+        if _supervisor_password_taken(db, data.password, exclude_id=acc.id):
+            raise HTTPException(409, "كلمة المرور دي مستخدمة لمشرف تاني — اختار كلمة مرور مختلفة")
+        acc.password_hash = hash_password(data.password)
+        acc.token_key = secrets.token_hex(16)      # الباسورد الجديد يقفل الجلسات القديمة
+    db.commit()
+    db.refresh(acc)
+    publish_event("supervisors", action="update", names=[acc.name],
+                  by=who_role(role), client=client_tag(request))
+    return {"managed": _managed_supervisors(db),
+            "message": f"تم تحديث {acc.name} — الفرع: {acc.branch or 'كل الفروع'}"}
+
+
+@app.delete("/api/admin/supervisors/{supervisor_id}")
+def delete_supervisor(supervisor_id: int, request: Request, role: str = Depends(require_admin),
+                      db: Session = Depends(get_db)):
+    acc = db.query(Supervisor).filter(Supervisor.id == supervisor_id).first()
+    if acc is None:
+        raise HTTPException(404, "حساب المشرف غير موجود")
+    name = acc.name
+    db.delete(acc)
+    db.commit()
+    publish_event("supervisors", action="delete", names=[name], by=who_role(role),
+                  client=client_tag(request))
+    return {"managed": _managed_supervisors(db), "message": f"تم حذف حساب {name} — جلساته اتقفلت"}
 
 
 
@@ -896,6 +1130,8 @@ def who_role(role: str) -> str:
     name, branch = role_name(role), role_branch(role)
     if name and branch:
         return f"مشرف {name} — {branch}"
+    if name:
+        return f"مشرف {name} — كل الفروع"
     if branch:
         return f"مشرف {branch}"
     return "مشرف"
@@ -911,6 +1147,25 @@ def client_tag(request: Request) -> str:
 def publish_event(kind: str, **data) -> None:
     """بينشر تغيير لكل التابات المتصلة. بيتنده بعد نجاح الكتابة (بعد الـcommit)."""
     EVENTS.publish(kind, **data)
+
+
+def _event_visible(ev: dict, scope: Optional[str]) -> bool:
+    """هل الحدث ده يخص فرع المشرف؟ (None = الأدمن/المشرف العام يشوف كل حاجة).
+
+    الأحداث بتحمل `branch` أو `branches`؛ أي حدث مالوش فرع (إعدادات/مسح عام)
+    بيفضل ظاهر للكل لأنه مش بيكشف بيانات فرع معيّن.
+    """
+    if not scope:
+        return True
+    branches = ev.get("branches")
+    if branches is None:
+        single = ev.get("branch")
+        if not single:
+            return True
+        branches = [single]
+    if isinstance(branches, str):
+        branches = [branches]
+    return scope in branches
 
 
 # ---------------------------------------------------------------- pages / auth routes
@@ -945,7 +1200,7 @@ def health():
 
 
 @app.post("/api/login")
-def login(data: LoginIn, request: Request):
+def login(data: LoginIn, request: Request, db: Session = Depends(get_db)):
     ip = client_ip(request)
     now = time.time()
     _prune_login_state(now)
@@ -953,15 +1208,26 @@ def login(data: LoginIn, request: Request):
     if locked_until > now:
         minutes = int((locked_until - now) // 60) + 1
         raise HTTPException(429, f"محاولات كثيرة خاطئة. حاول مرة أخرى بعد {minutes} دقيقة.")
+    display_role = None
     if secrets.compare_digest(data.password.encode(), ADMIN_PASSWORD.encode()):
         role = "admin"
     else:
         role = None
-        # حسابات المشرفين بالاسم — توكن مرتبط بالاسم وبالفرع معًا
-        for pw, acc in BRANCH_SUPERVISOR_ACCOUNTS.items():
-            if secrets.compare_digest(data.password.encode(), pw.encode()):
-                role = f"supervisor:{acc['name']}:{acc['branch']}"
+        # حسابات المشرفين المُدارة من الإعدادات (الاسم + الفرع بيتقرأوا من الداتابيز)
+        for acc in db.query(Supervisor).filter(Supervisor.active.is_(True)).all():
+            if verify_password(data.password, acc.password_hash):
+                if not acc.token_key:
+                    acc.token_key = secrets.token_hex(16)
+                    db.commit()
+                role = f"sup:{acc.id}:{acc.token_key}"
+                display_role = f"supervisor:{acc.name}:{acc.branch or 'ALL'}"
                 break
+        # حسابات المشرفين بالاسم — توكن مرتبط بالاسم وبالفرع معًا
+        if role is None:
+            for pw, acc in BRANCH_SUPERVISOR_ACCOUNTS.items():
+                if secrets.compare_digest(data.password.encode(), pw.encode()):
+                    role = f"supervisor:{acc['name']}:{acc['branch']}"
+                    break
         if role is None:
             # مشرف مرتبط بفرع بدون اسم (الشكل القديم)
             for branch, pw in BRANCH_SUPERVISOR_PASSWORDS.items():
@@ -978,7 +1244,7 @@ def login(data: LoginIn, request: Request):
             _login_state[ip] = [fails, 0.0]
         raise HTTPException(401, "كلمة المرور غير صحيحة")
     _login_state.pop(ip, None)
-    return {"token": make_token(role), "role": role, "message": "تم تسجيل الدخول"}
+    return {"token": make_token(role), "role": display_role or role, "message": "تم تسجيل الدخول"}
 
 
 @app.get("/api/me")
@@ -989,19 +1255,29 @@ def me(role: str = Depends(require_auth)):
 
 @app.get("/api/events")
 def live_events(since: int = Query(0, ge=0), wait: float = Query(20, ge=0, le=30),
-                _: bool = Depends(require_auth)):
+                role: str = Depends(require_auth)):
     """التحديث المباشر: long-poll بترجع فورًا لو في تغيير، أو بعد `wait` ثانية كحد أقصى.
 
     الواجهة بتناديها في حلقة مستمرة بـ`since` = آخر rev وصلها، فأي تسجيل من أي
     مستخدم تاني بيظهر عندها في نفس اللحظة بدون refresh.
+    مشرف الفرع بيوصله أحداث فرعه بس — أسماء وأرقام الفروع التانية ما بتتسرّبش.
     """
-    return EVENTS.wait(since, wait) if wait else EVENTS.snapshot(since)
+    payload = EVENTS.wait(since, wait) if wait else EVENTS.snapshot(since)
+    scope = supervisor_scope(role)
+    if scope:
+        payload["events"] = [e for e in payload["events"] if _event_visible(e, scope)]
+    return payload
 
 
 # ---------------------------------------------------------------- settings
 @app.get("/api/settings")
-def read_settings(_: bool = Depends(require_auth), db: Session = Depends(get_db)):
-    return get_settings(db)
+def read_settings(role: str = Depends(require_auth), db: Session = Depends(get_db)):
+    data = get_settings(db)
+    scope = supervisor_scope(role)
+    if scope:
+        # مشرف الفرع يشوف غرامات فرعه بس — مالوش دعوة بغرامات الفرع التاني
+        data["branch_fines"] = {scope: data["branch_fines"].get(scope, {})}
+    return data
 
 
 @app.put("/api/settings")
@@ -1072,8 +1348,8 @@ def create_employee(data: EmployeeIn, request: Request, week: Optional[date] = N
     add_to_weeks(db, e, ws)
     db.commit()
     db.refresh(e)
-    publish_event("employees", action="create", names=[e.name], by=who_role(role),
-                  client=client_tag(request))
+    publish_event("employees", action="create", names=[e.name], branches=[e.branch],
+                  by=who_role(role), client=client_tag(request))
     return ov(e, peek_week(db, ws).get(e.id))
 
 
@@ -1098,8 +1374,8 @@ def update_employee(employee_id: int, data: EmployeeIn, request: Request, week: 
     s = set_sched(db, e, ws, shift=data.shift.strip(), day_off=data.day_off)
     db.commit()
     db.refresh(e)
-    publish_event("employees", action="update", names=[e.name], by=who_role(role),
-                  client=client_tag(request))
+    publish_event("employees", action="update", names=[e.name], branches=[e.branch],
+                  by=who_role(role), client=client_tag(request))
     return ov(e, s)
 
 
@@ -1143,14 +1419,14 @@ def delete_employee(employee_id: int, request: Request, from_week: Optional[date
         db.query(WeekSchedule).filter(WeekSchedule.employee_id == e.id, WeekSchedule.week_start >= ws).delete(
             synchronize_session=False)
         db.commit()
-        publish_event("employees", action="deactivate", names=[e.name], by=who_role(role),
-                      client=client_tag(request))
+        publish_event("employees", action="deactivate", names=[e.name], branches=[e.branch],
+                      by=who_role(role), client=client_tag(request))
         return {"message": "تمت إزالة الموظف من جدول الأسبوع ده وما بعده مع الاحتفاظ بسجل حضوره"}
     # نحافظ على سجل الحضور القديم: إيقاف بدل الحذف النهائي.
     e.active = False
     db.commit()
-    publish_event("employees", action="deactivate", names=[e.name], by=who_role(role),
-                  client=client_tag(request))
+    publish_event("employees", action="deactivate", names=[e.name], branches=[e.branch],
+                  by=who_role(role), client=client_tag(request))
     return {"message": "تم إيقاف الموظف مع الاحتفاظ بسجل حضوره السابق"}
 
 
@@ -1193,6 +1469,7 @@ def bulk_employees(data: BulkEmployeesIn, request: Request, week: Optional[date]
                 set_sched(db, e, week_param(week), **sched)
     db.commit()
     publish_event("employees", action=data.action, names=[e.name for e in emps[:3]],
+                  branches=sorted({e.branch for e in emps}),
                   count=len(emps), by=who_role(role), client=client_tag(request))
     return {"updated": len(emps)}
 
@@ -1420,7 +1697,8 @@ def add_partners(data: PartnerAddIn, request: Request, role: str = Depends(requi
         db.rollback()
     if added:
         publish_event("partners", action="add", week=ws.isoformat(),
-                      names=[e.name for e in added], by=who_role(role), client=client_tag(request))
+                      names=[e.name for e in added], branches=sorted({e.branch for e in added}),
+                      by=who_role(role), client=client_tag(request))
     return {"added": len(added), "already": len(ids) - len(added),
             "payload": _partner_payload(db, ws, role)}
 
@@ -1434,7 +1712,7 @@ def remove_partner(partner_id: int, request: Request, role: str = Depends(requir
     db.delete(p)
     db.commit()
     publish_event("partners", action="remove", week=ws.isoformat(), names=[e.name],
-                  by=who_role(role), client=client_tag(request))
+                  branches=[e.branch], by=who_role(role), client=client_tag(request))
     return {"message": f"تمت إزالة {e.name} من الشريك", "payload": _partner_payload(db, ws, role)}
 
 
@@ -1471,6 +1749,7 @@ def set_partner_count(partner_id: int, data: PartnerCountIn, request: Request,
     payload = _partner_payload(db, ws, role)
     mine = next((d for d in payload["drivers"] if d["id"] == p.id), None)
     publish_event("partners", action="count", week=ws.isoformat(), names=[e.name],
+                  branches=[e.branch],
                   date=data.date.isoformat(), count=data.count,
                   by=who_role(role), client=client_tag(request))
     return {
@@ -1483,6 +1762,43 @@ def set_partner_count(partner_id: int, data: PartnerCountIn, request: Request,
 
 
 # ---------------------------------------------------------------- roster & attendance
+def day_shift_plan(db: Session, day: date, branch: Optional[str] = None,
+                   extra_marked: Optional[set] = None) -> Dict[str, dict]:
+    """خطة شيفتات اليوم لكل فرع بالترتيب الزمني.
+
+    لكل فرع: ترتيب الشيفتات، الشيفت المفتوح (أول شيفت لسه فيه ناس ما اتسجلوش)،
+    والشيفتات المقفولة اللي بعدها. `extra_marked` = موظفين جايين في نفس الحفظ
+    (بنحسبهم كأنهم اتسجلوا) عشان حفظ شيفتين ورا بعض في طلب واحد يعدّي لو الأول
+    اكتمل فعلًا.
+    """
+    weekday = day.strftime("%A")
+    pairs = week_pairs(db, week_start_of(day), branch)
+    by_branch: Dict[str, Dict[str, List[int]]] = {}
+    for e, s in pairs:
+        if s.day_off == weekday:
+            continue
+        by_branch.setdefault(e.branch, {}).setdefault(s.shift, []).append(e.id)
+    ids = [eid for shifts in by_branch.values() for members in shifts.values() for eid in members]
+    recorded = set(extra_marked or ())
+    if ids:
+        recorded |= {r.employee_id for r in db.query(Attendance.employee_id).filter(
+            Attendance.attendance_date == day, Attendance.employee_id.in_(ids)).all()}
+    out: Dict[str, dict] = {}
+    for b, shifts in by_branch.items():
+        order = sorted(shifts, key=shift_sort_key)
+        missing = {name: [eid for eid in shifts[name] if eid not in recorded] for name in order}
+        first_open = next((i for i, name in enumerate(order) if missing[name]), None)
+        info = {
+            "order": order,
+            "missing": missing,
+            "complete": order[:first_open] if first_open is not None else order,
+            "open": order[first_open] if first_open is not None else None,
+            "locked": order[first_open + 1:] if first_open is not None else [],
+        }
+        out[b] = info
+    return out
+
+
 @app.get("/api/roster")
 def roster(attendance_date: date = Query(...), branch: Optional[str] = None,
            role: str = Depends(require_auth), db: Session = Depends(get_db)):
@@ -1490,7 +1806,8 @@ def roster(attendance_date: date = Query(...), branch: Optional[str] = None,
     ws = week_start_of(attendance_date)
     branch = supervisor_scope(role) or branch
     pairs = week_pairs(db, ws, branch)
-    working = sorted([(e, s) for e, s in pairs if s.day_off != weekday], key=lambda p: (p[0].branch, p[1].shift, p[0].name))
+    working = sorted([(e, s) for e, s in pairs if s.day_off != weekday],
+                     key=lambda p: (p[0].branch, shift_sort_key(p[1].shift), p[0].name))
     off = [(e, s) for e, s in pairs if s.day_off == weekday]
     ids = [e.id for e, _ in working]
     existing = {}
@@ -1504,7 +1821,8 @@ def roster(attendance_date: date = Query(...), branch: Optional[str] = None,
         row["attendance"] = existing.get(e.id)
         out.append(row)
     return {"date": attendance_date.isoformat(), "weekday": weekday, "week": week_info(ws), "employees": out,
-            "off_employees": [ov(e, s) for e, s in off]}
+            "off_employees": [ov(e, s) for e, s in off],
+            "shift_gate": day_shift_plan(db, attendance_date, branch)}
 
 
 def _parse_stamp(value: str) -> Optional[datetime]:
@@ -1520,7 +1838,8 @@ def _parse_stamp(value: str) -> Optional[datetime]:
 
 
 def _save_items(db: Session, day: date, items: List[AttendanceItem], _retry: bool = False,
-                actor: str = "", scope_branch: Optional[str] = None):
+                actor: str = "", scope_branch: Optional[str] = None,
+                enforce_shift_gate: bool = False):
     """حفظ/تعديل/مسح تسجيلات يوم واحد.
 
     كل صف بيتكتب بأعمدته الأربعة كاملة (status/fine/reason/note) في جملة UPDATE
@@ -1529,6 +1848,7 @@ def _save_items(db: Session, day: date, items: List[AttendanceItem], _retry: boo
     الجمل بتتنفّذ مجمّعة (executemany) عشان الحفظ الجماعي يبقى جملة واحدة مش جملة لكل موظف.
     actor = مين كتب التسجيل (بيتسجّل في recorded_by) وscope_branch = فرع المشرف
     المرتبط بفرع — الموظفين بره النطاق بيرجعوا خطأ بدل ما يتسجّل عليهم.
+    enforce_shift_gate = المشرف مايسجّلش شيفت قبل ما يخلّص الشيفت اللي قبله.
     """
     weekday = day.strftime("%A")
     wanted: Dict[int, AttendanceItem] = {}
@@ -1547,6 +1867,24 @@ def _save_items(db: Session, day: date, items: List[AttendanceItem], _retry: boo
     ids = list(wanted.keys())
     emps = {e.id: e for e in db.query(Employee).filter(Employee.id.in_(ids)).all()}
     smap = ensure_week(db, week_start_of(day))
+    if enforce_shift_gate and wanted:
+        # بنحسب الخطة بعد ما نعتبر كل اللي جايين في الطلب ده اتسجلوا — عشان لو المشرف
+        # خلّص الشيفت الأول والتاني مع بعض في حفظ واحد يعدّي، لكن لو الأول ناقص نرفض
+        # أي صف في شيفت بعده. الحفظ اليدوي بس (مش QR) اللي بيعدّي من هنا.
+        extra = {eid for eid, it in wanted.items() if (it.status or "").strip() in STATUSES}
+        plan = day_shift_plan(db, day, scope_branch, extra_marked=extra)
+        for eid, it in list(wanted.items()):
+            e, sched = emps.get(eid), smap.get(eid)
+            if e is None or sched is None:
+                continue
+            info = plan.get(e.branch)
+            if info and sched.shift in info["locked"]:
+                wanted.pop(eid, None)
+                errors.append({"employee_id": eid, "name": e.name, "locked": True,
+                               "detail": f"شيفت {sched.shift} مقفول — لازم تسجّل كل الناس "
+                                         f"في شيفت {info.get('open') or 'قبله'} الأول"})
+        ids = list(wanted.keys())
+        emps = {e.id: e for e in db.query(Employee).filter(Employee.id.in_(ids)).all()}
     # بنقرا المفاتيح والـstamps بس (مش كائنات ORM) عشان مفيش أي كائن قديم يتكتب بعد الكتابة
     rows = db.execute(select(Attendance.id, Attendance.employee_id, Attendance.updated_at).where(
         Attendance.attendance_date == day, Attendance.employee_id.in_(ids))).all()
@@ -1651,7 +1989,8 @@ def _save_items(db: Session, day: date, items: List[AttendanceItem], _retry: boo
             raise
         # حالة نادرة: نفس السجل اتحفظ من مكان تاني في نفس اللحظة. بنعيد المحاولة مرة
         # واحدة — المرة دي الصف بقى موجود فبيمشي في مسار التحديث بدل الإضافة.
-        return _save_items(db, day, list(wanted.values()), _retry=True, actor=actor, scope_branch=scope_branch)
+        return _save_items(db, day, list(wanted.values()), _retry=True, actor=actor,
+                           scope_branch=scope_branch, enforce_shift_gate=enforce_shift_gate)
 
     # بنقرا التسجيلات المتأثرة مرة واحدة بعد الحفظ عشان نبني الرد
     records = {eid: None for eid in touched}
@@ -1662,8 +2001,9 @@ def _save_items(db: Session, day: date, items: List[AttendanceItem], _retry: boo
                        Attendance.note, Attendance.recorded_by, Attendance.updated_at).where(
                     Attendance.attendance_date == day, Attendance.employee_id.in_(touched))).all():
             records[r.employee_id] = attendance_dict(r)
+    branches = sorted({emps[eid].branch for eid in touched if eid in emps})
     return {"saved": saved, "cleared": cleared, "errors": errors, "records": records,
-            "names": names[:4], "ids": touched}
+            "names": names[:4], "ids": touched, "branches": branches}
 
 @app.post("/api/attendance")
 def save_attendance(data: AttendanceIn, request: Request, role: str = Depends(require_auth),
@@ -1674,13 +2014,14 @@ def save_attendance(data: AttendanceIn, request: Request, role: str = Depends(re
                           reason=data.reason, note=data.note,
                           expected_updated_at=data.expected_updated_at)
     res = _save_items(db, data.attendance_date, [item], actor=who_role(role),
-                      scope_branch=supervisor_scope(role))
+                      scope_branch=supervisor_scope(role), enforce_shift_gate=(role != "admin"))
     if res["errors"]:
         first = res["errors"][0]
         code = 409 if first.get("conflict") else (404 if first["detail"] == "الموظف غير موجود" else 400)
         raise HTTPException(code, first["detail"])
     publish_event("attendance", date=data.attendance_date.isoformat(), ids=[data.employee_id],
                   names=res["names"], count=res["saved"], by=who_role(role),
+                  branches=res["branches"],
                   client=client_tag(request))
     return res["records"][data.employee_id]
 
@@ -1693,10 +2034,11 @@ def save_attendance_bulk(data: AttendanceBulkIn, request: Request, role: str = D
     if len(data.items) > 2000:
         raise HTTPException(400, "عدد التسجيلات كبير جدًا في طلب واحد")
     res = _save_items(db, data.attendance_date, data.items, actor=who_role(role),
-                      scope_branch=supervisor_scope(role))
+                      scope_branch=supervisor_scope(role), enforce_shift_gate=(role != "admin"))
     if res["saved"] or res["cleared"]:
         publish_event("attendance", date=data.attendance_date.isoformat(), ids=res["ids"],
                       names=res["names"], count=res["saved"] + res["cleared"],
+                      branches=res["branches"],
                       by=who_role(role), client=client_tag(request))
     return {"saved": res["saved"], "cleared": res["cleared"], "errors": res["errors"],
             "records": res["records"]}
@@ -1738,7 +2080,8 @@ def dashboard(attendance_date: date = Query(...), role: str = Depends(require_au
     totals["fines"] = round(totals["fines"], 2)
     for b in branches.values():
         b["fines"] = round(b["fines"], 2)
-        b["shifts"] = [dict(shift=k, **dict(v, fines=round(v["fines"], 2))) for k, v in sorted(b["shifts"].items())]
+        b["shifts"] = [dict(shift=k, **dict(v, fines=round(v["fines"], 2)))
+                       for k, v in sorted(b["shifts"].items(), key=lambda kv: shift_sort_key(kv[0]))]
 
     # الاتجاه والمتابعة بيتحسبوا على الأسبوع ده بس (من الأحد للسبت) — وبنطاق الفرع لو مشرف فرع
     we = ws + timedelta(days=6)
@@ -2304,8 +2647,8 @@ def create_manual_fine(data: FineIn, request: Request,
     db.add(f)
     db.commit()
     db.refresh(f)
-    publish_event("fines", action="create", names=[e.name], by=who_role(role),
-                  client=client_tag(request))
+    publish_event("fines", action="create", names=[e.name], branches=[e.branch],
+                  by=who_role(role), client=client_tag(request))
     return _fine_dict(f, e)
 
 
@@ -2334,8 +2677,8 @@ def update_manual_fine(fine_id: int, data: FineEditIn, request: Request,
         raise HTTPException(400, "اكتب سبب الغرامة")
     db.commit()
     db.refresh(f)
-    publish_event("fines", action="update", names=[e.name], by=who_role(role),
-                  client=client_tag(request))
+    publish_event("fines", action="update", names=[e.name], branches=[e.branch],
+                  by=who_role(role), client=client_tag(request))
     return _fine_dict(f, e)
 
 
@@ -2350,8 +2693,8 @@ def delete_manual_fine(fine_id: int, request: Request, role: str = Depends(requi
     name = e.name if e else ""
     db.delete(f)
     db.commit()
-    publish_event("fines", action="delete", names=[name], by=who_role(role),
-                  client=client_tag(request))
+    publish_event("fines", action="delete", names=[name], branches=[e.branch] if e else [],
+                  by=who_role(role), client=client_tag(request))
     return {"message": "تم مسح الغرامة الإدارية"}
 
 
@@ -2635,6 +2978,8 @@ def _das_decision_allowed(role: str, req_branch: str) -> bool:
     branch = role_branch(role)
     if branch:
         return branch == req_branch
+    if role.startswith("supervisor:") and not branch:
+        return True          # مشرف عام بالاسم («كل الفروع») بيقرّر على الفرعين
     if role == "supervisor":
         return not _has_branch_supervisors()
     return False
@@ -2838,12 +3183,15 @@ def _check_branch(branch):
 
 
 @app.get("/api/schedule/weeks")
-def schedule_weeks(_: bool = Depends(require_auth), db: Session = Depends(get_db)):
+def schedule_weeks(role: str = Depends(require_auth), db: Session = Depends(get_db)):
     """كل الأسابيع اللي ليها جدول + أسبوع النهارده — اللي المستخدم بيختار منهم
-    الأسبوع اللي هيتطبّق عليه الشيت وقت الاستيراد."""
-    rows = db.execute(select(WeekSchedule.week_start, func.count(WeekSchedule.id))
-                      .group_by(WeekSchedule.week_start)
-                      .order_by(WeekSchedule.week_start)).all()
+    الأسبوع اللي هيتطبّق عليه الشيت وقت الاستيراد. مشرف الفرع بيشوف عدد موظفين فرعه بس."""
+    q = (db.query(WeekSchedule.week_start, func.count(WeekSchedule.id))
+         .select_from(WeekSchedule).join(Employee, Employee.id == WeekSchedule.employee_id))
+    scope = supervisor_scope(role)
+    if scope:
+        q = q.filter(Employee.branch == scope)
+    rows = q.group_by(WeekSchedule.week_start).order_by(WeekSchedule.week_start).all()
     weeks = []
     for ws, cnt in rows:
         info = week_info(ws)
@@ -3024,6 +3372,7 @@ def schedule_apply(data: ScheduleApplyIn, request: Request, role: str = Depends(
     if updated:
         publish_event("schedule", action="apply", count=updated,
                       names=[emps[i.id].name for i in data.items if i.id in emps][:3],
+                      branches=sorted({emps[i.id].branch for i in data.items if i.id in emps}),
                       by=who_role(role), client=client_tag(request))
     return {"updated": updated, "errors": errors}
 
@@ -4091,7 +4440,7 @@ def _record_checkin(db: Session, e: Employee, source: str = "QR", actor: str = "
 
     def event(**extra):
         publish_event("attendance", date=day.isoformat(), ids=[e.id], names=[e.name],
-                      count=1, by=actor,
+                      count=1, by=actor, branches=[e.branch],
                       client=client_tag(request) if request is not None else "",
                       action="check_in", time=clock, **extra)
 
@@ -4201,7 +4550,7 @@ def _record_checkout(db: Session, e: Employee, source: str = "QR", actor: str = 
     db.commit()
     clock = now_local.strftime("%H:%M")
     publish_event("attendance", date=day.isoformat(), ids=[e.id], names=[e.name],
-                  count=1, by=actor,
+                  count=1, by=actor, branches=[e.branch],
                   client=client_tag(request) if request is not None else "",
                   action="check_out", time=clock, duration_min=worked,
                   early=bool(early), early_min=early, early_minutes=early)

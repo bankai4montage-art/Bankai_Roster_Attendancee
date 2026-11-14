@@ -2829,3 +2829,20 @@ button,a,label,select,summary,input[type=checkbox],input[type=radio],.chip,.nav-
 /* ????? ????? ?????? ?? ????? ?????: ????? ?????? ???? ?????? */
 .seg.hist-edit-seg{display:grid;grid-template-columns:repeat(4,1fr);width:100%}
 .seg.hist-edit-seg button{justify-content:center;width:100%}
+
+/* ===== V20 «SUPERVISORS & SHIFT GATE» ===== */
+.sup-list{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+.sup-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.sup-row .sup-name{flex:1 1 150px;font-weight:800;color:var(--head);font-size:13.5px;min-width:0}
+.sup-row .sup-name small{display:block;font-weight:600;color:var(--ink2);font-size:11px;margin-top:2px}
+.sup-row .sel{width:auto;min-width:120px}
+.sup-row .btn{height:34px}
+.sup-row.off{opacity:.6}
+.sup-row .sup-actions{display:flex;gap:6px;flex-wrap:wrap}
+.sup-add{display:grid;grid-template-columns:1.2fr 1.2fr 1fr auto;gap:8px;align-items:center;margin-bottom:6px}
+.sup-empty{padding:14px;border:1px dashed var(--line);border-radius:12px;color:var(--ink2);font-size:12.5px;font-weight:600;text-align:center}
+.agroup.locked .ghead{opacity:.7}
+.arow.locked{opacity:.55}
+.arow.locked .seg button,.arow.locked .f-fine,.arow.locked .f-reason,.arow.locked .f-note,.arow.locked .note-btn{pointer-events:none}
+.lock-tag{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:var(--surf2);border:1px solid var(--line);color:var(--ink2);font-size:10.5px;font-weight:800;white-space:nowrap}
+@media(max-width:700px){.sup-add{grid-template-columns:1fr 1fr}.sup-row .sel{flex:1 1 100%}.sup-row .sup-actions{width:100%}}

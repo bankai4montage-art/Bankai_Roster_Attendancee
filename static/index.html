@@ -512,13 +512,28 @@
             <div class="admin-only"><button class="btn primary" id="setSave">حفظ الإعدادات</button></div>
           </div>
         </div>
+        <div class="panel admin-only" id="supPanel">
+          <div class="panel-h"><div><h3>حسابات المشرفين والصلاحيات</h3><p>كل مشرف ليه فرع مسئول. المشرف بيشوف بيانات فرعه بس: الحضور، الموظفين، التقارير، الغرامات، الجدول، والشريك.</p></div></div>
+          <div class="panel-b">
+            <div id="supList" class="sup-list"></div>
+            <form id="supAddForm" class="sup-add" autocomplete="off">
+              <input id="supNewName" class="inp" placeholder="اسم المشرف" maxlength="60" required>
+              <input id="supNewPass" class="inp" type="password" placeholder="كلمة المرور" minlength="4" maxlength="128" required autocomplete="new-password">
+              <select id="supNewBranch" class="sel" aria-label="الفرع المسئول">
+                <option value="">كل الفروع</option><option>QCD 1</option><option>QCD 2</option>
+              </select>
+              <button class="btn primary" type="submit">إضافة مشرف</button>
+            </form>
+            <p class="hint">غيّر فرع أي مشرف من القايمة — الحفظ تلقائي وبيسري على شغله على طول. «كل الفروع» معناها مشرف عام بيشوف الفرعين.</p>
+            <p class="hint" id="supAccountsInfo"></p>
+          </div>
+        </div>
         <div class="panel">
           <div class="panel-h"><div><h3>البيانات والنسخ الاحتياطي</h3><p>خد نسخة من بياناتك بشكل دوري.</p></div></div>
           <div class="panel-b">
             <div class="row admin-only"><button class="btn" id="setBackup"><svg class="i"><use href="#i-download"/></svg>تنزيل نسخة احتياطية كاملة (.db)</button></div>
             <div class="row"><button class="btn" id="setExportEmp"><svg class="i"><use href="#i-download"/></svg>تصدير قائمة الموظفين CSV</button></div>
-            <p class="hint">كلمة مرور الأدمن بتتغير من متغير <b class="num">ADMIN_PASSWORD</b> في إعدادات الاستضافة، وكلمة مرور المشرفين من <b class="num">SUPERVISOR_PASSWORD</b> (لو فاضية يبقى مفيش دخول للمشرفين). بعد تغيير أي واحدة سجّل الدخول من جديد.</p>
-            <p class="hint" id="supAccountsInfo">حسابات المشرفين: جارٍ التحقق…</p>
+            <p class="hint">كلمة مرور الأدمن بتتغير من متغير <b class="num">ADMIN_PASSWORD</b> في إعدادات الاستضافة. حسابات المشرفين بقت بتتدار من قسم «حسابات المشرفين» فوق (إضافة/حذف/تغيير باسورد/فرع). بعد تغيير أي باسورد سجّل الدخول من جديد.</p>
           </div>
         </div>
         <div class="panel danger-zone admin-only">

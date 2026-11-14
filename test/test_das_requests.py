@@ -216,17 +216,12 @@ def test_checkout_after_shift_end_is_not_early(client, admin):
     assert out["worked_minutes"] == 480
 
 
-def test_general_supervisor_bounds_when_no_branch_passwords():
-    saved = dict(app.BRANCH_SUPERVISOR_PASSWORDS)
-    saved_acc = dict(app.BRANCH_SUPERVISOR_ACCOUNTS)
-    try:
-        app.BRANCH_SUPERVISOR_PASSWORDS = {}
-        app.BRANCH_SUPERVISOR_ACCOUNTS = {}
-        assert app._das_decision_allowed("supervisor", "QCD 1") is True
-        assert app._das_decision_allowed("supervisor", "QCD 2") is True
-    finally:
-        app.BRANCH_SUPERVISOR_PASSWORDS = saved
-        app.BRANCH_SUPERVISOR_ACCOUNTS = saved_acc
+def test_general_supervisor_bounds_when_no_branch_passwords(monkeypatch):
+    # حسابات المشرفين بقت بتتدار من الإعدادات (جدول supervisors) كمان، فبنعزل
+    # فحص فرع القرار عن أي حسابات فرعية موجودة في الداتابيز.
+    monkeypatch.setattr(app, "_has_branch_supervisors", lambda: False)
+    assert app._das_decision_allowed("supervisor", "QCD 1") is True
+    assert app._das_decision_allowed("supervisor", "QCD 2") is True
 
 
 # ---------------------------------------------------------------- الشيفت الليلي (لفّ منتصف الليل)
