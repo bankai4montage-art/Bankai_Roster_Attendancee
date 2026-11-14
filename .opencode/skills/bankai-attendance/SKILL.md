@@ -77,12 +77,19 @@ across two branches. Single-tenant, deployed for one company. All user-facing te
 
 ## Auth model
 
-- Two shared passwords, no user accounts, no DB-stored users:
-  `ADMIN_PASSWORD` (role `admin`) and optional `SUPERVISOR_PASSWORD` (role `supervisor`).
-  Empty supervisor password = supervisor access disabled.
-- Tokens are stateless: `"{role}.{exp}.{hmac_sha256}"` signed with `SECRET_KEY`, 30-day TTL
+- Admin password comes from `ADMIN_PASSWORD` (role `admin`). Supervisors are **DB-stored accounts**
+  in the `supervisors` table (name, PBKDF2 password hash, branch, active), managed from
+  **Settings → Supervisor accounts**. `SUPERVISOR_ACCOUNTS`, `SUPERVISOR_BRANCH_PASSWORDS` and
+  `SUPERVISOR_PASSWORD` remain as legacy fallbacks; named env accounts are imported into the DB
+  once (`sup_seed_v1` setting) so they become editable.
+- Tokens are stateless: `"{role}.{exp}.{epoch}.{hmac_sha256}"` signed with `SECRET_KEY`, 30-day TTL
   (`TOKEN_TTL_SECONDS`). `SECRET_KEY` defaults to a hash of `ADMIN_PASSWORD`, so **rotating the
-  password invalidates every session**.
+  password invalidates every session**. `epoch` is `SESSION_EPOCH` persisted in the `session_epoch`
+  setting: **Settings → Danger zone → Force logout** increments it and kills every old token.
+  Legacy 3-part tokens are rejected whenever the epoch is non-zero.
+- DB supervisor tokens use `sup:<id>:<token_key>`; `require_auth` resolves name/branch from the DB on
+  every request (short-lived session so `/api/events` long-polls don't hold a DB connection), so
+  branch assignment changes take effect immediately and deleting/deactivating the account revokes it.
 - Role helpers: `require_auth` (any role), `require_admin` (admin only). Read endpoints use
   `require_auth`; writes to employees/settings/schedule and the danger zone use `require_admin`.
 - Login lockout is in-memory per client IP: 8 failures → 300 s lock (`_login_state`).

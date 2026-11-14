@@ -3446,6 +3446,15 @@ on("setWipeAtt", "click", async () => {
 });
 on("setExportEmp", "click", () => download(`/api/employees/export.csv?${wq()}`, `bankai_employees_${weekLabel(S.week).replace(" ", "")}.csv`).catch(e => toast(e.message, "err")));
 
+on("forceLogoutAll", "click", async () => {
+  if (!confirm("هيتم تسجيل خروج كل المستخدمين الداخلين دلوقتي (بما فيهم الجلسة دي). متأكد؟")) return;
+  try {
+    const r = await api("/api/admin/force-logout", { method: "POST" });
+    toast(r.message || "تم تسجيل خروج كل المستخدمين.", "ok");
+    setTimeout(() => logout(false), 900);
+  } catch (e) { toast(e.message, "err"); }
+});
+
 /* ============================== boot ============================== */
 if (S.token) { showApp(); init(); }
 
@@ -3912,6 +3921,11 @@ function applyEvents(events) {
   const mine = ev => !!ev.client && ev.client === S.clientId;
   const fresh = events.filter(ev => !mine(ev));
   if (!fresh.length) return;
+  if (fresh.some(ev => ev.kind === "session_reset")) {
+    toast("تم تسجيل خروج كل المستخدمين من لوحة الأدمن. سجّل الدخول من جديد.", "err");
+    logout(false);
+    return;
+  }
   let hit = false;
   for (const ev of fresh) if (liveRefresh(ev)) hit = true;
   /* تسجيل الحضور/الانصراف من التطبيق بيوصل كحدث attendance — بنطلّع توست واضح

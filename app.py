@@ -43,6 +43,10 @@ BRANCH_SUPERVISOR_PASSWORDS = {}  # بيتعبّى بعد تعريف norm_branch
 SECRET_KEY = (os.getenv("SECRET_KEY") or os.getenv("ADMIN_TOKEN")
               or hashlib.sha256(("bankai|" + ADMIN_PASSWORD).encode()).hexdigest())
 TOKEN_TTL_SECONDS = 30 * 24 * 3600
+# رقم جيل الجلسات: بيتخزّن في settings وبيزيد لما الأدمن يعمل «تسجيل خروج الكل».
+# أي توكن قديم (حتى لو لسه في مدته) بيبقى غير صالح. القيمة الافتراضية 1 عشان
+# أول نشر للنظام الجديد يلغي كل الجلسات القديمة (force logout) مرة واحدة.
+SESSION_EPOCH = 1
 
 BRANCHES = ("QCD 1", "QCD 2")
 EMP_TYPES = ("FT", "PT")
@@ -225,6 +229,23 @@ def ensure_columns():
 
 
 ensure_columns()
+
+
+def load_session_epoch() -> None:
+    """تحميل رقم جيل الجلسات من الداتابيز (بيزيد مع «تسجيل خروج الكل»)."""
+    global SESSION_EPOCH
+    db = SessionLocal()
+    try:
+        row = db.query(Setting).filter(Setting.key == "session_epoch").first()
+        if row is not None and str(row.value or "").isdigit():
+            SESSION_EPOCH = int(row.value)
+    except Exception:
+        pass
+    finally:
+        db.close()
+
+
+load_session_epoch()
 
 
 def migrate_manual_fines():
@@ -463,7 +484,8 @@ def _sign(payload: str) -> str:
 
 def make_token(role: str) -> str:
     exp = str(int(time.time()) + TOKEN_TTL_SECONDS)
-    return f"{role}.{exp}.{_sign(role + '|' + exp)}"
+    epoch = str(SESSION_EPOCH)
+    return f"{role}.{exp}.{epoch}.{_sign(role + '|' + exp + '|' + epoch)}"
 
 
 def token_role(token: str) -> Optional[str]:
@@ -471,30 +493,45 @@ def token_role(token: str) -> Optional[str]:
 
     الأدوار:_admin / supervisor (مشرف عام) / supervisor:فرع (كلمة مرور فرع) /
     supervisor:الاسم:فرع (حساب مشرف بالاسم) / sup:id:key (حساب مشرف من الإعدادات).
-    التوكنات القديمة بتبقى غير صالحة."""
+    التوكن الجديد فيه رقم جيل الجلسات (epoch)؛ أي توكن من جيل قديم بيترفض فورًا
+    لما الأدمن يعمل «تسجيل خروج الكل». التوكنات القديمة (3 أجزاء) بتترفض بعد أول
+    ترقية لرقم الجيل 1 — يعني أول نشر للنظام بيسجّل خروج كل الداخلين مرة واحدة."""
     try:
-        role, exp, sig = token.split(".", 2)
+        parts = token.rsplit(".", 3)
+        if len(parts) == 4:
+            role, exp, epoch, sig = parts
+            if not epoch.isdigit() or int(epoch) != SESSION_EPOCH:
+                return None
+            payload = role + "|" + exp + "|" + epoch
+        else:
+            # توكن قديم (role.exp.sig) — صالح بس لو لسه مفيش force logout
+            role, exp, sig = token.rsplit(".", 2)
+            if SESSION_EPOCH != 0:
+                return None
+            payload = role + "|" + exp
+        if not hmac.compare_digest(sig, _sign(payload)) or int(exp) <= time.time():
+            return None
         if not (role == "admin" or role == "supervisor" or role.startswith("supervisor:")
                 or role.startswith("sup:")):
             return None
         if role.startswith("sup:"):
             try:
-                parts = role.split(":")
-                if len(parts) != 3 or int(parts[1]) <= 0 or len(parts[2]) < 8:
+                role_parts = role.split(":")
+                if len(role_parts) != 3 or int(role_parts[1]) <= 0 or len(role_parts[2]) < 8:
                     return None
             except ValueError:
                 return None
         elif role.startswith("supervisor:"):
-            parts = role.split(":")
-            if len(parts) == 2:
-                if parts[1] not in BRANCHES:
+            role_parts = role.split(":")
+            if len(role_parts) == 2:
+                if role_parts[1] not in BRANCHES:
                     return None
-            elif len(parts) == 3:
-                if parts[2] not in BRANCHES or len(parts[1]) > 60 or not parts[1]:
+            elif len(role_parts) == 3:
+                if role_parts[2] not in BRANCHES or len(role_parts[1]) > 60 or not role_parts[1]:
                     return None
             else:
                 return None
-        return role if (hmac.compare_digest(sig, _sign(role + "|" + exp)) and int(exp) > time.time()) else None
+        return role
     except Exception:
         return None
 
@@ -1313,6 +1350,29 @@ def update_settings(data: SettingsIn, request: Request, role: str = Depends(requ
     out = get_settings(db)
     out["applied"] = applied
     return out
+
+
+@app.post("/api/admin/force-logout")
+def force_logout_all(request: Request, role: str = Depends(require_admin),
+                     db: Session = Depends(get_db)):
+    """تسجيل خروج كل المستخدمين الداخلين دلوقتي (بما فيهم الأدمن اللي بيضغط).
+
+    التوكنات في النظام stateless، فبنزوّد «جيل الجلسات» المحفوظ في settings؛
+    أي توكن اتعمل قبل الزيادة بيبقى غير صالح فورًا. جلسات الدخول نفسها (العداد
+    والقفل المؤقت) بتتصفّر كمان.
+    """
+    global SESSION_EPOCH
+    SESSION_EPOCH += 1
+    row = db.query(Setting).filter(Setting.key == "session_epoch").first()
+    if row is not None:
+        row.value = str(SESSION_EPOCH)
+    else:
+        db.add(Setting(key="session_epoch", value=str(SESSION_EPOCH)))
+    db.commit()
+    _login_state.clear()
+    publish_event("session_reset", epoch=SESSION_EPOCH, by=who_role(role),
+                  client=client_tag(request))
+    return {"epoch": SESSION_EPOCH, "message": "تم تسجيل خروج كل المستخدمين. سجّل دخولك من جديد."}
 
 
 # ---------------------------------------------------------------- employees
