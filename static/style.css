@@ -2846,3 +2846,12 @@ button,a,label,select,summary,input[type=checkbox],input[type=radio],.chip,.nav-
 .arow.locked .seg button,.arow.locked .f-fine,.arow.locked .f-reason,.arow.locked .f-note,.arow.locked .note-btn{pointer-events:none}
 .lock-tag{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;background:var(--surf2);border:1px solid var(--line);color:var(--ink2);font-size:10.5px;font-weight:800;white-space:nowrap}
 @media(max-width:700px){.sup-add{grid-template-columns:1fr 1fr}.sup-row .sel{flex:1 1 100%}.sup-row .sup-actions{width:100%}}
+
+/* ===== V21 «SUPERVISOR FORM FIX» — خلية الإضافة كانت مضغوطة في صف واحد ===== */
+.sup-add{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:center;margin-bottom:8px}
+.sup-add .inp,.sup-add .sel{width:100%;min-width:0}
+.sup-add button{width:100%;height:42px;justify-content:center}
+@media(max-width:560px){
+  .sup-add{grid-template-columns:minmax(0,1fr)}
+  .sup-add button{height:40px}
+}
