@@ -1815,22 +1815,25 @@ $("histDialog").addEventListener("click", e => { if (e.target === $("histDialog"
 /* دروب مينيو السجل = الأسابيع بس، وكل أسبوع له تسجيلات في السيستم بيظهر لوحده.
    السيرفر بيرجّع weeks من كل التاريخ، وهنا بنملي القايمة ونختار افتراضيًا
    الأسبوع اللي فيهجا النهارده لو موجود، وإلا الأحدث. */
-function histWeekOptions(weeks) {
+function histWeekOptions(weeks, selected) {
   const cur = weekStartOf(todayISO()), starts = weeks.map(w => w.start);
-  if (!starts.includes(cur)) starts.unshift(cur);
+  [selected, cur].forEach(ws => { if (ws && !starts.includes(ws)) starts.push(ws); });
+  starts.sort((a, b) => b.localeCompare(a));
   return starts.map(ws => {
     const y = +addDays(ws, 6).slice(0, 4), no = weekNoOf(ws);
     return `<option value="${ws}">Week ${no}${y !== new Date().getFullYear() ? " · " + y : ""} · ${weekRangeText(ws)}</option>`;
   }).join("");
 }
 
-async function openHistory(id) {
+async function openHistory(id, week) {
   S.hist.id = id;
   $("histTitle").textContent = "…"; $("histSub").textContent = ""; $("histStats").innerHTML = ""; $("histRows").innerHTML = ""; $("histRange").innerHTML = "";
   if (!$("histDialog").open) $("histDialog").showModal();
   try {
     const r = await api(`/api/reports/employee/${S.hist.id}`);
-    $("histRange").innerHTML = histWeekOptions(r.weeks || []);
+    const want = week ? weekStartOf(week) : weekStartOf(todayISO());
+    $("histRange").innerHTML = histWeekOptions(r.weeks || [], want);
+    if ([...$("histRange").options].some(o => o.value === want)) $("histRange").value = want;
     await loadHistory();
   } catch (err) { toast(err.message, "err"); }
 }
@@ -2411,8 +2414,10 @@ function renderPartners() {
     return `<tr data-pg-driver="${dr.id}" data-pg-name="${esc(dr.name)}">
       <th scope="row" class="pg-name">
         <div class="pg-person">
-          ${avHTML(dr.name)}
-          <div class="pg-txt"><b>${esc(dr.name)}</b><small>${sub}</small></div>
+          <button type="button" class="pg-profile" data-pg-hist="${dr.employee_id}" title="${bi("فتح سجل الحضور", "Open attendance history")}" aria-label="${bi(`فتح سجل الحضور بتاع ${dr.name}`, `Open attendance history for ${dr.name}`)}">
+            ${avHTML(dr.name)}
+            <span class="pg-txt"><b>${esc(dr.name)}</b><small>${sub}</small></span>
+          </button>
           <span class="pg-person-total" title="${bi("إجمالي الأسبوع", "Week total")}" aria-label="${bi(`إجمالي الأسبوع: ${dr.total}`, `Week total: ${dr.total}`)}"><b>${dr.total}</b><i>${bi("مرة", "trips")}</i></span>
           <button type="button" class="pg-remove" data-pg-remove aria-label="${bi(`إزالة ${dr.name} من الشريك`, `Remove ${dr.name} from Partner`)}" title="${bi("إزالة من الشريك", "Remove from Partner")}">
             <svg class="i" aria-hidden="true"><use href="#i-trash"/></svg>
@@ -2694,6 +2699,12 @@ $("partnerRows").addEventListener("click", e => {
   if (rm) {
     const tr = rm.closest("tr[data-pg-driver]");
     if (tr) removePartner(+tr.dataset.pgDriver, tr.dataset.pgName || "");
+    return;
+  }
+  const prof = e.target.closest("[data-pg-hist]");
+  if (prof) {
+    const week = S.partner.data?.week?.start;
+    openHistory(+prof.dataset.pgHist, week);
     return;
   }
   const step = e.target.closest("[data-pg-step]");
