@@ -908,6 +908,7 @@ function showPage(p) {
     /* النزول لأعلى صفحة لحظي — html scroll-behavior:smooth كان بيعمل سكرول
        متحرك وقت تنقّل الصفحات وده كان بيخرب إحساس الانتقال */
     window.scrollTo({ top: 0, behavior: "instant" });
+    if (p === "employees") requestAnimationFrame(fitEmployeeTable);
   };
   if (document.startViewTransition && !reducedMotion() && !$("bootSkel")) {
     /* لو فيه انتقال لسه شغال من تنقّل قبله، نلغيه فورًا — غير كده الانتقال
@@ -1582,7 +1583,23 @@ function renderEmployees() {
   markSort("#page-employees th.sort", "sort", S.emp);
   renderPager($("empPager"), total, S.emp, renderEmployees);
   updateBulkBar();
+  requestAnimationFrame(fitEmployeeTable);
 }
+
+/* خلّي ارتفاع جدول الموظفين ينتهي جوه الشاشة، عشان السكرول الأفقي (اللي تحت)
+   يفضل ظاهر بدل ما يروح تحت آخر الصفحة ويضيع. */
+function fitEmployeeTable() {
+  const page = $("page-employees");
+  const wrap = page ? qs(".table-wrap", page) : null;
+  if (!wrap) return;
+  if (page.classList.contains("hidden") || window.innerWidth <= 860) {
+    wrap.style.maxHeight = "";
+    return;
+  }
+  const docTop = wrap.getBoundingClientRect().top + window.scrollY;
+  wrap.style.maxHeight = `${Math.max(180, Math.floor(window.innerHeight - docTop - 32))}px`;
+}
+window.addEventListener("resize", debounce(fitEmployeeTable, 120));
 
 function updateBulkBar() {
   const n = S.emp.selected.size;
@@ -1591,6 +1608,7 @@ function updateBulkBar() {
   const f = S.emp.filtered || [], sel = f.filter(e => S.emp.selected.has(e.id)).length;
   const all = $("empCheckAll");
   all.checked = f.length > 0 && sel === f.length; all.indeterminate = sel > 0 && sel < f.length;
+  requestAnimationFrame(fitEmployeeTable);
 }
 
 bindSort("#page-employees th.sort", "sort", S.emp, renderEmployees);
