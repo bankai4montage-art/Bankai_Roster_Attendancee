@@ -316,11 +316,12 @@
       <div id="schShifts"></div>
 
       <div class="panel new-shift no-print admin-only" id="schNewShift">
-        <div class="panel-h"><div><h3>شيفت جديد</h3><p>اختار وقت البداية والنهاية أو اكتب اسم الشيفت بنفسك.</p></div></div>
+        <div class="panel-h"><div><h3>شيفت جديد</h3><p>اختار وقت البداية والنهاية أو اكتب اسم الشيفت بنفسك، وحدّد نوعه فول تايم أو بارت تايم.</p></div></div>
         <div class="panel-b"><div class="row">
           <label class="field">من<input type="time" id="nsFrom" class="inp" value="08:00"></label>
           <label class="field">إلى<input type="time" id="nsTo" class="inp" value="16:00"></label>
           <label class="field" style="flex:1 1 200px">الاسم (اختياري)<input id="nsName" class="inp" maxlength="80" placeholder="يتكوّن تلقائيًا من الوقت"></label>
+          <label class="field">نوع الشيفت<select id="nsType" class="sel"><option value="FT">فول تايم</option><option value="PT">بارت تايم</option></select></label>
           <button class="btn primary" id="nsAdd" style="align-self:flex-end"><svg class="i"><use href="#i-plus"/></svg>إضافة الشيفت</button>
         </div></div>
       </div>

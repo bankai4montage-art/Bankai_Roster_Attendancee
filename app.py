@@ -153,11 +153,16 @@ class PartnerCount(Base):
 
 
 class ShiftDef(Base):
-    """شيفتات معرّفة لكل فرع (عشان نقدر نضيف شيفت فاضي ونوزّع عليه بعدين)."""
+    """شيفتات معرّفة لكل فرع (عشان نقدر نضيف شيفت فاضي ونوزّع عليه بعدين).
+
+    employment_type بيحدد الشيفت ده فول تايم (FT) أو بارت تايم (PT) — وده اللي
+    بيتفلتر بيه دروب مينو الشيفت في نافذة الموظف. لو القيمة فاضية (بيانات قديمة)
+    بنستنتج النوع من أغلبية الموظفين المسجلين على الشيفت."""
     __tablename__ = "shift_defs"
     id = Column(Integer, primary_key=True)
     branch = Column(String(20), nullable=False, index=True)
     name = Column(String(80), nullable=False)
+    employment_type = Column(String(2), nullable=True)
     __table_args__ = (UniqueConstraint("branch", "name", name="uq_shift_branch_name"),)
 
 
@@ -208,6 +213,8 @@ def ensure_columns():
     fine_cols = {c["name"] for c in inspect(engine).get_columns("fines")}
     sup_cols = ({c["name"] for c in inspect(engine).get_columns("supervisors")}
                 if inspect(engine).has_table("supervisors") else None)
+    shift_cols = ({c["name"] for c in inspect(engine).get_columns("shift_defs")}
+                  if inspect(engine).has_table("shift_defs") else None)
     with engine.begin() as conn:
         if "phone" not in cols:
             conn.execute(text("ALTER TABLE employees ADD COLUMN phone VARCHAR(30)"))
@@ -226,6 +233,9 @@ def ensure_columns():
         # مفتاح جلسة مستقل لكل حساب مشرف (لو الجدول اتعمل قبل إضافته)
         if sup_cols is not None and "token_key" not in sup_cols:
             conn.execute(text("ALTER TABLE supervisors ADD COLUMN token_key VARCHAR(32)"))
+        # نوع الشيفت (FT/PT) — للبيانات القديمة بيتستنتج وقت القراءة
+        if shift_cols is not None and "employment_type" not in shift_cols:
+            conn.execute(text("ALTER TABLE shift_defs ADD COLUMN employment_type VARCHAR(2)"))
 
 
 ensure_columns()
@@ -1395,6 +1405,11 @@ def list_employees(branch: Optional[str] = None, active_only: bool = False, week
 def create_employee(data: EmployeeIn, request: Request, week: Optional[date] = None,
                     role: str = Depends(require_admin), db: Session = Depends(get_db)):
     check_employee_values(data.branch, data.employment_type, data.day_off)
+    shift_name = data.shift.strip()
+    conflict = shift_type_conflict(db, data.branch, shift_name, data.employment_type)
+    if conflict:
+        raise HTTPException(400, f"شيفت «{shift_name}» نوعه {'فول تايم' if conflict == 'FT' else 'بارت تايم'} — "
+                                 f"اختار شيفت {'فول تايم' if data.employment_type == 'FT' else 'بارت تايم'} أو غيّر نوع الشيفت من الجدول.")
     code = (data.employee_code or "").strip() or None
     if code and db.query(Employee).filter(Employee.employee_code == code).first():
         raise HTTPException(409, "كود الموظف مستخدم بالفعل")
@@ -1420,6 +1435,15 @@ def update_employee(employee_id: int, data: EmployeeIn, request: Request, week: 
     if not e:
         raise HTTPException(404, "الموظف غير موجود")
     check_employee_values(data.branch, data.employment_type, data.day_off)
+    ws = week_param(week)
+    cur = peek_week(db, ws).get(e.id)
+    cur_shift = cur.shift if cur is not None else e.shift
+    shift_name = data.shift.strip()
+    if shift_name != cur_shift or data.employment_type != e.employment_type or data.branch != e.branch:
+        conflict = shift_type_conflict(db, data.branch, shift_name, data.employment_type)
+        if conflict:
+            raise HTTPException(400, f"شيفت «{shift_name}» نوعه {'فول تايم' if conflict == 'FT' else 'بارت تايم'} — "
+                                     f"اختار شيفت {'فول تايم' if data.employment_type == 'FT' else 'بارت تايم'} أو غيّر نوع الشيفت من الجدول.")
     code = (data.employee_code or "").strip() or None
     if code and db.query(Employee).filter(Employee.employee_code == code, Employee.id != employee_id).first():
         raise HTTPException(409, "كود الموظف مستخدم بالفعل")
@@ -1430,8 +1454,7 @@ def update_employee(employee_id: int, data: EmployeeIn, request: Request, week: 
     e.active = data.active
     e.phone = (data.phone or "").strip() or None
     # الشيفت ويوم الإجازة بيتغيّروا في الأسبوع المختار بس
-    ws = week_param(week)
-    s = set_sched(db, e, ws, shift=data.shift.strip(), day_off=data.day_off)
+    s = set_sched(db, e, ws, shift=shift_name, day_off=data.day_off)
     db.commit()
     db.refresh(e)
     publish_event("employees", action="update", names=[e.name], branches=[e.branch],
@@ -1456,9 +1479,17 @@ def move_employee_branch(employee_id: int, data: MoveBranchIn, request: Request,
     e.branch = data.branch
     # نشتغل بالشيفت القديم في الفرع الجديد: لو مش معمول فيه نعريف شيفت بنضيفه
     # عشان صفحة الجدول والفلاتر تشوفه من غير خطوة إضافية.
+    target_types = shift_type_map(db, data.branch)
     for (sh_name,) in db.query(WeekSchedule.shift).filter(WeekSchedule.employee_id == e.id).distinct().all():
-        if sh_name and not db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == sh_name).first():
-            db.add(ShiftDef(branch=data.branch, name=sh_name))
+        if not sh_name:
+            continue
+        known_type = target_types.get(sh_name)
+        if known_type in EMP_TYPES and known_type != e.employment_type:
+            raise HTTPException(400, f"شيفت «{sh_name}» في {data.branch} نوعه "
+                                     f"{'فول تايم' if known_type == 'FT' else 'بارت تايم'} — "
+                                     f"غيّر شيفت {e.name} لنوع مناسب قبل النقل.")
+        if not db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == sh_name).first():
+            db.add(ShiftDef(branch=data.branch, name=sh_name, employment_type=e.employment_type))
     db.commit()
     db.refresh(e)
     publish_event("employees", action="move", names=[e.name], branch=e.branch,
@@ -1510,6 +1541,24 @@ def bulk_employees(data: BulkEmployeesIn, request: Request, week: Optional[date]
         shift = (data.shift or "").strip() or None
         if all(v is None for v in (data.branch, shift, data.employment_type, data.day_off)):
             raise HTTPException(400, "اختر قيمة واحدة على الأقل للتعديل")
+        ws = week_param(week)
+        smap = peek_week(db, ws)
+        type_maps, bad = {}, []
+        if data.branch is not None or shift is not None or data.employment_type is not None:
+            for e in emps:
+                target_branch = data.branch or e.branch
+                target_type = data.employment_type or e.employment_type
+                cur = smap.get(e.id)
+                target_shift = shift if shift is not None else (cur.shift if cur else e.shift)
+                if target_branch not in type_maps:
+                    type_maps[target_branch] = shift_type_map(db, target_branch)
+                known = type_maps[target_branch].get(target_shift)
+                if known in EMP_TYPES and known != target_type:
+                    bad.append(e.name)
+        if bad:
+            extra = f" وغيرهم {len(bad) - 5}" if len(bad) > 5 else ""
+            raise HTTPException(400, "نوع الشيفت مش متوافق مع: " + "، ".join(bad[:5]) + extra +
+                                     " — راجع نوع التعاقد أو الشيفت.")
     for e in emps:
         if data.action == "activate":
             e.active = True
@@ -3168,6 +3217,68 @@ def shift_sort_key(name):
     return (0, p[0], name) if p else (1, 0, name)
 
 
+def norm_shift_type(value) -> Optional[str]:
+    v = str(value or "").strip().upper()
+    return v if v in EMP_TYPES else None
+
+
+def shift_type_map(db: Session, branch: str) -> Dict[str, str]:
+    """نوع كل شيفت في الفرع: FT أو PT.
+
+    الأولوية للنوع المحفوظ صراحةً في ShiftDef. لو الشيفت قديم ومحفوظش نوعه،
+    بنستنتجه من أغلبية نوع الموظفين المسجلين عليه (عشان البيانات القديمة تفضل
+    شغالة من غير ترحيل يدوي). أي شيفت فاضي مالوش نوع بيتحسب FT افتراضيًا،
+    والأدمن يقدر يغيّره من صفحة الجدول."""
+    out: Dict[str, str] = {}
+    defs = db.query(ShiftDef).filter(ShiftDef.branch == branch).all()
+    for d in defs:
+        if d.employment_type in EMP_TYPES:
+            out[d.name] = d.employment_type
+
+    tally: Dict[str, Dict[str, int]] = {}
+    rows = (db.query(WeekSchedule.shift, Employee.employment_type, func.count(WeekSchedule.id))
+            .select_from(WeekSchedule).join(Employee, Employee.id == WeekSchedule.employee_id)
+            .filter(Employee.branch == branch)
+            .group_by(WeekSchedule.shift, Employee.employment_type).all())
+    rows += (db.query(Employee.shift, Employee.employment_type, func.count(Employee.id))
+             .filter(Employee.branch == branch)
+             .group_by(Employee.shift, Employee.employment_type).all())
+    for name, etype, n in rows:
+        if not name or etype not in EMP_TYPES:
+            continue
+        tally.setdefault(name, {})[etype] = tally.get(name, {}).get(etype, 0) + int(n or 0)
+    for name, counts in tally.items():
+        if name not in out:
+            out[name] = "PT" if counts.get("PT", 0) > counts.get("FT", 0) else "FT"
+    for d in defs:
+        out.setdefault(d.name, "FT")
+    return out
+
+
+def shift_type_for(db: Session, branch: str, name: str) -> str:
+    return shift_type_map(db, branch).get(name, "FT")
+
+
+def shift_type_conflict(db: Session, branch: str, name: str,
+                        employment_type: str) -> Optional[str]:
+    """يرجع نوع الشيفت لو مش متوافق مع نوع التعاقد، وإلا None.
+
+    الشيفت اللي لسه مالوش تعريف/نوع معروف بيعدّي (وبيتستنتج نوعه بعد أول موظف)."""
+    if employment_type not in EMP_TYPES or not name:
+        return None
+    known = shift_type_map(db, branch).get(name)
+    return known if known in EMP_TYPES and known != employment_type else None
+
+
+def shift_type_mismatch_count(db: Session, branch: str, name: str,
+                              employment_type: str) -> int:
+    """عدد الموظفين المسجلين على الشيفت ونوعهم مختلف عن النوع المطلوب."""
+    return int(db.query(func.count(WeekSchedule.id))
+               .select_from(WeekSchedule).join(Employee, Employee.id == WeekSchedule.employee_id)
+               .filter(Employee.branch == branch, WeekSchedule.shift == name,
+                       Employee.employment_type != employment_type).scalar() or 0)
+
+
 def break_slots(start, end, dur):
     """أوقات بريك ثابتة (كل نص ساعة) في منتصف الشيفت تقريبًا (من 35% لحد 75% من مدته)، ومدة البريك dur دقيقة."""
     length = end - start
@@ -3183,12 +3294,14 @@ def break_slots(start, end, dur):
 class ShiftIn(BaseModel):
     branch: str
     name: str = Field(min_length=1, max_length=80)
+    employment_type: Optional[str] = None      # FT / PT — فاضي = FT
 
 
 class ShiftRenameIn(BaseModel):
     branch: str
     old: str
     new: str = Field(min_length=1, max_length=80)
+    employment_type: Optional[str] = None      # تغيير نوع الشيفت من غير تغيير الاسم
     week: Optional[date] = None
 
 
@@ -3267,8 +3380,11 @@ def get_schedule(branch: str, week: Optional[date] = None, role: str = Depends(r
     ws = week_param(week)
     pairs = week_pairs(db, ws, branch)
     names = {d.name for d in db.query(ShiftDef).filter(ShiftDef.branch == branch).all()} | {s.shift for _, s in pairs}
+    types = shift_type_map(db, branch)
     return {"branch": branch, "week": week_info(ws), "days": list(WEEKDAYS),
-            "shifts": sorted(names, key=shift_sort_key), "employees": [ov(e, s) for e, s in pairs]}
+            "shifts": sorted(names, key=shift_sort_key),
+            "shift_types": {n: types.get(n, "FT") for n in names},
+            "employees": [ov(e, s) for e, s in pairs]}
 
 
 @app.post("/api/schedule/shifts")
@@ -3278,12 +3394,24 @@ def create_shift(data: ShiftIn, request: Request, role: str = Depends(require_ad
     name = data.name.strip()
     if not name:
         raise HTTPException(400, "اسم الشيفت مطلوب")
-    if not db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == name).first():
-        db.add(ShiftDef(branch=data.branch, name=name))
-        db.commit()
-        publish_event("schedule", branch=data.branch, action="shift-create", by=who_role(role),
-                      client=client_tag(request))
-    return {"name": name}
+    etype = norm_shift_type(data.employment_type) or "FT"
+    row = db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == name).first()
+    if row is None:
+        mismatched = shift_type_mismatch_count(db, data.branch, name, etype)
+        if mismatched:
+            other = "بارت تايم" if etype == "FT" else "فول تايم"
+            raise HTTPException(400, f"الشيفت فيه {mismatched} موظف {other} — انقلهم لشيفت مناسب أو غيّر نوعهم الأول.")
+        db.add(ShiftDef(branch=data.branch, name=name, employment_type=etype))
+    elif row.employment_type != etype:
+        mismatched = shift_type_mismatch_count(db, data.branch, name, etype)
+        if mismatched:
+            other = "بارت تايم" if etype == "FT" else "فول تايم"
+            raise HTTPException(400, f"الشيفت فيه {mismatched} موظف {other} — انقلهم لشيفت مناسب أو غيّر نوعهم الأول.")
+        row.employment_type = etype
+    db.commit()
+    publish_event("schedule", branch=data.branch, action="shift-create", by=who_role(role),
+                  client=client_tag(request))
+    return {"name": name, "employment_type": etype}
 
 
 @app.delete("/api/schedule/shifts")
@@ -3306,8 +3434,27 @@ def rename_shift(data: ShiftRenameIn, request: Request, role: str = Depends(requ
     new = data.new.strip()
     if not new:
         raise HTTPException(400, "اسم الشيفت مطلوب")
+    requested_type = norm_shift_type(data.employment_type)
+    old_def = db.query(ShiftDef).filter(ShiftDef.branch == data.branch,
+                                        ShiftDef.name == data.old).first()
+    old_type = (old_def.employment_type if old_def and old_def.employment_type in EMP_TYPES
+                else shift_type_map(db, data.branch).get(data.old, "FT"))
+    if requested_type:
+        mismatched = shift_type_mismatch_count(db, data.branch, data.old, requested_type)
+        if mismatched:
+            other = "بارت تايم" if requested_type == "FT" else "فول تايم"
+            raise HTTPException(400, f"الشيفت فيه {mismatched} موظف {other} — انقلهم لشيفت مناسب أو غيّر نوعهم الأول.")
     if new == data.old:
-        return {"name": new, "moved": 0}
+        # تغيير النوع بس من غير ما الاسم يتغيّر
+        if old_def is None:
+            db.add(ShiftDef(branch=data.branch, name=new, employment_type=requested_type or old_type))
+        elif requested_type and old_def.employment_type != requested_type:
+            old_def.employment_type = requested_type
+        db.commit()
+        publish_event("schedule", branch=data.branch, action="shift-type", by=who_role(role),
+                      client=client_tag(request))
+        return {"name": new, "moved": 0, "employment_type": requested_type or old_type}
+
     ws = week_param(data.week)
     moved = 0
     for e, sc in week_pairs(db, ws, data.branch, active_only=False):
@@ -3319,12 +3466,16 @@ def rename_shift(data: ShiftRenameIn, request: Request, role: str = Depends(requ
                   .filter(Employee.branch == data.branch, WeekSchedule.shift == data.old).first())
     if not still_used:
         db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == data.old).delete()
-    if not db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == new).first():
-        db.add(ShiftDef(branch=data.branch, name=new))
+    new_def = db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == new).first()
+    target_type = requested_type or ((new_def.employment_type if new_def and new_def.employment_type in EMP_TYPES else None) or old_type)
+    if new_def is None:
+        db.add(ShiftDef(branch=data.branch, name=new, employment_type=target_type))
+    else:
+        new_def.employment_type = target_type
     db.commit()
     publish_event("schedule", branch=data.branch, action="shift-rename", by=who_role(role),
                   client=client_tag(request))
-    return {"name": new, "moved": moved}
+    return {"name": new, "moved": moved, "employment_type": target_type}
 
 
 @app.post("/api/schedule/add")
@@ -3345,14 +3496,26 @@ def schedule_add(data: ScheduleAddIn, request: Request, role: str = Depends(requ
         key = e.name.strip().lower()
         if key not in existing or (e.active and not existing[key].active):
             existing[key] = e
-    if not db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == shift).first():
-        db.add(ShiftDef(branch=data.branch, name=shift))
+    def_row = db.query(ShiftDef).filter(ShiftDef.branch == data.branch, ShiftDef.name == shift).first()
+    item_types = {it.employment_type for it in data.items if it.employment_type in EMP_TYPES}
+    if def_row is None:
+        new_type = item_types.pop() if len(item_types) == 1 else None
+        db.add(ShiftDef(branch=data.branch, name=shift, employment_type=new_type))
+        shift_type = new_type
+    else:
+        shift_type = def_row.employment_type if def_row.employment_type in EMP_TYPES else None
+    if shift_type is None:
+        existing_types = shift_type_map(db, data.branch)
+        shift_type = existing_types.get(shift)
     created, out, notes = 0, [], []
     for it in data.items:
         name = " ".join(it.name.split())
         if not name:
             continue
         etype = it.employment_type if it.employment_type in EMP_TYPES else "FT"
+        if shift_type in EMP_TYPES and etype != shift_type:
+            raise HTTPException(400, f"الشيفت «{shift}» نوعه {'فول تايم' if shift_type == 'FT' else 'بارت تايم'} — "
+                                     f"الموظف {name} نوعه مختلف. غيّر نوع الشيفت أو أضفه في شيفت مناسب.")
         day = it.day_off if it.day_off in WEEKDAYS else None
         bs = it.break_start.strip() if it.break_start and HHMM_RE.match(it.break_start.strip()) else None
         e = existing.get(name.lower())
@@ -3399,6 +3562,7 @@ def schedule_apply(data: ScheduleApplyIn, request: Request, role: str = Depends(
     emps = {e.id: e for e in db.query(Employee).filter(Employee.id.in_([i.id for i in data.items])).all()}
     ws = week_param(data.week)
     updated, errors = 0, []
+    type_maps = {}
     for it in data.items:
         e = emps.get(it.id)
         if not e:
@@ -3411,6 +3575,15 @@ def schedule_apply(data: ScheduleApplyIn, request: Request, role: str = Depends(
         sh = None if it.shift is None else it.shift.strip()
         if sh is not None and not sh:
             errors.append({"id": it.id, "name": e.name, "detail": "الشيفت مطلوب"}); continue
+        if sh is not None:
+            if e.branch not in type_maps:
+                type_maps[e.branch] = shift_type_map(db, e.branch)
+            known = type_maps[e.branch].get(sh)
+            if known in EMP_TYPES and known != e.employment_type:
+                errors.append({"id": it.id, "name": e.name,
+                               "detail": f"شيفت «{sh}» نوعه {'فول تايم' if known == 'FT' else 'بارت تايم'} — "
+                                         f"اختار شيفت {'فول تايم' if e.employment_type == 'FT' else 'بارت تايم'}."})
+                continue
         vals = {}
         if it.day_off is not None:
             vals["day_off"] = it.day_off
@@ -3426,7 +3599,8 @@ def schedule_apply(data: ScheduleApplyIn, request: Request, role: str = Depends(
             set_sched(db, e, ws, **vals)
         if sh is not None:
             if not db.query(ShiftDef).filter(ShiftDef.branch == e.branch, ShiftDef.name == sh).first():
-                db.add(ShiftDef(branch=e.branch, name=sh))
+                db.add(ShiftDef(branch=e.branch, name=sh,
+                                employment_type=e.employment_type if e.employment_type in EMP_TYPES else None))
         updated += 1
     db.commit()
     if updated:
@@ -4092,7 +4266,8 @@ def schedule_import(data: ScheduleImportIn, request: Request, role: str = Depend
         if it["action"] not in ("create", "update", "same"):
             continue
         if it["shift"] not in known_defs:
-            db.add(ShiftDef(branch=data.branch, name=it["shift"]))
+            db.add(ShiftDef(branch=data.branch, name=it["shift"],
+                            employment_type=norm_shift_type(it.get("type"))))
             known_defs.add(it["shift"])
         if it["action"] == "create":
             e = Employee(name=" ".join(it["name"].split()), branch=data.branch, shift=it["shift"],

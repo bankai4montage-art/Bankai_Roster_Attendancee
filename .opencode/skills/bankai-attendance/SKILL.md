@@ -70,6 +70,9 @@ across two branches. Single-tenant, deployed for one company. All user-facing te
 - `parse_shift()` derives start/end minutes from the shift *name* (e.g. `8 AM - 4 PM`,
   `16:00-00:00`, and Egyptian `ص`/`م` markers). `break_slots()` places 30-minute-staggered
   breaks between 35% and 75% of the shift.
+- `ShiftDef.employment_type` is `FT`/`PT` (nullable for legacy rows; `shift_type_map()` infers the
+  majority type of assigned employees). Employee create/update rejects a shift whose type differs
+  from the employee's `employment_type`; `/api/schedule` returns `shift_types` for the UI filter.
 - Excel import (`/api/schedule/import`) is a **plan → review → apply** flow: `apply: false`
   returns a diff plan with per-row `status` (`create`/`update`/`same`/`review`/`skip`) and
   `decisions` (`skip`, `new`, or an employee id). Apply runs a post-write verification pass

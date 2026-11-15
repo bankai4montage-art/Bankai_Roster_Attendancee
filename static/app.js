@@ -655,6 +655,7 @@ const S = {
   page: "", shown: false,
   settings: { fine_late: 0, fine_absent: 0, branch_fines: {} },
   supervisors: [],
+  shiftTypes: {},   /* {branch: {shiftName: "FT"|"PT"}} — كاش أنواع الشيفتات */
   employees: [],
   week: "",
   dash: { date: todayISO() },
@@ -803,7 +804,7 @@ function logout(show = true) {
   S.token = ""; S.role = "";
   localStorage.removeItem("bankai_token"); localStorage.removeItem("bankai_role");
   delete document.documentElement.dataset.auth; /* نشيل قفل إخفاء شاشة الدخول المبكّر بتاع الـ head */
-  S.draft.clear(); if (S.sch) S.sch.draft.clear(); S.shown = false; S.page = ""; S.stale.clear();
+  S.draft.clear(); if (S.sch) S.sch.draft.clear(); S.shown = false; S.page = ""; S.stale.clear(); S.shiftTypes = {};
   $("appView").classList.add("hidden"); $("loginView").classList.remove("hidden");
   if (show) toast("تم تسجيل الخروج");
 }
@@ -1528,9 +1529,18 @@ document.addEventListener("keydown", ev => {
 });
 
 /* ============================== employees ============================== */
+function fillBulkShiftList() {
+  const type = $("bulkType")?.value || "";
+  const set = new Set(S.employees.filter(e => e.shift && (!type || e.employment_type === type)).map(e => e.shift));
+  Object.values(S.shiftTypes || {}).forEach(map => {
+    Object.entries(map).forEach(([name, t]) => { if (!type || t === type) set.add(name); });
+  });
+  const shifts = [...set].sort((a, b) => a.localeCompare(b, "ar"));
+  $("shiftList").innerHTML = shifts.map(s => `<option value="${esc(s)}"></option>`).join("");
+}
 function fillShiftLists() {
   const shifts = [...new Set(S.employees.map(e => e.shift))].sort((a, b) => a.localeCompare(b, "ar"));
-  $("shiftList").innerHTML = shifts.map(s => `<option value="${esc(s)}"></option>`).join("");
+  fillBulkShiftList();
   const sel = $("empShift"), cur = S.emp.shift;
   sel.innerHTML = `<option value="">كل الشيفتات</option>` + shifts.map(s => `<option value="${esc(s)}">${esc(fmtShiftLabel(s))}</option>`).join("");
   if (shifts.includes(cur)) sel.value = cur; else { S.emp.shift = ""; sel.value = ""; }
@@ -1641,8 +1651,10 @@ on("empBulkDeactivate", "click", () => { if (confirm(`إيقاف ${S.emp.selecte
 on("empBulkEdit", "click", () => {
   $("bulkForm").reset(); $("bulkError").textContent = "";
   $("bulkCount").textContent = `سيتم التعديل على ${S.emp.selected.size} موظف`;
+  fillBulkShiftList();
   $("bulkDialog").showModal();
 });
+on("bulkType", "change", () => { $("bulkShift").value = ""; fillBulkShiftList(); });
 on("bulkCancel", "click", () => $("bulkDialog").close());
 on("bulkForm", "submit", async e => {
   e.preventDefault();
@@ -1657,39 +1669,51 @@ on("fClose", "click", () => $("empDialog").close());
 on("fCancel", "click", () => $("empDialog").close());
 
 /* شيفتات نافذة الموظف: دروب مينو بالشيفتات المتاحة للفرع المختار (مش كتابة حرة)
-   — بندمج شيفتات موظفين الفرع + تعريفات الشيفتات بتاعة الفرع من صفحة الجدول */
-function empShiftOptions(branch, current) {
-  const set = new Set(S.employees.filter(e => !branch || e.branch === branch).map(e => e.shift).filter(Boolean));
+   — بندمج شيفتات موظفين الفرع + تعريفات الشيفتات بتاعة الفرع من صفحة الجدول.
+   وبنفلتر على نوع التعاقد: الفول تايم بيشوف شيفتات FT بس، والبارت تايم PT بس. */
+function empShiftOptions(branch, current, type) {
+  const want = type || "FT";
+  const set = new Set();
+  S.employees
+    .filter(e => (!branch || e.branch === branch) && e.employment_type === want)
+    .forEach(e => { if (e.shift) set.add(e.shift); });
+  Object.entries((S.shiftTypes || {})[branch] || {}).forEach(([name, t]) => { if (t === want) set.add(name); });
   if (current) set.add(current);
   return [...set].sort((a, b) => a.localeCompare(b, "ar"));
 }
 
 function fillEmpShiftOptions(current = "") {
   const branch = $("fBranch").value;
+  const type = $("fType").value || "FT";
   const sel = $("fShift");
-  const shifts = empShiftOptions(branch, current);
+  const shifts = empShiftOptions(branch, current, type);
+  const label = type === "PT" ? "بارت تايم" : "فول تايم";
   sel.innerHTML = shifts.length
     ? shifts.map(s => `<option value="${esc(s)}">${esc(fmtShiftLabel(s))}</option>`).join("")
-    : `<option value="">— مفيش شيفتات للفرع ده — أضف شيفت من صفحة الجدول الأول</option>`;
+    : `<option value="">— مفيش شيفتات ${label} للفرع ده — أضف شيفت من صفحة الجدول الأول</option>`;
   if (current && shifts.includes(current)) sel.value = current;
   /* الشيفتات المعرّفة في الفرع حتى لو مفيهاش موظفين (نضيفها بعد ما تجيلنا) */
-  if (branch) refreshBranchShiftDefs(branch, current);
+  if (branch) refreshBranchShiftDefs(branch, current, type);
 }
 
-async function refreshBranchShiftDefs(branch, current) {
+async function refreshBranchShiftDefs(branch, current, type) {
   try {
+    const want = type || "FT";
     const r = await api(`/api/schedule?branch=${encodeURIComponent(branch)}&week=${S.week}`, { silent: true });
-    if ($("fBranch").value !== branch) return;   /* الفرع اتغيّر خلال النداء */
+    if ($("fBranch").value !== branch || ($("fType").value || "FT") !== want) return;   /* الفرع/النوع اتغيّر خلال النداء */
+    S.shiftTypes[branch] = { ...(r.shift_types || {}) };
     const sel = $("fShift"), keep = sel.value || current;
-    const shifts = [...new Set([...(r.shifts || []), ...empShiftOptions(branch, keep)])]
-      .filter(Boolean).sort((a, b) => a.localeCompare(b, "ar"));
-    if (!shifts.length) return;
-    sel.innerHTML = shifts.map(s => `<option value="${esc(s)}">${esc(fmtShiftLabel(s))}</option>`).join("");
+    const shifts = empShiftOptions(branch, keep, want);
+    const label = want === "PT" ? "بارت تايم" : "فول تايم";
+    sel.innerHTML = shifts.length
+      ? shifts.map(s => `<option value="${esc(s)}">${esc(fmtShiftLabel(s))}</option>`).join("")
+      : `<option value="">— مفيش شيفتات ${label} للفرع ده — أضف شيفت من صفحة الجدول الأول</option>`;
     if (keep && shifts.includes(keep)) sel.value = keep;
   } catch (e) { /* مش أساسي — القايمة الأساسية موجودة بالفعل */ }
 }
 
 on("fBranch", "change", () => fillEmpShiftOptions(""));
+on("fType", "change", () => fillEmpShiftOptions(""));
 
 function openEmpDialog(id = null) {
   $("fError").textContent = ""; $("empForm").reset();
@@ -1709,7 +1733,11 @@ function openEmpDialog(id = null) {
 }
 on("empForm", "submit", async ev => {
   ev.preventDefault();
-  if (!$("fShift").value) { $("fError").textContent = "اختار الشيفت من القايمة — مفيش شيفتات معرّفة للفرع ده لسه."; return; }
+  if (!$("fShift").value) {
+    const label = $("fType").value === "PT" ? "بارت تايم" : "فول تايم";
+    $("fError").textContent = `اختار شيفت ${label} من القايمة — مفيش شيفتات ${label} معرّفة للفرع ده لسه. أضفها من صفحة الجدول الأول.`;
+    return;
+  }
   const data = { name: $("fName").value.trim(), employee_code: $("fCode").value.trim() || null, branch: $("fBranch").value, employment_type: $("fType").value, shift: $("fShift").value, day_off: $("fDay").value, phone: $("fPhone").value.trim() || null, active: $("fActive").checked };
   const id = $("fId").value;
   try {
@@ -2732,6 +2760,7 @@ async function loadSchedule(keepDraft = false) {
   try {
     const r = await api(`/api/schedule?branch=${encodeURIComponent(S.sch.branch)}&${wq()}`);
     S.sch.data = r; S.sch.base = new Map(r.employees.map(e => [e.id, e]));
+    if (r.branch) S.shiftTypes[r.branch] = { ...(r.shift_types || {}) };
     if (!keepDraft) S.sch.draft.clear();
     else for (const id of [...S.sch.draft.keys()]) if (!S.sch.base.has(id)) S.sch.draft.delete(id);
     renderSchedule(); updateSchSaveBar();
@@ -2788,7 +2817,9 @@ function schRow(e, all) {
       <td class="acts no-print"></td></tr>`;
   }
   const movedTo = otherBranchOf(e.branch);
-  const moves = all.filter(s => s !== e.shift).map(s => `<option value="${esc(s)}">${esc(fmtShiftLabel(s))}</option>`).join("")
+  const shiftTypeOf = s => (S.sch.data?.shift_types || {})[s] || "FT";
+  const moves = all.filter(s => s !== e.shift && shiftTypeOf(s) === e.employment_type)
+    .map(s => `<option value="${esc(s)}">${esc(fmtShiftLabel(s))}</option>`).join("")
     + `<option value="branch:${esc(movedTo)}">نقل لفرع ${esc(movedTo)}</option>`;
   return `<tr data-id="${e.id}" class="${S.sch.draft.has(e.id) ? "dirty" : ""}">
     <td class="who">${whoHTML(e.name, `<b>${esc(e.name)}</b><small>${esc(e.employee_code || "")}</small>`)}</td>
@@ -2799,8 +2830,10 @@ function schRow(e, all) {
 }
 function schHead(name, list) {
   const sp = schSpread(list);
-  return `<div class="shtop"><div><h4><bdi dir="ltr">${esc(name)}</bdi><span class="tag">${list.length} موظف</span>${list.length ? `<span class="tag ${sp <= 1 ? "ok" : "warn"}">${sp <= 1 ? "الإجازات موزّعة بالتساوي" : `فرق ${sp} بين أقل وأكثر يوم`}</span>` : ""}</h4></div>
-    ${isAdmin() ? `<div class="row no-print"><button class="btn sm" data-sh="paste">لصق أسماء</button><button class="btn sm" data-sh="auto">وزّع هذا الشيفت</button><button class="btn sm" data-sh="rename">تعديل الاسم</button>${list.length ? "" : `<button class="btn sm danger" data-sh="delete">حذف الشيفت</button>`}</div>` : ""}</div>`;
+  const stype = (S.sch.data?.shift_types || {})[name] || "FT";
+  const typeTag = `<span class="tag ${stype === "FT" ? "brand" : ""}">${stype === "FT" ? "فول تايم" : "بارت تايم"}</span>`;
+  return `<div class="shtop"><div><h4><bdi dir="ltr">${esc(name)}</bdi><span class="tag">${list.length} موظف</span>${typeTag}${list.length ? `<span class="tag ${sp <= 1 ? "ok" : "warn"}">${sp <= 1 ? "الإجازات موزّعة بالتساوي" : `فرق ${sp} بين أقل وأكثر يوم`}</span>` : ""}</h4></div>
+    ${isAdmin() ? `<div class="row no-print"><select class="sel tiny shift-type" data-shift-type="${esc(name)}" aria-label="نوع الشيفت ${esc(name)}"><option value="FT"${stype === "FT" ? " selected" : ""}>فول تايم</option><option value="PT"${stype === "PT" ? " selected" : ""}>بارت تايم</option></select><button class="btn sm" data-sh="paste">لصق أسماء</button><button class="btn sm" data-sh="auto">وزّع هذا الشيفت</button><button class="btn sm" data-sh="rename">تعديل الاسم</button>${list.length ? "" : `<button class="btn sm danger" data-sh="delete">حذف الشيفت</button>`}</div>` : ""}</div>`;
 }
 function schTable(name, list, all) {
   const q = S.sch.q.trim().toLowerCase();
@@ -2812,7 +2845,7 @@ function schTable(name, list, all) {
 function schCard(name, list, all) {
   const q = S.sch.q.trim();
   if (q && !list.some(e => `${e.name} ${e.employee_code}`.toLowerCase().includes(q.toLowerCase()))) return "";
-  const def = S.sch.defaults[name] || { type: "FT", day: "" };
+  const def = S.sch.defaults[name] || { type: (S.sch.data?.shift_types || {})[name] || "FT", day: "" };
   return `<section class="shcard" data-shift="${esc(name)}"><header class="shhead">${schHead(name, list)}</header>
     <div class="shwrap">${schTable(name, list, all)}</div>
     <div class="pastebox hidden"><textarea class="inp paste-ta" placeholder="${S.lang === "en" ? "One name per line. You can paste a column from Excel. If you write PT after the name (tab or comma) it is recorded as part-time." : "اسم في كل سطر. ممكن تلصق عمود من Excel. ولو كتبت PT بعد الاسم (تاب أو فاصلة) بيتسجل بارت تايم."}"></textarea><div class="row" style="margin-top:8px"><button class="btn primary sm paste-go">إضافة كل الأسماء</button><button class="btn sm paste-cancel">إلغاء</button></div></div>
@@ -3149,6 +3182,7 @@ on("schShifts", "click", async ev => {
 on("schShifts", "change", ev => {
   const t = ev.target, card = t.closest(".shcard"); if (!card) return;
   const name = card.dataset.shift, tr = t.closest("tr[data-id]");
+  if (t.classList.contains("shift-type")) { setShiftType(name, t.value); return; }
   if (t.classList.contains("add-type") || t.classList.contains("add-day")) { S.sch.defaults[name] = { type: qs(".add-type", card).value, day: qs(".add-day", card).value }; return; }
   if (!tr) return;
   const id = +tr.dataset.id;
@@ -3205,6 +3239,21 @@ function schPasteAdd(card) {
   schAdd(card, items, null).then(() => { const nc = findCard(card.dataset.shift); if (nc) qs(".pastebox", nc).classList.add("hidden"); });
 }
 
+/* change the shift type from the card header (admin only) */
+async function setShiftType(name, type) {
+  try {
+    await api("/api/schedule/shifts/rename", { method: "POST",
+      body: { branch: S.sch.branch, old: name, new: name, employment_type: type, week: S.week } });
+    if (!S.shiftTypes[S.sch.branch]) S.shiftTypes[S.sch.branch] = {};
+    S.shiftTypes[S.sch.branch][name] = type;
+    if (S.sch.data) { S.sch.data.shift_types = S.sch.data.shift_types || {}; S.sch.data.shift_types[name] = type; }
+    if (S.sch.defaults[name]) S.sch.defaults[name].type = type;
+    renderSchedule();
+    toast(type === "PT" ? "الشيفت بقى بارت تايم." : "الشيفت بقى فول تايم.", "ok");
+    if ($("empDialog")?.open) fillEmpShiftOptions("");
+  } catch (e) { toast(e.message, "err"); await loadSchedule(true); }
+}
+
 /* shift header actions */
 async function schShiftAction(act, name, card) {
   if (act === "paste") { const pb = qs(".pastebox", card); pb.classList.toggle("hidden"); if (!pb.classList.contains("hidden")) qs(".paste-ta", card).focus(); return; }
@@ -3230,8 +3279,9 @@ on("nsAdd", "click", async () => {
   const name = custom || (from && to ? `${fmt12(from)} - ${fmt12(to)}` : "");
   if (!name) { toast("اختر وقت البداية والنهاية أو اكتب اسم الشيفت.", "err"); return; }
   try {
-    await api("/api/schedule/shifts", { method: "POST", body: { branch: S.sch.branch, name } });
-    $("nsName").value = ""; await loadSchedule(true); toast(`تم إضافة الشيفت ${name}. اكتب أسماء الموظفين فيه.`, "ok");
+    const type = $("nsType").value === "PT" ? "PT" : "FT";
+    await api("/api/schedule/shifts", { method: "POST", body: { branch: S.sch.branch, name, employment_type: type } });
+    $("nsName").value = ""; await loadSchedule(true); toast(`تم إضافة الشيفت ${name} (${type === "PT" ? "بارت تايم" : "فول تايم"}). اكتب أسماء الموظفين فيه.`, "ok");
     const c = findCard(name); if (c) { c.scrollIntoView({ block: "center", behavior: "smooth" }); qs(".add-name", c).focus({ preventScroll: true }); }
   } catch (e) { toast(e.message, "err"); }
 });
