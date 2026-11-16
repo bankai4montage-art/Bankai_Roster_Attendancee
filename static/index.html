@@ -217,7 +217,7 @@
             <button data-branch="QCD 1">QCD 1 <small>0</small></button>
             <button data-branch="QCD 2">QCD 2 <small>0</small></button>
           </div>
-          <select id="attShift" class="sel" aria-label="الشيفت"><option value="">كل الشيفتات</option></select>
+          <select id="attShift" class="sel shift-picker" aria-label="الشيفت"><option value="">كل الشيفتات</option></select>
           <select id="attType" class="sel" aria-label="نوع التعاقد"><option value="">كل الأنواع</option><option value="FT">Full Time</option><option value="PT">Part Time</option></select>
           <label class="search"><svg class="i"><use href="#i-search"/></svg><input id="attSearch" class="inp" placeholder="ابحث بالاسم أو الكود أو الموبايل   ( / )" autocomplete="off"></label>
           <label class="check"><input type="checkbox" id="attGroup" checked> تجميع بالشيفت</label>
@@ -346,7 +346,7 @@
       <div class="filters">
         <label class="search"><svg class="i"><use href="#i-search"/></svg><input id="empSearch" class="inp" placeholder="ابحث بالاسم أو الكود أو الموبايل" autocomplete="off"></label>
         <select id="empBranch" class="sel" aria-label="الفرع"><option value="">كل الفروع</option><option>QCD 1</option><option>QCD 2</option></select>
-        <select id="empShift" class="sel" aria-label="الشيفت"><option value="">كل الشيفتات</option></select>
+        <select id="empShift" class="sel shift-picker" aria-label="الشيفت"><option value="">كل الشيفتات</option></select>
         <select id="empType" class="sel" aria-label="النوع"><option value="">كل الأنواع</option><option value="FT">Full Time</option><option value="PT">Part Time</option></select>
         <select id="empDay" class="sel" aria-label="يوم الإجازة"><option value="">كل أيام الإجازة</option><option value="Saturday">السبت</option><option value="Sunday">الأحد</option><option value="Monday">الاثنين</option><option value="Tuesday">الثلاثاء</option><option value="Wednesday">الأربعاء</option><option value="Thursday">الخميس</option><option value="Friday">الجمعة</option></select>
         <select id="empStatus" class="sel" aria-label="الحالة"><option value="1">النشطون فقط</option><option value="0">غير النشطين</option><option value="">الكل</option></select>
@@ -562,7 +562,7 @@
         <label class="field">كود الموظف<input id="fCode" class="inp" maxlength="60" placeholder="اختياري"></label>
         <label class="field">الفرع *<select id="fBranch" class="sel" required><option>QCD 1</option><option>QCD 2</option></select></label>
         <label class="field">نوع التعاقد *<select id="fType" class="sel" required><option value="FT">Full Time</option><option value="PT">Part Time</option></select></label>
-        <label class="field wide">الشيفت *<select id="fShift" class="sel" required></select></label>
+        <label class="field wide">الشيفت *<select id="fShift" class="sel shift-picker"></select></label>
         <label class="field">يوم الإجازة الأسبوعية<select id="fDay" class="sel"><option value="Saturday">السبت</option><option value="Sunday">الأحد</option><option value="Monday">الاثنين</option><option value="Tuesday">الثلاثاء</option><option value="Wednesday">الأربعاء</option><option value="Thursday">الخميس</option><option value="Friday" selected>الجمعة</option></select></label>
         <label class="field">رقم الموبايل<input id="fPhone" class="inp" maxlength="30" inputmode="tel" placeholder="01xxxxxxxxx" dir="ltr" style="text-align:right"></label>
         <label class="switch-row wide"><span>الموظف نشط</span><input type="checkbox" id="fActive" checked></label>

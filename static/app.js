@@ -2844,7 +2844,7 @@ function schRow(e, all) {
     <td class="c"><span class="tag ${e.employment_type === "FT" ? "brand" : ""}">${e.employment_type}</span></td>
     <td><select class="sel f-off${dirty.day_off ? " chg" : ""}" aria-label="يوم الإجازة">${WEEKDAYS.map(d => `<option value="${d}" ${d === e.day_off ? "selected" : ""}>${WD_AR[d]}</option>`).join("")}</select></td>
     <td><select class="sel f-bs${"break_start" in dirty ? " chg" : ""}" aria-label="ساعة البريك">${schBreakOptions(e.shift, e.break_start || "")}</select></td>
-    <td class="acts no-print"><button type="button" class="btn sm icon pin${e.off_locked ? " on" : ""}" data-pin title="${e.off_locked ? "يوم الإجازة مثبّت (التوزيع التلقائي مش هيغيّره). اضغط للإلغاء" : "ثبّت يوم الإجازة عشان التوزيع التلقائي ما يغيّروش"}" aria-pressed="${!!e.off_locked}"><svg class="i"><use href="#i-pin"/></svg></button><select class="sel tiny f-mv" aria-label="نقل لشيفت آخر أو لفرع تاني"><option value="">نقل…</option>${moves}</select><button type="button" class="btn sm icon danger" data-del title="إزالة من الجدول" aria-label="إزالة ${esc(e.name)}"><svg class="i"><use href="#i-x"/></svg></button></td></tr>`;
+    <td class="acts no-print"><button type="button" class="btn sm icon pin${e.off_locked ? " on" : ""}" data-pin title="${e.off_locked ? "يوم الإجازة مثبّت (التوزيع التلقائي مش هيغيّره). اضغط للإلغاء" : "ثبّت يوم الإجازة عشان التوزيع التلقائي ما يغيّروش"}" aria-pressed="${!!e.off_locked}"><svg class="i"><use href="#i-pin"/></svg></button><select class="sel tiny f-mv shift-picker" aria-label="نقل لشيفت آخر أو لفرع تاني"><option value="">نقل…</option>${moves}</select><button type="button" class="btn sm icon danger" data-del title="إزالة من الجدول" aria-label="إزالة ${esc(e.name)}"><svg class="i"><use href="#i-x"/></svg></button></td></tr>`;
 }
 function schHead(name, list) {
   const sp = schSpread(list);
@@ -2892,12 +2892,14 @@ function renderSchedule() {
     ? `Shift schedule — ${S.sch.branch} — ${weekLabel(S.week)}`
     : `جدول الشيفتات — ${S.sch.branch} — ${weekLabel(S.week)}`;
   $("schPrintSub").textContent = weekRangeText(S.week);
+  enhanceShiftPickers($("schShifts"));
 }
 function schRefreshShift(name) {
   const groups = schGroups(), list = groups.get(name), all = [...groups.keys()], card = findCard(name);
   if (!card || !list) { renderSchedule(); return; }
   qs(".shhead", card).innerHTML = schHead(name, list);
   qs(".shwrap", card).innerHTML = schTable(name, list, all);
+  enhanceShiftPickers(qs(".shwrap", card));
   renderTotals(S.sch.data.employees.map(schEmp));
 }
 
@@ -3533,6 +3535,230 @@ on("forceLogoutAll", "click", async () => {
     setTimeout(() => logout(false), 900);
   } catch (e) { toast(e.message, "err"); }
 });
+
+/* ============================== shift picker ==============================
+   دروب مينو الشيفت الأصلي شكله من المتصفح ومش لايق على التصميم، فبنستبدله
+   بقايمة مخصصة بنفس هوية السيستم. الـselect الأصلي بيفضل موجود (مخفي) ومصدر
+   الحقيقة للقيمة، فأي كود قديم بيقرأ .value أو يستمع لـchange بيفضل شغال زي ما هو. */
+const SP_STATE = { menu: null, picker: null, cleanup: null };
+const spCoarse = (() => { try { return matchMedia("(pointer: coarse)").matches; } catch (e) { return false; } })();
+let spSeq = 0;
+
+function spOptionLabel(o) {
+  return (o?.textContent || "").replace(/\s+/g, " ").trim();
+}
+
+function enhanceShiftPickers(root) {
+  qsa(".shift-picker", root || document).forEach(select => {
+    if (!select || select.dataset.spReady === "1") return;
+    select.dataset.spReady = "1";
+    const wrap = document.createElement("div");
+    wrap.className = "sp" + (select.classList.contains("tiny") ? " sp-compact" : "") +
+      (["empShift", "attShift"].includes(select.id) ? " sp-filter" : "");
+    select.parentNode.insertBefore(wrap, select);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "sel sp-trigger" + (select.classList.contains("tiny") ? " tiny" : "");
+    btn.setAttribute("role", "combobox");
+    btn.setAttribute("aria-haspopup", "listbox");
+    btn.setAttribute("aria-expanded", "false");
+    btn.setAttribute("aria-label", select.getAttribute("aria-label") || "اختيار الشيفت");
+    btn.innerHTML = `<span class="sp-value"></span>`;
+    wrap.appendChild(btn);
+    wrap.appendChild(select);
+    select.classList.add("sp-native");
+    select.tabIndex = -1;
+    select.setAttribute("aria-hidden", "true");
+    const sync = () => {
+      if (!btn.isConnected) return;
+      const o = select.options[select.selectedIndex];
+      const label = o ? spOptionLabel(o) : "";
+      btn.querySelector(".sp-value").textContent = label || "—";
+      btn.classList.toggle("is-placeholder", !select.value);
+      btn.disabled = !!select.disabled;
+    };
+    select.addEventListener("change", sync);
+    select.addEventListener("focus", () => btn.focus());
+    select.form?.addEventListener("reset", () => setTimeout(sync, 0));
+    const dlg = select.closest("dialog");
+    if (dlg) dlg.addEventListener("close", () => closeShiftPicker(false));
+    new MutationObserver(sync).observe(select, {
+      childList: true, subtree: true, attributes: true, attributeFilter: ["disabled", "class"]
+    });
+    btn.addEventListener("click", ev => {
+      ev.preventDefault();
+      if (SP_STATE.menu && SP_STATE.picker?.select === select) closeShiftPicker(true);
+      else openShiftPicker(select, btn, sync);
+    });
+    btn.addEventListener("keydown", ev => {
+      if (ev.key === "Enter" || ev.key === " " || ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        ev.preventDefault();
+        openShiftPicker(select, btn, sync, ev.key === "ArrowUp" ? -1 : 1);
+      }
+    });
+    sync();
+  });
+}
+
+function closeShiftPicker(refocus) {
+  if (!SP_STATE.menu) return;
+  try { SP_STATE.cleanup && SP_STATE.cleanup(); } catch (e) {}
+  SP_STATE.menu.remove();
+  const picker = SP_STATE.picker;
+  if (picker?.btn) {
+    picker.btn.setAttribute("aria-expanded", "false");
+    if (refocus && picker.btn.isConnected) picker.btn.focus({ preventScroll: true });
+  }
+  SP_STATE.menu = null; SP_STATE.picker = null; SP_STATE.cleanup = null;
+}
+
+function chooseShiftOption(select, sync, value) {
+  closeShiftPicker(false);
+  select.value = value;
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+  sync();
+}
+
+function openShiftPicker(select, btn, sync, direction = 1) {
+  if (select.disabled) return;
+  closeShiftPicker(false);
+  const all = [...select.options].filter(o => !o.disabled);
+  const keepEmpty = select.id === "empShift" || select.id === "attShift";
+  const options = all.filter(o => keepEmpty || o.value !== "");
+  const menu = document.createElement("div");
+  menu.className = "sp-menu";
+  menu.id = `spMenu${++spSeq}`;
+  menu.setAttribute("role", "listbox");
+  btn.setAttribute("aria-controls", menu.id);
+  const searchable = options.length > 7;
+  let search = null;
+  if (searchable) {
+    const box = document.createElement("div");
+    box.className = "sp-search";
+    box.innerHTML = `<svg class="i" aria-hidden="true"><use href="#i-search"/></svg><input class="inp" type="search" placeholder="ابحث عن شيفت…" autocomplete="off" aria-label="ابحث في الشيفتات">`;
+    search = qs("input", box);
+    menu.appendChild(box);
+  }
+  const list = document.createElement("div");
+  list.className = "sp-list";
+  menu.appendChild(list);
+  let items = [];
+  const renderList = (q = "") => {
+    const needle = q.trim().toLowerCase();
+    list.innerHTML = "";
+    items = [];
+    const visible = options.filter(o => !needle || spOptionLabel(o).toLowerCase().includes(needle));
+    if (!visible.length) {
+      const empty = document.createElement("div");
+      empty.className = "sp-empty";
+      empty.textContent = options.length ? "مفيش شيفت مطابق للبحث" : "مفيش شيفتات متاحة — أضف شيفت من صفحة الجدول الأول";
+      list.appendChild(empty);
+      return;
+    }
+    visible.forEach(o => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "sp-opt" + (o.value.startsWith("branch:") ? " sp-opt-branch" : "");
+      b.setAttribute("role", "option");
+      b.setAttribute("aria-selected", String(o.value === select.value));
+      b.tabIndex = -1;
+      b.innerHTML = `<span class="sp-opt-txt"></span><svg class="i sp-check" aria-hidden="true"><use href="#i-check"/></svg>`;
+      qs(".sp-opt-txt", b).textContent = spOptionLabel(o);
+      b.addEventListener("click", () => chooseShiftOption(select, sync, o.value));
+      list.appendChild(b);
+      items.push(b);
+    });
+    items.forEach((b, i) => b.addEventListener("keydown", ev => {
+      if (ev.key === "ArrowDown") { ev.preventDefault(); (items[i + 1] || items[0]).focus(); }
+      else if (ev.key === "ArrowUp") { ev.preventDefault(); (items[i - 1] || items[items.length - 1]).focus(); }
+      else if (ev.key === "Home") { ev.preventDefault(); items[0].focus(); }
+      else if (ev.key === "End") { ev.preventDefault(); items[items.length - 1].focus(); }
+    }));
+    if (q) list.scrollTop = 0;
+  };
+  const host = btn.closest("dialog");
+  const inDialog = !!host;
+  const hostPrevOverflow = host ? host.style.overflow : "";
+  if (host) host.style.overflow = "visible";
+  (host || document.body).appendChild(menu);
+  const width = Math.min(Math.max(btn.getBoundingClientRect().width, 270), window.innerWidth - 16);
+  menu.style.width = `${Math.round(width)}px`;
+  menu.style.position = inDialog ? "absolute" : "fixed";
+  const place = () => {
+    if (!btn.isConnected) { closeShiftPicker(false); return; }
+    const rect = btn.getBoundingClientRect();
+    if (rect.bottom < 0 || rect.top > window.innerHeight) { closeShiftPicker(false); return; }
+    const hostRect = inDialog ? host.getBoundingClientRect() : null;
+    const w = menu.offsetWidth || width;
+    const left = Math.min(Math.max(8, rect.left), window.innerWidth - w - 8);
+    let top = rect.bottom + 6;
+    const mh = menu.offsetHeight;
+    if (top + mh > window.innerHeight - 8) top = Math.max(8, rect.top - mh - 6);
+    if (inDialog) {
+      menu.style.left = `${Math.round(left - hostRect.left)}px`;
+      menu.style.top = `${Math.round(top - hostRect.top)}px`;
+    } else {
+      menu.style.left = `${Math.round(left)}px`;
+      menu.style.top = `${Math.round(top)}px`;
+    }
+  };
+  btn.setAttribute("aria-expanded", "true");
+  SP_STATE.menu = menu;
+  SP_STATE.picker = { select, btn, sync };
+  const onDoc = ev => {
+    if (menu.contains(ev.target) || btn.contains(ev.target)) return;
+    closeShiftPicker(false);
+  };
+  const onKey = ev => {
+    if (ev.key === "Escape") { ev.preventDefault(); closeShiftPicker(true); }
+    else if (ev.key === "Tab") closeShiftPicker(false);
+  };
+  let raf = 0;
+  const onScroll = ev => {
+    if (menu.contains(ev.target)) return;
+    if (raf) return;
+    raf = requestAnimationFrame(() => { raf = 0; place(); });
+  };
+  const onResize = () => place();
+  document.addEventListener("mousedown", onDoc, true);
+  document.addEventListener("keydown", onKey, true);
+  window.addEventListener("scroll", onScroll, true);
+  window.addEventListener("resize", onResize);
+  SP_STATE.cleanup = () => {
+    if (raf) cancelAnimationFrame(raf);
+    if (host) host.style.overflow = hostPrevOverflow;
+    document.removeEventListener("mousedown", onDoc, true);
+    document.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("scroll", onScroll, true);
+    window.removeEventListener("resize", onResize);
+  };
+  renderList();
+  const selectedItem = items.find(b => b.getAttribute("aria-selected") === "true");
+  if (selectedItem) {
+    const lr = list.getBoundingClientRect(), sr = selectedItem.getBoundingClientRect();
+    list.scrollTop += sr.top - lr.top - (list.clientHeight - sr.height) / 2;
+  }
+  place();
+  if (search) {
+    search.addEventListener("input", () => renderList(search.value));
+    search.addEventListener("keydown", ev => {
+      if (ev.key === "ArrowDown" && items.length) { ev.preventDefault(); items[0].focus(); }
+      else if (ev.key === "Enter" && items.length === 1) { ev.preventDefault(); items[0].click(); }
+    });
+    if (spCoarse) {
+      const firstPick = selectedItem || items[0];
+      requestAnimationFrame(() => firstPick?.focus({ preventScroll: true }));
+    } else {
+      requestAnimationFrame(() => search.focus({ preventScroll: true }));
+    }
+  } else {
+    const selected = items.find(b => b.getAttribute("aria-selected") === "true")
+      || items[direction < 0 ? items.length - 1 : 0];
+    requestAnimationFrame(() => selected?.focus({ preventScroll: true }));
+  }
+}
+
+enhanceShiftPickers();
 
 /* ============================== boot ============================== */
 if (S.token) { showApp(); init(); }
