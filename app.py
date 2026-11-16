@@ -2228,6 +2228,9 @@ def dashboard(attendance_date: date = Query(...), role: str = Depends(require_au
             if a:
                 bucket["fines"] += a.fine or 0
     totals["fines"] = round(totals["fines"], 2)
+    # كارت «حاضر» في الداشبورد بيحسب المتأخرين حضور كمان (هم حضروا الشيفت)،
+    # مع إن كارت «متأخر» لسه منفصل زي ما هو.
+    totals["attended"] = totals["present"] + totals["late"]
     for b in branches.values():
         b["fines"] = round(b["fines"], 2)
         b["shifts"] = [dict(shift=k, **dict(v, fines=round(v["fines"], 2)))

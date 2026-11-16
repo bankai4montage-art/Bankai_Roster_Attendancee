@@ -1080,8 +1080,9 @@ function renderDashboard(d) {
   $("dashTrendSub").textContent = `${weekLabel(d.week.start)} · ${weekRangeText(d.week.start)}`;
   /* فرع واحد بس في الرد (مشرف فرع) — البانيل يملى العرض بدل نص الجريد فاضي */
   $("dashBranches").classList.toggle("one", Object.keys(d.branches).length === 1);
+  const attended = t.attended ?? (t.present + t.late);
   const kp = [
-    ["مجدولون اليوم", t.scheduled, "brand", { date }], ["حاضر", t.present, "ok", { date, status: "Present" }],
+    ["مجدولون اليوم", t.scheduled, "brand", { date }], ["حاضر", attended, "ok", { date, status: "Present" }],
     ["متأخر", t.late, "warn", { date, status: "Late" }], ["غائب", t.absent, "bad", { date, status: "Absent" }],
     ["بعذر", t.excused, "info", { date, status: "Excused" }], ["لم يُسجل", t.unmarked, "", { date, status: "none" }],
   ];
