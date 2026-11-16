@@ -258,6 +258,47 @@ def load_session_epoch() -> None:
 load_session_epoch()
 
 
+def remove_qr_late_fines() -> None:
+    """مرة واحدة: إلغاء غرامات التأخير اللي التسجيل التلقائي (QR/DAS) أنشأها.
+
+    التسجيل التلقائي بقى بيسجّل حضور عادي (Present) من غير غرامة، فالصفوف القديمة
+    اللي اتسجلت Late بغرامة من QR/DAS بتتحوّل Present وغرامتها صفر، وبنشيل
+    لاحقة «متأخر … دقيقة» من الملاحظة. صفوف التأخير اللي سجّلها مشرف/أدمن يدويًا
+    مش بنلمسها."""
+    db = SessionLocal()
+    try:
+        if db.query(Setting).filter(Setting.key == "qr_no_late_fine_v1").first():
+            return
+        qr_note = or_(Attendance.note.like("%حضور QR%"),
+                      Attendance.note.like("%حضور DAS%"),
+                      Attendance.note.like("%تصحيح بعد QR%"),
+                      Attendance.note.like("%تصحيح بعد DAS%"))
+        unassigned = or_(Attendance.recorded_by.is_(None), Attendance.recorded_by == "")
+        rows = (db.query(Attendance)
+                .filter(Attendance.status == "Late",
+                        or_(Attendance.recorded_by.in_(("QR", "DAS")),
+                            (unassigned) & (qr_note)))
+                .all())
+        changed = 0
+        for a in rows:
+            a.status = "Present"
+            a.fine = 0
+            a.reason = ""
+            a.note = re.sub(r"\s*·\s*متأخر\s+\d+\s+دقيقة", "", a.note or "")[:500]
+            changed += 1
+        db.add(Setting(key="qr_no_late_fine_v1", value=str(changed)))
+        db.commit()
+        if changed:
+            print(f"QR late fines removed: {changed}")
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
+remove_qr_late_fines()
+
+
 def migrate_manual_fines():
     """ترحيل لمرة واحدة: جدول manual_fines من النسخة السابقة بيتدمج في fines.
 
@@ -4492,19 +4533,12 @@ def _qr_shift_window(ctx) -> Optional[tuple[int, int]]:
     return ctx.bounds
 
 
-def _qr_late_fine(db: Session, e: Employee) -> float:
-    """الغرامة الثابتة للتأخير لفرع الموظف ونوع تعاقده، مرة واحدة في اليوم."""
-    settings = get_settings(db)
-    branch_fines = (settings.get("branch_fines") or {}).get(e.branch) or {}
-    value = branch_fines.get(f"late_{(e.employment_type or 'FT').lower()}")
-    if value is None:
-        value = settings.get("fine_late") or 0.0
-    return float(value or 0)
-
-
 def _qr_status_for(ctx, db: Session, e: Employee) -> tuple[str, float]:
-    if ctx.late_minutes >= QR_LATE_GRACE_MIN:
-        return "Late", _qr_late_fine(db, e)
+    """حضور الـQR دايمًا Present من غير غرامة تلقائية.
+
+    التأخير عن الشيفت مش بيولّد Late ولا غرامة؛ بنسجّل وقت الاسكان نفسه في
+    الملاحظة والموظف بيتحسب حاضر عادي. (الغرامات اليدوية من صفحة الحضور لسه
+    شغالة زي ما هي — ده بس بيخص التسجيل التلقائي بالـQR.)"""
     return "Present", 0.0
 
 
@@ -4666,8 +4700,6 @@ def _record_checkin(db: Session, e: Employee, source: str = "QR", actor: str = "
     status, fine = _qr_status_for(ctx, db, e)
     clock = now_local.strftime("%H:%M")
     note = f"حضور {source} {clock}"
-    if status == "Late":
-        note += f" · متأخر {ctx.late_minutes} دقيقة"
 
     existing = (db.query(Attendance)
                 .filter(Attendance.employee_id == e.id, Attendance.attendance_date == day)
@@ -4699,7 +4731,7 @@ def _record_checkin(db: Session, e: Employee, source: str = "QR", actor: str = "
                             f"تصحيح بعد {source} {clock}")
             event(corrected=True)
             return {"ok": True, "already": False, "corrected": True, "status": status,
-                    "time": clock, "late_minutes": ctx.late_minutes, "fine": float(fine),
+                    "time": clock, "late_minutes": 0, "fine": float(fine),
                     "employee": e.name, "branch": e.branch,
                     "attendance_date": day.isoformat(), "shift": ctx.shift}
         # Excused أو أي حالة يدوية تانية: ما بنكتبش فوق قرار المشرف.
@@ -4716,7 +4748,7 @@ def _record_checkin(db: Session, e: Employee, source: str = "QR", actor: str = "
     _qr_write_audit(db, e, day, "", 0, status, fine, note)
     event()
     return {"ok": True, "already": False, "corrected": False, "status": status,
-            "time": clock, "late_minutes": ctx.late_minutes, "fine": float(fine),
+            "time": clock, "late_minutes": 0, "fine": float(fine),
             "employee": e.name, "branch": e.branch,
             "attendance_date": day.isoformat(), "shift": ctx.shift}
 
@@ -4872,7 +4904,7 @@ def qr_attendance_status(employee_code: str = Query(..., min_length=1, max_lengt
         preview_status, preview_fine = _qr_status_for(ctx, db, e)
         preview = {
             "status": preview_status,
-            "late_minutes": ctx.late_minutes,
+            "late_minutes": 0,
             "fine": float(preview_fine),
             "at": now_local.strftime("%H:%M"),
         }

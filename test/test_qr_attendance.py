@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""اختبارات حضور QCD 2 بالـ QR: السماح، الغرامة مرة واحدة، تصحيح Absent،
-الفرع الغلط، والانصراف بموافقة المشرف.
+"""اختبارات حضور QCD 2 بالـ QR: السماح، تسجيل الحضور بدون غرامة تلقائية،
+تصحيح Absent، الفرع الغلط، والانصراف بموافقة المشرف.
 
 بيتشارك نفس قاعدة الاختبار مع test_das_requests.py لما الاتنين يتشغلوا مع بعض.
 """
@@ -99,7 +99,7 @@ def test_grace_under_five_is_present(client, admin):
     assert row is not None and row.status == "Present" and float(row.fine or 0) == 0
 
 
-def test_five_minutes_is_late_and_the_fine_is_applied_once(client, admin):
+def test_late_scan_still_present_without_fine(client, admin):
     db = app.SessionLocal()
     _set_fine(db, value=25)
     db.close()
@@ -107,17 +107,19 @@ def test_five_minutes_is_late_and_the_fine_is_applied_once(client, admin):
     r = _check(client, "QR-L1", SHIFT_DAY.replace(hour=9, minute=5))
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["status"] == "Late" and body["fine"] == 25 and body["late_minutes"] == 5
+    assert body["status"] == "Present" and body["fine"] == 0 and body["late_minutes"] == 0
 
     r = _check(client, "QR-L1", SHIFT_DAY.replace(hour=9, minute=55))
     assert r.status_code == 200
     body = r.json()
-    assert body["already"] is True and body["fine"] == 25
+    assert body["already"] is True and body["fine"] == 0
 
     db = app.SessionLocal()
     rows = (db.query(app.Attendance)
             .filter(app.Attendance.employee_id == emp["id"]).all())
-    assert len(rows) == 1 and float(rows[0].fine or 0) == 25
+    assert len(rows) == 1 and rows[0].status == "Present" and float(rows[0].fine or 0) == 0
+    assert "حضور QR 09:05" in (rows[0].note or "")
+    assert "متأخر" not in (rows[0].note or "")
     db.close()
 
 
@@ -137,18 +139,18 @@ def test_absent_is_corrected_with_audit_and_note(client, admin):
     r = _check(client, "QR-A1", SHIFT_DAY.replace(hour=9, minute=10))
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["corrected"] is True and body["status"] == "Late" and body["fine"] == 25
+    assert body["corrected"] is True and body["status"] == "Present" and body["fine"] == 0
 
     db = app.SessionLocal()
     row = (db.query(app.Attendance)
            .filter(app.Attendance.employee_id == emp["id"]).first())
     audit = (db.query(app.AttendanceAudit)
              .filter(app.AttendanceAudit.employee_id == emp["id"]).first())
-    assert row.status == "Late" and float(row.fine or 0) == 25
+    assert row.status == "Present" and float(row.fine or 0) == 0
     assert "تصحيح بعد QR" in (row.note or "")
     assert audit is not None
     assert audit.old_status == "Absent" and float(audit.old_fine or 0) == 50
-    assert audit.new_status == "Late" and float(audit.new_fine or 0) == 25
+    assert audit.new_status == "Present" and float(audit.new_fine or 0) == 0
     db.close()
 
 
@@ -300,13 +302,13 @@ def test_any_time_check_in_and_the_fine_preview(client, admin):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["can_check_in"] is True
-    assert body["preview"]["status"] == "Late"
-    assert body["preview"]["fine"] == 25
-    assert body["preview"]["late_minutes"] == 660
+    assert body["preview"]["status"] == "Present"
+    assert body["preview"]["fine"] == 0
+    assert body["preview"]["late_minutes"] == 0
 
     r = _check(client, "QR-LATE", SHIFT_DAY.replace(hour=20, minute=0))
     assert r.status_code == 200, r.text
-    assert r.json()["status"] == "Late" and r.json()["fine"] == 25
+    assert r.json()["status"] == "Present" and r.json()["fine"] == 0
 
     _mk(client, admin, "QR-EARLY", shift="9 AM - 6 PM")
     r = _check(client, "QR-EARLY", SHIFT_DAY.replace(hour=7, minute=0))
@@ -375,3 +377,34 @@ def test_early_qr_checkout_marks_the_alert(client, admin):
               if x.get("kind") == "attendance" and x.get("action") == "check_out"
               and x.get("names") == [emp["name"]])
     assert ev["early"] is True and ev["early_minutes"] == 60
+
+
+def test_legacy_automatic_late_fines_are_removed(client, admin):
+    qr_emp = _mk(client, admin, "QR-OLD")
+    manual_emp = _mk(client, admin, "QR-MANUAL")
+    db = app.SessionLocal()
+    db.add_all([
+        app.Attendance(employee_id=qr_emp["id"], attendance_date=SHIFT_DAY.date(),
+                       status="Late", fine=25, reason="",
+                       note="حضور QR 09:10 · متأخر 10 دقيقة", recorded_by="QR"),
+        app.Attendance(employee_id=manual_emp["id"], attendance_date=SHIFT_DAY.date(),
+                       status="Late", fine=30, reason="يدوي",
+                       note="تأخير يدوي", recorded_by="مشرف"),
+    ])
+    db.query(app.Setting).filter(app.Setting.key == "qr_no_late_fine_v1").delete()
+    db.commit()
+    db.close()
+
+    app.remove_qr_late_fines()
+
+    db = app.SessionLocal()
+    qr_row = (db.query(app.Attendance)
+              .filter(app.Attendance.employee_id == qr_emp["id"]).first())
+    manual_row = (db.query(app.Attendance)
+                  .filter(app.Attendance.employee_id == manual_emp["id"]).first())
+    assert qr_row.status == "Present" and float(qr_row.fine or 0) == 0
+    assert "حضور QR 09:10" in (qr_row.note or "")
+    assert "متأخر" not in (qr_row.note or "")
+    assert manual_row.status == "Late" and float(manual_row.fine or 0) == 30
+    assert db.query(app.Setting).filter(app.Setting.key == "qr_no_late_fine_v1").first() is not None
+    db.close()
